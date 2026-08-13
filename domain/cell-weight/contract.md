@@ -18,7 +18,8 @@ Own the renderer cell-weight slot as the canonical weight input consumed by a ce
 - none
 
 ## contents
-- none
+- `cell_weight.rs`
+  - rust cell-weight slot values and clamp helpers owned by this encapsulation
 
 ## dependencies
 - none

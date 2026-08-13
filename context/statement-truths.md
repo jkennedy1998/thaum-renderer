@@ -584,3 +584,222 @@ Keep lightweight quoted source truth from J in exact words so renderer design ca
 
 - timestamp: `26 07 12 12 18 54`
 - discord-message-id: `unavailable-in-operator-log`
+
+## camera-projection-and-intake-follow-up
+
+### question-56
+> Should the focus plane stay pixel-stable on screen during normal navigation?
+
+### truth-56
+> the cell that is targeted via the camera should be near pixel perfect on the type grid. The rest of the cells will sway with perspective or soft shifting 
+>
+> The focus plane should stay legible and not edited too much. It can sway slightly if it needs to for perspective math.
+
+- timestamp: `26 07 13 17 34 53`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-57
+> Should cursor logic live in the renderer camera/focus-plane semantics?
+
+### truth-57
+> whoah. That's a cursor,  not really rendering stuff. Rendering has a camera target that is a cell on the world space (may be empty, really a coordinate on the world grid with cell grabbing abilities for downstream behavior)
+> This was mixed up before and it kind of sucked. We cleaned it a bit in the old system, but not really.This rebuild should fix that by separating cursor from this renderer. 
+> Cursors are per program bc they are logic that has to do with tasks not just in the renderer. 
+>
+> get cursor logic out of here. Not relevant. 
+> It will downstream, but not native to the renderer. These will have to come in the form of cell-groups rendered. The programs need to expose a screen/window coordinate to  cell conversion for both ways.
+
+- timestamp: `26 07 13 17 34 53`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-58
+> Should camera swing be free rotation, or six authored views with view interpolation?
+
+### truth-58
+> no it needs to always be 6 authored views for interpolating the matrix that is the display.
+
+- timestamp: `26 07 13 17 34 53`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-59
+> Should cell-groups split into two renderer intake behaviors under one renderer perspective system?
+
+### truth-59
+> I just spent time thinking this out so.thete needs to be two layers o think to how a cell-group can be rendered. Basically same exact parameters, but one form gets perspective rotations, and the other form does not. 
+> The ones that don't know about perspective rotations still can use 3d shapes. They just won't rotate like the fully 3d ones can. 
+>
+> The fully 3d ones need to all have 1 single space they use for perspective. They should live in the same world and respect rotations. Cell groups should be able to rotate with facing directions (no interpolation needed there rn) and also rotate with the world coordinates that are rotating. 
+>
+> one render mode, that keeps track of two forms of intake so that rotations can be piped to 1 (3d) (which needs a matrix reinterpolation after the rotation) and another can stay still (2d)
+>
+> I think that the renderer will have to use the same exact perspective system with the two D and the 3D systems and we'll have to render two different times in order to separate the rotations from the non rotations which are the 2D and the 3D separations
+
+- timestamp: `26 07 13 17 34 53` + `26 07 13 17 43 32`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-60
+> How should 2d and 3d focus-plane alignment, overlap, and visibility behave?
+
+### truth-60
+> The 3d cell type grid's focus plane should be in the same position and space as the 2d typegrids main / focus layer. 
+>
+> This allows him to use 3d shapes, be viewed in 3d, and also not rotate all the way, and still allign with the typegrids.
+>
+> 9yes. We show multiple planes at all times. The 2d typegrids should always be visible. They are not meant to cull in a 3d way. They might have 3d cells though that need to be rendered in the local non rotating 2d space. 
+> Full 3d cell groups can be culled for distance which we have a bit already.
+>
+> yes! 2d and 3d cells that are on the same global point should be over eachother. we should proably cull these -- but not till after we make sure they are alligned. 
+>
+> the focus plane for 2d and focus plane for 3d should look like they land in the same place. they live in different coordinate systems, but those systems should really be compatable. the 3d rotation one will have to interpolate its direction to figuire out which ones are suppopsed to be mapped to what.
+
+- timestamp: `26 07 13 17 34 53` + `26 07 13 17 43 32`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-61
+> Should direction naming reuse the already-defined north/east/west/south family where possible?
+
+### truth-61
+> we also have north easty west south naming already written down. we could use those as well to keep it easy and interchangeable. the directions are in one spot.
+
+- timestamp: `26 07 13 17 43 32`
+- discord-message-id: `unavailable-in-operator-log`
+
+## perspective-v1-style-alignment
+
+### question-62
+> How strong should perspective be in the default horizontal views?
+
+### truth-62
+> Perspective should be strong the user should be able to tell it's 3D form of any 3D object that's being rendered with these cells that's kind of the entire thing is they have to be able to actually tell the form and be able to traverse the space and have it feel pretty natural. I kind of see it like you're looking at ants in a little simulation so it's not really expected to be first person at all but really this is just a general renderer. it should be pretty open.
+
+- timestamp: `26 07 13 21 03 13`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-63
+> Should perspective strength stay linear with depth for v1, or curve?
+
+### truth-63
+> no it should not be linear. it should be as real as we can get it, with the focus plane mostly being in line, and then the focus target being almost totally alligned. im open to experimenting with fun ways to make this happen, as long as we can keep rendering things every frame for games.
+
+- timestamp: `26 07 13 21 03 13`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-64
+> Should positive-depth and negative-depth feel perfectly symmetric around the focus plane?
+
+### truth-64
+> yes. they are symetrical, the view is just centered on the focus target.
+> (when we used to roll and swing, we would use the camera focus target to get anb axis that the user could swing the camera around. it felt good. )
+
+- timestamp: `26 07 13 21 03 13`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-65
+> How much should the focus plane itself be allowed to sway visually?
+
+### truth-65
+> a bit. it should be legible. possibly: a little rotation around the camera target when rolls are happening, a slight little skew around the camera target for when swings are happening,  ect.
+
+- timestamp: `26 07 13 21 03 13`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-66
+> For flat 2d groups on non-focus planes, should only the anchor receive perspective drift forever?
+
+### truth-66
+> no, the "2d"group can even have slight movement elements from perspective, just only the ones applied to the focus plane. the "2d" group just doesnt swing or roll. it stays where its supposed to be on screen duyring those 3d transforms.
+
+- timestamp: `26 07 13 21 03 13`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-67
+> How should top and bottom swings feel compared to side swings?
+
+### truth-67
+> the same just a different direction. in the old renderer this worked. we could look there to see how they did it, it needs a full rebuild but it might have good examples.
+
+- timestamp: `26 07 13 21 03 13`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-68
+> Should roll ever influence the direction of perceived perspective drift, or only rotate local grid offsets?
+
+### truth-68
+> maybe a little. like a slight shift of a .1 degree to ease into it. like a bump in that direction then ease back? idk. we will iterate.
+
+- timestamp: `26 07 13 21 03 13`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-69
+> When 2d and 3d content overlap on the same global point, what should visually win in v1?
+
+### truth-69
+> dont do anything right now when it happens, later we will highlight to validate when it happens(pre cull), then cull.
+
+- timestamp: `26 07 13 21 03 13`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-70
+> Should zoom change only apparent cell size, or also the perceived dramatic-ness of perspective?
+
+### truth-70
+> for v1 i would say no.
+
+- timestamp: `26 07 13 21 03 13`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-71
+> What visual reference should we tune perspective against for v1?
+
+### truth-71
+> faux 3d arcade look. thats kind of perfect. its not ortho, its not iso, its not light depth. its a 3d matrix that has 1 planme that is kind of fixed location so you can see the data, then the rest of it looks 3d. like you are traversing slices. sometimes you dont just see slices tho, you see the whole 3d thing.
+
+- timestamp: `26 07 13 21 03 13`
+- discord-message-id: `unavailable-in-operator-log`
+
+## indexed-color-follow-up
+
+### question-72
+> Should indexed color default on or off?
+
+### truth-72
+> default on provided colors. If no colors provided default off.
+
+- timestamp: `26 07 25`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-73
+> Should the palette be canonical or app-provided?
+
+### truth-73
+> the colors should be provided by the program and easy to change.
+
+- timestamp: `26 07 25`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-74
+> Should alpha stay untouched while rgb snaps to palette?
+
+### truth-74
+> no even alpha gets snapped to pallete. This is a post process effect stack
+
+- timestamp: `26 07 25`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-75
+> Should indexed color run as the final full-frame step?
+
+### truth-75
+> yes for the most part. We may add bloom after this but bloom is not working / developed rn.
+
+- timestamp: `26 07 25`
+- discord-message-id: `unavailable-in-operator-log`
+
+### question-76
+> Do we need a dedicated side-by-side proof scene?
+
+### truth-76
+> I think we can see it by si.y seeing blur or fade which is in the test scene already.
+
+- timestamp: `26 07 25`
+- discord-message-id: `unavailable-in-operator-log`

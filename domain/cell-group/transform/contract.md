@@ -8,6 +8,7 @@ Own the transform truth of a cell-group over renderer global space.
 - cell-group xyz size bounds relevant to transform reasoning
 - six-cardinal facing truth
 - matrix-oriented transform semantics needed for group placement
+- intake-behavior truth for whether a group participates in rotating 3d world reorientation or remains still as non-rotating 2d intake
 
 ## does not own
 - global composition ordering
@@ -44,3 +45,5 @@ Own the transform truth of a cell-group over renderer global space.
 
 ## notes
 - current facing scope is limited to the six cardinal directions
+- fully rotating 3d intake should respect both the group-facing directions and the world-coordinate rotation implied by camera/view interpolation
+- non-rotating 2d intake should stay compatible with the same world placement and focus-plane alignment rules without rotating through the authored view interpolation

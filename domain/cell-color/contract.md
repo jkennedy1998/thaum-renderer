@@ -25,7 +25,8 @@ Own the renderer cell-color slot as the canonical color input consumed by a cell
   - default
 
 ## contents
-- none
+- `cell_color.rs`
+  - rust cell-color slot shapes and resolution-facing helpers owned by this encapsulation
 
 ## dependencies
 - `/home/j/Repos/thaum-renderer/domain/cell-materials/`

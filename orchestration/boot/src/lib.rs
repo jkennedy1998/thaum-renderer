@@ -1,0 +1,1382 @@
+use std::{collections::BTreeMap, path::PathBuf, time::Instant};
+
+use anyhow::{Context, Result};
+use thaum_renderer_breath_fallback_clock::{FallbackBreathClock, FALLBACK_BREATH_TICK_DURATION};
+use thaum_renderer_domain::{
+    apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
+    apply_debug_warble_post_effect_to_rgba, compose_cells,
+    encode_relative_depth_to_post_effect_bus, project_flat_2d_world_to_view_plane,
+    project_rotating_3d_world_to_view_plane, projected_plane_is_visible, resolve_shaded_texture,
+    resolve_shaded_warble, resolve_shaded_weight, Camera, CameraProjectedPoint, Cell,
+    CellGroupIntakeBehavior, Composition, DataLanes, GlyphFontSet, IndexColorClampEffect,
+    SpriteAtlasSet, WorldPoint, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+};
+use thaum_renderer_window_surface::{
+    run_window_surface, run_window_surface_with_frame_provider, SurfaceQuad, SurfaceSize,
+    WindowSurfaceConfig, WindowSurfaceFrameContext, WindowSurfaceScene,
+};
+
+mod effect_quads;
+
+use effect_quads::{
+    cell_clip_size_for_surface, raster_to_surface_quads, sprite_raster_to_surface_quads,
+};
+
+#[cfg(test)]
+use thaum_renderer_domain::glyph_font_path;
+
+const CELL_HEIGHT_CLIP_SPACE: f32 = 0.2;
+const GLYPH_BINARY_ALPHA_THRESHOLD: u8 = 0x80;
+const SPRITE_BINARY_ALPHA_THRESHOLD: u8 = 0x80;
+
+#[derive(Debug, Clone)]
+pub struct BootConfig {
+    pub asset_root: PathBuf,
+    pub hot_reload: bool,
+    pub index_color_clamp: IndexColorClampEffect,
+    pub depth_of_field_post_effect: bool,
+    pub motion_noise_post_effect: bool,
+    pub depth_of_field_minimum_falloff_cells: f32,
+    pub fog_span_cells: f32,
+    pub debug_texture_post_effect: bool,
+    pub debug_warble_post_effect: bool,
+    pub debug_depth_post_effect: bool,
+    pub window: WindowSurfaceConfig,
+}
+
+impl Default for BootConfig {
+    fn default() -> Self {
+        Self {
+            asset_root: PathBuf::from("."),
+            hot_reload: false,
+            index_color_clamp: IndexColorClampEffect::default(),
+            depth_of_field_post_effect: false,
+            motion_noise_post_effect: true,
+            depth_of_field_minimum_falloff_cells: 5.0,
+            fog_span_cells: 5.0,
+            debug_texture_post_effect: false,
+            debug_warble_post_effect: false,
+            debug_depth_post_effect: false,
+            window: WindowSurfaceConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BootState {
+    pub camera: Camera,
+    pub composition: Composition,
+    pub data_lanes: DataLanes,
+    pub config: BootConfig,
+    pub uses_fallback_breath: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ProjectedBootCell {
+    world: WorldPoint,
+    projected: CameraProjectedPoint,
+    cell: Cell,
+}
+
+#[derive(Debug, Clone)]
+struct ProjectedBootPlane {
+    plane: i32,
+    cells: Vec<ProjectedBootCell>,
+}
+
+pub fn boot_renderer(config: BootConfig) -> Result<BootState> {
+    boot_renderer_with_data_lanes(config, DataLanes::default())
+}
+
+pub fn boot_renderer_with_data_lanes(
+    config: BootConfig,
+    data_lanes: DataLanes,
+) -> Result<BootState> {
+    let uses_fallback_breath = !data_lanes.has_breath();
+
+    Ok(BootState {
+        camera: Camera::default(),
+        composition: Composition::default(),
+        data_lanes: resolve_boot_data_lanes(data_lanes),
+        config,
+        uses_fallback_breath,
+    })
+}
+
+fn resolve_boot_data_lanes(mut data_lanes: DataLanes) -> DataLanes {
+    data_lanes.set_fallback_breath_if_unset(FallbackBreathClock::default().current());
+    data_lanes
+}
+
+pub fn run_renderer_window(config: BootConfig) -> Result<()> {
+    let state = boot_renderer(config)?;
+    run_renderer_window_with_state(state)
+}
+
+pub fn run_renderer_window_with_state(state: BootState) -> Result<()> {
+    if !state.uses_fallback_breath {
+        let scene = build_window_surface_scene(&state)?;
+        return run_window_surface(state.config.window, scene);
+    }
+
+    run_renderer_window_with_state_frame_provider(state, |_, _| Ok(()))
+}
+
+pub fn run_renderer_window_with_state_frame_provider(
+    state: BootState,
+    mut frame_provider: impl FnMut(&mut BootState, &WindowSurfaceFrameContext) -> Result<()> + 'static,
+) -> Result<()> {
+    let mut frame_state = state;
+    let mut fallback_breath =
+        FallbackBreathClock::new(frame_state.data_lanes.breath().unwrap_or(0));
+    let mut last_tick = Instant::now();
+    let window_config = frame_state.config.window.clone();
+
+    run_window_surface_with_frame_provider(window_config, move |frame| {
+        let now = Instant::now();
+        if frame_state.uses_fallback_breath {
+            while now.duration_since(last_tick) >= FALLBACK_BREATH_TICK_DURATION {
+                fallback_breath.tick();
+                last_tick += FALLBACK_BREATH_TICK_DURATION;
+            }
+            frame_state.data_lanes.set_breath(fallback_breath.current());
+        }
+
+        frame_provider(&mut frame_state, &frame)?;
+        build_window_surface_scene(&frame_state)
+    })
+}
+
+pub fn build_window_surface_scene(state: &BootState) -> Result<WindowSurfaceScene> {
+    let visible_stack = thaum_renderer_domain::visible_plane_stack_for_camera(state.camera);
+    let fog_nearest_depth_code = encode_relative_depth_to_post_effect_bus(visible_stack.min_plane);
+    let fog_farthest_depth_code = encode_relative_depth_to_post_effect_bus(visible_stack.max_plane);
+    let mut scene = WindowSurfaceScene {
+        texture_breath: state.data_lanes.breath().unwrap_or(0),
+        depth_of_field_enabled: state.config.depth_of_field_post_effect,
+        motion_noise_enabled: state.config.motion_noise_post_effect,
+        indexed_color_enabled: state.config.index_color_clamp.is_active(),
+        indexed_color_palette: state.config.index_color_clamp.palette.clone(),
+        depth_of_field_minimum_falloff_cells: state.config.depth_of_field_minimum_falloff_cells,
+        fog_span_cells: 0.0,
+        fog_nearest_depth_code,
+        fog_farthest_depth_code,
+        background_color: [
+            state.config.window.clear_color[0] as f32,
+            state.config.window.clear_color[1] as f32,
+            state.config.window.clear_color[2] as f32,
+            state.config.window.clear_color[3] as f32,
+        ],
+        ..WindowSurfaceScene::default()
+    };
+    let glyph_fonts = if composition_contains_visible_glyphs(&state.composition) {
+        Some(
+            GlyphFontSet::load_from_asset_root(&state.config.asset_root)
+                .map_err(anyhow::Error::msg)?,
+        )
+    } else {
+        None
+    };
+    let mut sprite_atlases = if composition_contains_visible_sprites(&state.composition) {
+        Some(SpriteAtlasSet::load_from_asset_root(
+            &state.config.asset_root,
+        ))
+    } else {
+        None
+    };
+    let surface_size = SurfaceSize::from(&state.config.window);
+    let base_cell_clip_size = cell_clip_size_for_surface(surface_size);
+    let cell_clip_size = [
+        base_cell_clip_size[0] * state.camera.zoom,
+        base_cell_clip_size[1] * state.camera.zoom,
+    ];
+
+    for plane in group_projected_boot_cells_by_plane(stage_projected_boot_cells(state)) {
+        let _plane_index = plane.plane;
+        for projected_cell in plane.cells {
+            scene.quads.extend(project_cell_to_surface_quads(
+                projected_cell,
+                state.data_lanes,
+                glyph_fonts.as_ref(),
+                sprite_atlases.as_mut(),
+                cell_clip_size,
+            )?);
+        }
+    }
+
+    apply_depth_edge_fade_to_scene(
+        &mut scene,
+        state.config.fog_span_cells,
+        fog_nearest_depth_code,
+        fog_farthest_depth_code,
+    );
+
+    if state.config.debug_warble_post_effect {
+        apply_debug_warble_post_effect_to_scene(&mut scene);
+    }
+    if state.config.debug_texture_post_effect {
+        apply_debug_texture_post_effect_to_scene(&mut scene);
+    }
+    if state.config.debug_depth_post_effect {
+        apply_debug_depth_post_effect_to_scene(&mut scene);
+    }
+
+    Ok(scene)
+}
+
+fn apply_debug_warble_post_effect_to_scene(scene: &mut WindowSurfaceScene) {
+    for quad in &mut scene.quads {
+        quad.color =
+            apply_debug_warble_post_effect_to_rgba(quad.color, quad.post_effect_bus.warble_code);
+    }
+}
+
+fn apply_debug_texture_post_effect_to_scene(scene: &mut WindowSurfaceScene) {
+    for quad in &mut scene.quads {
+        quad.color =
+            apply_debug_texture_post_effect_to_rgba(quad.color, quad.post_effect_bus.texture_code);
+    }
+}
+
+fn apply_debug_depth_post_effect_to_scene(scene: &mut WindowSurfaceScene) {
+    for quad in &mut scene.quads {
+        quad.color =
+            apply_debug_depth_post_effect_to_rgba(quad.color, quad.post_effect_bus.depth_code);
+    }
+}
+
+fn depth_edge_fade_amount_for_edge(distance_to_edge: f32, fade_span_cells: f32) -> f32 {
+    if fade_span_cells <= 0.0 || distance_to_edge < 0.0 {
+        return 0.0;
+    }
+
+    let span = fade_span_cells.max(1.0);
+    if span <= 1.0 {
+        return if distance_to_edge == 0.0 { 0.9 } else { 0.0 };
+    }
+
+    let normalized = ((span - 1.0 - distance_to_edge) / (span - 1.0)).clamp(0.0, 1.0);
+    match normalized {
+        n if n <= 0.0 => 0.0,
+        n if n >= 1.0 => 0.9,
+        n => {
+            let anchors = [0.1_f32, 0.3, 0.6, 0.8, 0.9];
+            let scaled = n * 4.0;
+            let low_index = scaled.floor() as usize;
+            let high_index = (low_index + 1).min(4);
+            let local_t = scaled.fract();
+            anchors[low_index] + (anchors[high_index] - anchors[low_index]) * local_t
+        }
+    }
+}
+
+fn apply_depth_edge_fade_to_scene(
+    scene: &mut WindowSurfaceScene,
+    fade_span_cells: f32,
+    nearest_depth_code: u8,
+    farthest_depth_code: u8,
+) {
+    for quad in &mut scene.quads {
+        let depth_code = quad.post_effect_bus.depth_code;
+        let distance_to_near_edge = depth_code as f32 - nearest_depth_code as f32;
+        let distance_to_far_edge = farthest_depth_code as f32 - depth_code as f32;
+        let fade_amount =
+            depth_edge_fade_amount_for_edge(distance_to_near_edge, fade_span_cells).max(
+                depth_edge_fade_amount_for_edge(distance_to_far_edge, fade_span_cells),
+            );
+        quad.color[3] *= 1.0 - fade_amount;
+    }
+}
+
+fn composition_contains_visible_glyphs(composition: &Composition) -> bool {
+    composition
+        .groups
+        .iter()
+        .flat_map(|group| group.iter_cells())
+        .any(|cell| cell.graphic.glyph_char().is_some())
+}
+
+fn composition_contains_visible_sprites(composition: &Composition) -> bool {
+    composition
+        .groups
+        .iter()
+        .flat_map(|group| group.iter_cells())
+        .any(|cell| cell.graphic.sprite().is_some())
+}
+
+fn project_cell_to_surface_quads(
+    projected_cell: ProjectedBootCell,
+    data_lanes: DataLanes,
+    glyph_fonts: Option<&GlyphFontSet>,
+    sprite_atlases: Option<&mut SpriteAtlasSet>,
+    cell_clip_size: [f32; 2],
+) -> Result<Vec<SurfaceQuad>> {
+    if !projected_cell.cell.graphic.is_visible() {
+        return Ok(Vec::new());
+    }
+
+    let cell_center = projected_cell_center_for_surface(projected_cell.projected, cell_clip_size);
+    let shaded_weight = resolve_shaded_weight(
+        projected_cell.cell.weight,
+        &projected_cell.cell.shader_stack,
+        projected_cell.world,
+        data_lanes,
+    );
+    let shaded_texture = resolve_shaded_texture(
+        projected_cell.cell.texture,
+        &projected_cell.cell.shader_stack,
+        projected_cell.world,
+        data_lanes,
+    );
+    let shaded_warble = resolve_shaded_warble(
+        projected_cell.cell.warble,
+        &projected_cell.cell.shader_stack,
+        projected_cell.world,
+        data_lanes,
+    );
+    let depth_code = encode_relative_depth_to_post_effect_bus(projected_cell.projected.plane);
+    let gate_id = post_effect_gate_id_for_world_point(projected_cell.world);
+
+    if let Some(glyph) = projected_cell.cell.graphic.glyph_char() {
+        let glyph_fonts = glyph_fonts.context("visible glyph cells require loaded glyph fonts")?;
+        let raster = glyph_fonts.rasterize_glyph_tile(glyph, shaded_weight);
+        return raster_to_surface_quads(
+            &raster.alpha,
+            raster.width,
+            raster.height,
+            GLYPH_BINARY_ALPHA_THRESHOLD,
+            true,
+            cell_center,
+            cell_clip_size,
+            projected_cell.cell.color.resolve_glyph(),
+            shaded_texture,
+            shaded_warble,
+            depth_code,
+            gate_id,
+            projected_cell.world,
+        );
+    }
+
+    if let Some(sprite) = projected_cell.cell.graphic.sprite() {
+        let sprite_atlases =
+            sprite_atlases.context("visible sprite cells require loaded sprite atlases")?;
+        let raster = sprite_atlases
+            .rasterize_single_sprite_tile(
+                sprite.atlas_relative_path(),
+                shaded_weight,
+                projected_cell.cell.color,
+            )
+            .map_err(anyhow::Error::msg)?;
+        return sprite_raster_to_surface_quads(
+            &raster,
+            SPRITE_BINARY_ALPHA_THRESHOLD,
+            cell_center,
+            cell_clip_size,
+            shaded_texture,
+            shaded_warble,
+            depth_code,
+            gate_id,
+            projected_cell.world,
+        );
+    }
+
+    Ok(Vec::new())
+}
+
+fn stage_projected_boot_cells(state: &BootState) -> Vec<ProjectedBootCell> {
+    compose_cells(&state.composition)
+        .into_iter()
+        .filter_map(|composed| {
+            let projected = match composed.intake_behavior {
+                CellGroupIntakeBehavior::Rotating3d => {
+                    project_rotating_3d_world_to_view_plane(state.camera, composed.world)
+                }
+                CellGroupIntakeBehavior::Flat2d => project_flat_2d_world_to_view_plane(
+                    state.camera,
+                    composed.group_origin,
+                    composed.cell.position,
+                ),
+            };
+            projected_plane_is_visible(state.camera, projected.plane).then_some(ProjectedBootCell {
+                world: composed.world,
+                projected,
+                cell: composed.cell,
+            })
+        })
+        .collect()
+}
+
+fn group_projected_boot_cells_by_plane(
+    projected_cells: Vec<ProjectedBootCell>,
+) -> Vec<ProjectedBootPlane> {
+    let mut grouped = BTreeMap::<i32, Vec<ProjectedBootCell>>::new();
+
+    for projected_cell in projected_cells {
+        grouped
+            .entry(projected_cell.projected.plane)
+            .or_default()
+            .push(projected_cell);
+    }
+
+    grouped
+        .into_iter()
+        .map(|(plane, cells)| ProjectedBootPlane { plane, cells })
+        .collect()
+}
+
+fn projected_cell_center_for_surface(
+    projected: CameraProjectedPoint,
+    cell_clip_size: [f32; 2],
+) -> [f32; 2] {
+    [
+        projected.u * cell_clip_size[0],
+        projected.v * cell_clip_size[1],
+    ]
+}
+
+fn post_effect_gate_id_for_world_point(world: WorldPoint) -> u16 {
+    let mut hash = 0x811c9dc5u32;
+
+    for coordinate in [world.x, world.y, world.z] {
+        for byte in coordinate.to_le_bytes() {
+            hash ^= byte as u32;
+            hash = hash.wrapping_mul(0x01000193);
+        }
+    }
+
+    ((hash >> 16) as u16) ^ (hash as u16)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use thaum_renderer_domain::{
+        project_world_to_view_plane, CameraSwing, Cell, CellColor, CellGraphic, CellGroup,
+        CellGroupFacing, CellMaterialId, CellPoint, CellWeight, CELL_SHADER_TEXTURE_SHIMMER,
+        CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WEIGHT_SIN,
+    };
+
+    fn staged_asset_root() -> PathBuf {
+        if let Ok(path) = std::env::var("THAUM_RENDERER_ASSET_ROOT") {
+            return PathBuf::from(path);
+        }
+
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../renderer-assets")
+    }
+
+    #[test]
+    fn boot_renderer_seeds_fallback_breath_when_unset() {
+        let state = boot_renderer(BootConfig::default()).unwrap();
+        assert_eq!(state.data_lanes.breath(), Some(0));
+        assert!(state.uses_fallback_breath);
+    }
+
+    #[test]
+    fn boot_renderer_preserves_app_provided_breath_on_boot() {
+        let state =
+            boot_renderer_with_data_lanes(BootConfig::default(), DataLanes::with_breath(37))
+                .unwrap();
+
+        assert_eq!(state.data_lanes.breath(), Some(37));
+        assert!(!state.uses_fallback_breath);
+    }
+
+    #[test]
+    fn stage_projected_boot_cells_keeps_projected_plane_truth() {
+        let state = BootState {
+            camera: Camera {
+                focus_target: WorldPoint { x: 1, y: 0, z: 0 },
+                swing: CameraSwing::PosX,
+                ..Camera::default()
+            },
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [
+                        Cell {
+                            position: CellPoint { x: 0, y: 0, z: 0 },
+                            graphic: CellGraphic::Glyph('A'),
+                            ..Cell::default()
+                        },
+                        Cell {
+                            position: CellPoint { x: 3, y: 0, z: 0 },
+                            graphic: CellGraphic::Glyph('B'),
+                            ..Cell::default()
+                        },
+                    ],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+
+        let staged = stage_projected_boot_cells(&state);
+        assert_eq!(staged.len(), 2);
+        assert_eq!(staged[0].projected.plane, -1);
+        assert_eq!(staged[1].projected.plane, 2);
+    }
+
+    #[test]
+    fn stage_projected_boot_cells_filters_planes_outside_camera_window() {
+        let state = BootState {
+            camera: Camera {
+                visible_plane_radius: 1,
+                ..Camera::default()
+            },
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [
+                        Cell {
+                            position: CellPoint { x: 0, y: 0, z: -2 },
+                            graphic: CellGraphic::Glyph('A'),
+                            ..Cell::default()
+                        },
+                        Cell {
+                            position: CellPoint { x: 0, y: 0, z: 0 },
+                            graphic: CellGraphic::Glyph('B'),
+                            ..Cell::default()
+                        },
+                        Cell {
+                            position: CellPoint { x: 0, y: 0, z: 2 },
+                            graphic: CellGraphic::Glyph('C'),
+                            ..Cell::default()
+                        },
+                    ],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+
+        let staged = stage_projected_boot_cells(&state);
+        assert_eq!(staged.len(), 1);
+        assert_eq!(staged[0].projected.plane, 0);
+    }
+
+    #[test]
+    fn group_projected_boot_cells_by_plane_sorts_and_groups_planes() {
+        let grouped = group_projected_boot_cells_by_plane(vec![
+            ProjectedBootCell {
+                world: WorldPoint { x: 3, y: 0, z: 0 },
+                projected: CameraProjectedPoint {
+                    u: 3.5,
+                    v: -0.5,
+                    plane: 1,
+                },
+                cell: Cell {
+                    graphic: CellGraphic::Glyph('C'),
+                    ..Cell::default()
+                },
+            },
+            ProjectedBootCell {
+                world: WorldPoint { x: 1, y: 0, z: 0 },
+                projected: CameraProjectedPoint {
+                    u: -1.0,
+                    v: 0.0,
+                    plane: -2,
+                },
+                cell: Cell {
+                    graphic: CellGraphic::Glyph('A'),
+                    ..Cell::default()
+                },
+            },
+            ProjectedBootCell {
+                world: WorldPoint { x: 4, y: 1, z: 0 },
+                projected: CameraProjectedPoint {
+                    u: 4.5,
+                    v: 0.5,
+                    plane: 1,
+                },
+                cell: Cell {
+                    graphic: CellGraphic::Glyph('D'),
+                    ..Cell::default()
+                },
+            },
+        ]);
+
+        assert_eq!(
+            grouped.iter().map(|plane| plane.plane).collect::<Vec<_>>(),
+            vec![-2, 1]
+        );
+        assert_eq!(grouped[0].cells.len(), 1);
+        assert_eq!(grouped[1].cells.len(), 2);
+    }
+
+    #[test]
+    fn build_window_surface_scene_skips_cells_without_graphics() {
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        graphic: CellGraphic::None,
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        assert!(scene.quads.is_empty());
+    }
+
+    #[test]
+    fn glyph_font_weight_files_map_from_cell_weight() {
+        let asset_root = staged_asset_root();
+
+        assert_eq!(
+            glyph_font_path(&asset_root, CellWeight::Zero),
+            asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W80.ttf")
+        );
+        assert_eq!(
+            glyph_font_path(&asset_root, CellWeight::One),
+            asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W160.ttf")
+        );
+        assert_eq!(
+            glyph_font_path(&asset_root, CellWeight::Two),
+            asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W320.ttf")
+        );
+        assert_eq!(
+            glyph_font_path(&asset_root, CellWeight::Three),
+            asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W640.ttf")
+        );
+    }
+
+    #[test]
+    fn staged_thaum_mono_font_rasterizes_into_a_non_empty_12x16_tile() {
+        let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
+        let raster = fonts.rasterize_glyph_tile('A', CellWeight::Two);
+
+        assert_eq!(raster.width, GLYPH_TILE_WIDTH);
+        assert_eq!(raster.height, GLYPH_TILE_HEIGHT);
+        assert!(raster.coverage_count() > 0);
+    }
+
+    #[test]
+    fn staged_thaum_mono_tester_glyphs_rasterize_for_all_weights() {
+        let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
+
+        for glyph in ['█', '▓', '▒', '░'] {
+            for weight in [
+                CellWeight::Zero,
+                CellWeight::One,
+                CellWeight::Two,
+                CellWeight::Three,
+            ] {
+                let raster = fonts.rasterize_glyph_tile(glyph, weight);
+                assert_eq!(raster.width, GLYPH_TILE_WIDTH);
+                assert_eq!(raster.height, GLYPH_TILE_HEIGHT);
+                assert!(
+                    raster.coverage_count() > 0,
+                    "expected non-empty raster for glyph {glyph} at weight {:?}",
+                    weight
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_thaum_mono_weight_variants_change_glyph_coverage() {
+        let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
+        let coverages = [
+            fonts
+                .rasterize_glyph_tile('A', CellWeight::Zero)
+                .coverage_count(),
+            fonts
+                .rasterize_glyph_tile('A', CellWeight::One)
+                .coverage_count(),
+            fonts
+                .rasterize_glyph_tile('A', CellWeight::Two)
+                .coverage_count(),
+            fonts
+                .rasterize_glyph_tile('A', CellWeight::Three)
+                .coverage_count(),
+        ];
+
+        assert!(
+            coverages.windows(2).any(|pair| pair[0] != pair[1]),
+            "expected at least one Thaum Mono weight change to alter glyph coverage; got {coverages:?}"
+        );
+    }
+
+    #[test]
+    fn staged_thaum_mono_block_glyph_uses_most_of_the_12x16_tile() {
+        let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
+        let raster = fonts.rasterize_glyph_tile('█', CellWeight::Two);
+        let (min_x, min_y, max_x, max_y) = raster.coverage_bounds().unwrap();
+
+        assert!(
+            min_x <= 1,
+            "expected block glyph to reach near the left edge; got {min_x}"
+        );
+        assert!(
+            min_y <= 1,
+            "expected block glyph to reach near the top edge; got {min_y}"
+        );
+        assert!(
+            max_x >= 10,
+            "expected block glyph to reach near the right edge; got {max_x}"
+        );
+        assert!(
+            max_y >= 14,
+            "expected block glyph to reach near the bottom edge; got {max_y}"
+        );
+    }
+
+    #[test]
+    fn build_window_surface_scene_projects_real_glyph_pixels_relative_to_camera_focus() {
+        let state = BootState {
+            camera: Camera {
+                position: WorldPoint::origin(),
+                focus_target: WorldPoint { x: 1, y: 2, z: 0 },
+                swing: CameraSwing::PosZ,
+                ..Camera::default()
+            },
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint { x: 2, y: 4, z: 0 },
+                    [Cell {
+                        position: CellPoint { x: 1, y: -1, z: 0 },
+                        graphic: CellGraphic::Glyph('A'),
+                        weight: CellWeight::Three,
+                        color: CellColor::Material(CellMaterialId::GrayScale),
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        assert!(!scene.quads.is_empty());
+        let cell_clip_size = cell_clip_size_for_surface(SurfaceSize::from(&state.config.window));
+        assert!(scene
+            .quads
+            .iter()
+            .all(|quad| { quad.size == [cell_clip_size[0] / 12.0, cell_clip_size[1] / 16.0] }));
+        assert!(scene
+            .quads
+            .iter()
+            .all(|quad| quad.center[0] >= 0.12656249 && quad.center[0] <= 0.21093749));
+        assert!(scene
+            .quads
+            .iter()
+            .all(|quad| quad.center[1] >= 0.1 && quad.center[1] <= 0.3));
+    }
+
+    #[test]
+    fn build_window_surface_scene_uses_flat_color_directly_for_real_glyphs() {
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('@'),
+                        color: CellColor::Flat([0.2, 0.4, 0.8, 1.0]),
+                        weight: CellWeight::One,
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        assert!(!scene.quads.is_empty());
+        assert!(scene
+            .quads
+            .iter()
+            .all(|quad| quad.color[0] == 0.2 && quad.color[1] == 0.4 && quad.color[2] == 0.8));
+        assert!(scene.quads.iter().all(|quad| quad.color[3] == 1.0));
+    }
+
+    #[test]
+    fn build_window_surface_scene_uses_medium_light_band_for_material_glyphs() {
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('#'),
+                        color: CellColor::Material(CellMaterialId::GrayScale),
+                        weight: CellWeight::Zero,
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        assert!(!scene.quads.is_empty());
+        assert!(scene.quads.iter().all(|quad| {
+            quad.color[0] == 0xa8 as f32 / 255.0
+                && quad.color[1] == 0xa8 as f32 / 255.0
+                && quad.color[2] == 0xa8 as f32 / 255.0
+                && quad.color[3] == 1.0
+        }));
+    }
+
+    #[test]
+    fn real_glyph_scene_quads_keep_the_12x16_cell_aspect_ratio() {
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('█'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::Two,
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        let first_quad = scene.quads.first().unwrap();
+        let cell_clip_size = cell_clip_size_for_surface(SurfaceSize::from(&state.config.window));
+        assert_eq!(
+            first_quad.size,
+            [cell_clip_size[0] / 12.0, cell_clip_size[1] / 16.0]
+        );
+        let screen_pixel_width = first_quad.size[0] * state.config.window.width as f32;
+        let screen_pixel_height = first_quad.size[1] * state.config.window.height as f32;
+        assert!((screen_pixel_width - screen_pixel_height).abs() < 0.0001);
+    }
+
+    #[test]
+    fn build_window_surface_scene_projects_a_real_cell_through_group_facing_and_composition() {
+        let baseline = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::Two,
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+        let faced = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint { x: 0, y: 0, z: 1 },
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::Two,
+                        ..Cell::default()
+                    }],
+                )
+                .with_facing(CellGroupFacing::PosX)],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let baseline_scene = build_window_surface_scene(&baseline).unwrap();
+        let faced_scene = build_window_surface_scene(&faced).unwrap();
+
+        assert_eq!(baseline_scene.quads.len(), faced_scene.quads.len());
+        assert!(baseline_scene
+            .quads
+            .iter()
+            .zip(faced_scene.quads.iter())
+            .all(|(baseline, faced)| faced.center[0] > baseline.center[0]));
+    }
+
+    #[test]
+    fn projected_cell_center_for_surface_uses_projection_u_and_v() {
+        let camera = Camera {
+            focus_target: WorldPoint { x: 1, y: -2, z: 3 },
+            swing: CameraSwing::PosX,
+            ..Camera::default()
+        };
+        let world = WorldPoint { x: 4, y: 5, z: -1 };
+        let projected = project_world_to_view_plane(camera, world);
+        let center = projected_cell_center_for_surface(projected, [0.1, 0.2]);
+
+        assert_eq!(projected.plane, 3);
+        assert!(center[0] > 0.05 && center[0] < 0.35);
+        assert!(center[1] > 0.3 && center[1] < 1.6);
+    }
+
+    #[test]
+    fn build_window_surface_scene_projects_world_z_into_visible_screen_offset() {
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint { x: 0, y: 0, z: 2 },
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('█'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        assert!(!scene.quads.is_empty());
+        assert!(scene
+            .quads
+            .iter()
+            .any(|quad| quad.center[0] > 0.0 && quad.center[1] < 0.0));
+    }
+
+    #[test]
+    fn build_window_surface_scene_resolves_exact_world_xyz_overlap_before_projection() {
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![
+                    CellGroup::from_cells(
+                        WorldPoint::origin(),
+                        [Cell {
+                            position: CellPoint::origin(),
+                            graphic: CellGraphic::Glyph('█'),
+                            color: CellColor::Flat([1.0, 0.0, 0.0, 1.0]),
+                            ..Cell::default()
+                        }],
+                    ),
+                    CellGroup::from_cells(
+                        WorldPoint { x: -1, y: 0, z: 0 },
+                        [Cell {
+                            position: CellPoint { x: 1, y: 0, z: 0 },
+                            graphic: CellGraphic::Glyph('█'),
+                            color: CellColor::Flat([0.0, 1.0, 0.0, 1.0]),
+                            ..Cell::default()
+                        }],
+                    ),
+                ],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
+        let expected_quad_count = fonts
+            .rasterize_glyph_tile('█', CellWeight::Zero)
+            .alpha
+            .into_iter()
+            .filter(|alpha| *alpha >= GLYPH_BINARY_ALPHA_THRESHOLD)
+            .count();
+
+        assert_eq!(scene.quads.len(), expected_quad_count);
+        assert!(scene
+            .quads
+            .iter()
+            .all(|quad| quad.color == [0.0, 1.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn build_window_surface_scene_applies_weight_sin_to_real_glyph_tiles() {
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::One,
+                        shader_stack: vec![CELL_SHADER_WEIGHT_SIN],
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::with_breath(2),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
+        let unshaded = fonts
+            .rasterize_glyph_tile('A', CellWeight::One)
+            .alpha
+            .into_iter()
+            .filter(|alpha| *alpha >= GLYPH_BINARY_ALPHA_THRESHOLD)
+            .count();
+        let shaded_expected = fonts
+            .rasterize_glyph_tile('A', CellWeight::Two)
+            .alpha
+            .into_iter()
+            .filter(|alpha| *alpha >= GLYPH_BINARY_ALPHA_THRESHOLD)
+            .count();
+        let shaded = scene.quads.len();
+
+        assert_eq!(shaded, shaded_expected);
+        assert_ne!(shaded, unshaded);
+    }
+
+    #[test]
+    fn build_window_surface_scene_applies_texture_debug_post_effect_to_real_glyph_tiles() {
+        let baseline_state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::Two,
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::with_breath(2),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+        let textured_state = BootState {
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::Two,
+                        shader_stack: vec![CELL_SHADER_TEXTURE_SHIMMER],
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            config: BootConfig {
+                debug_texture_post_effect: true,
+                ..baseline_state.config.clone()
+            },
+            ..baseline_state.clone()
+        };
+
+        let baseline_scene = build_window_surface_scene(&baseline_state).unwrap();
+        let textured_scene = build_window_surface_scene(&textured_state).unwrap();
+
+        assert!(textured_scene.quads.len() >= baseline_scene.quads.len());
+        assert!(textured_scene
+            .quads
+            .iter()
+            .filter(|quad| quad.color[3] > 0.0)
+            .all(|quad| quad.color[0] == 0.0 && quad.color[1] == 0.0 && quad.color[2] == 1.0));
+        assert!(textured_scene
+            .quads
+            .iter()
+            .all(|quad| quad.post_effect_bus.texture_code != 0));
+    }
+
+    #[test]
+    fn build_window_surface_scene_emits_texture_footprint_quads_for_textured_glyph_tiles() {
+        let baseline_state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::Two,
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::with_breath(2),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+        let textured_state = BootState {
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::Two,
+                        shader_stack: vec![CELL_SHADER_TEXTURE_SHIMMER],
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            ..baseline_state.clone()
+        };
+
+        let baseline_scene = build_window_surface_scene(&baseline_state).unwrap();
+        let textured_scene = build_window_surface_scene(&textured_state).unwrap();
+
+        assert!(textured_scene.quads.len() > baseline_scene.quads.len());
+        assert!(textured_scene
+            .quads
+            .iter()
+            .any(|quad| quad.color[3] == 0.0 && quad.post_effect_bus.texture_code != 0));
+    }
+
+    #[test]
+    fn build_window_surface_scene_applies_warble_debug_post_effect_to_real_glyph_tiles() {
+        let baseline_state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::Two,
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::with_breath(2),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+        let warbled_state = BootState {
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::Two,
+                        shader_stack: vec![CELL_SHADER_WARBLE_DIAGONAL],
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            config: BootConfig {
+                debug_warble_post_effect: true,
+                ..baseline_state.config.clone()
+            },
+            ..baseline_state.clone()
+        };
+
+        let baseline_scene = build_window_surface_scene(&baseline_state).unwrap();
+        let warbled_scene = build_window_surface_scene(&warbled_state).unwrap();
+
+        assert!(warbled_scene.quads.len() > baseline_scene.quads.len());
+        assert!(warbled_scene
+            .quads
+            .iter()
+            .all(|quad| quad.color[0] == 1.0 && quad.color[1] == 0.0 && quad.color[2] == 0.0));
+        assert!(warbled_scene
+            .quads
+            .iter()
+            .all(|quad| quad.post_effect_bus.warble_code != 0));
+    }
+
+    #[test]
+    fn build_window_surface_scene_applies_index_color_clamp_after_other_post_effects() {
+        let palette = vec![[0x20, 0x40, 0x80, 0xff]];
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                        weight: CellWeight::Two,
+                        shader_stack: vec![CELL_SHADER_TEXTURE_SHIMMER],
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::with_breath(2),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                debug_texture_post_effect: true,
+                index_color_clamp: IndexColorClampEffect::new(palette.clone()),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+
+        assert!(!scene.quads.is_empty());
+        assert!(scene.indexed_color_enabled);
+        assert_eq!(scene.indexed_color_palette, palette);
+        assert!(scene
+            .quads
+            .iter()
+            .any(|quad| quad.post_effect_bus.texture_code != 0));
+    }
+
+    #[test]
+    fn build_window_surface_scene_carries_depth_of_field_toggle() {
+        let disabled_state = BootState {
+            camera: Camera::default(),
+            composition: Composition::default(),
+            data_lanes: DataLanes::with_breath(0),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                depth_of_field_post_effect: false,
+                depth_of_field_minimum_falloff_cells: 5.0,
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+        let enabled_state = BootState {
+            config: BootConfig {
+                depth_of_field_post_effect: true,
+                depth_of_field_minimum_falloff_cells: 7.0,
+                ..disabled_state.config.clone()
+            },
+            ..disabled_state.clone()
+        };
+
+        assert!(
+            !build_window_surface_scene(&disabled_state)
+                .unwrap()
+                .depth_of_field_enabled
+        );
+        assert_eq!(
+            build_window_surface_scene(&disabled_state)
+                .unwrap()
+                .depth_of_field_minimum_falloff_cells,
+            5.0
+        );
+        assert!(
+            build_window_surface_scene(&enabled_state)
+                .unwrap()
+                .depth_of_field_enabled
+        );
+        assert_eq!(
+            build_window_surface_scene(&enabled_state)
+                .unwrap()
+                .depth_of_field_minimum_falloff_cells,
+            7.0
+        );
+    }
+
+    #[test]
+    fn cell_clip_size_compensates_for_wide_surface_aspect_ratio() {
+        let clip_size = cell_clip_size_for_surface(SurfaceSize {
+            width: 1280,
+            height: 720,
+        });
+
+        assert_eq!(clip_size[1], CELL_HEIGHT_CLIP_SPACE);
+        assert!((clip_size[0] - 0.084375).abs() < 0.0001);
+    }
+}

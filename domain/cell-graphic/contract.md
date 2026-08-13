@@ -24,7 +24,8 @@ Own the renderer cell-graphic slot as the canonical graphic input consumed by a 
   - default
 
 ## contents
-- none
+- `cell_graphic.rs`
+  - rust cell-graphic slot shapes for glyph and sprite-backed cells owned by this encapsulation
 
 ## dependencies
 - `/home/j/Repos/thaum-renderer/domain/atlas-intake/`

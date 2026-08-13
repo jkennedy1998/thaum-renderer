@@ -23,7 +23,8 @@ Own the renderer-wide generic data-lane seam used by shaders and other renderer 
 - none
 
 ## contents
-- none
+- `data_lanes.rs`
+  - rust renderer data-lane shape and standard lane helpers owned by this encapsulation
 
 ## dependencies
 - none
@@ -31,6 +32,8 @@ Own the renderer-wide generic data-lane seam used by shaders and other renderer 
 ## exposed interfaces
 - data-lanes shape
   - describes the generic externally fed value channels renderer parts may consume without requiring renderer awareness of app-level semantics
+- `/home/j/Repos/thaum-renderer/interfaces/data-pipelines/contract.md`
+  - routed renderer-fed data-pipeline interface notes for consumers and proof apps
 
 ## interface consumers
 - `/home/j/Repos/thaum-renderer/domain/cell-shader/`

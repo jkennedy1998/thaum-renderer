@@ -16,6 +16,8 @@ Own reusable low-level helper surfaces for thaum-renderer that are not the prima
   - default
 - `color/`
   - default
+- `window-surface/`
+  - default
 
 ## contents
 - none
@@ -41,4 +43,5 @@ Own reusable low-level helper surfaces for thaum-renderer that are not the prima
 ## notes
 - design work goes in domain; repeatable low-level helper work goes in tools
 - nearest-color matching belongs in tools because it is reusable low-level logic used by multiple renderer paths
+- cross-platform window and GPU-surface setup belongs in tools when it is reusable low-level implementation support rather than renderer semantic truth
 - placeholder artifacts should not be treated as stable tool surfaces unless they are accounted for by a real contract boundary

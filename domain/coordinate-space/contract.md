@@ -8,6 +8,8 @@ Own the renderer-global coordinate space used to place, traverse, and shade cell
 - shared world xyz placement semantics across cell-groups
 - coordinate semantics needed for global shader inputs and screen-space derivation
 - the standard naming split between renderer world xyz and cell-group local xyz
+- canonical global direction truth over renderer world axes
+- the renderer-owned mapping between world xyz axes and global cardinal direction language
 
 ## does not own
 - the local internal coordinate space of a cell-group
@@ -15,10 +17,14 @@ Own the renderer-global coordinate space used to place, traverse, and shade cell
 - sparse storage mechanics
 
 ## children-encapsulations
-- none
+- `global-directions/`
+  - default
 
 ## contents
-- none
+- `coordinate_space.rs`
+  - rust world and local coordinate shapes owned by this encapsulation
+- `global-directions/`
+  - renderer-global cardinal direction contract over world xyz
 
 ## dependencies
 - `/home/j/Repos/thaum-renderer/domain/`
@@ -45,3 +51,6 @@ Own the renderer-global coordinate space used to place, traverse, and shade cell
 - cell-groups own local xyz; renderer owns the shared world xyz coordinate space
 - older stopgap names like `world_z` should not be used as the primary coordinate shape now that full xyz is standard
 - this space should be traversable and stable enough for world-space and screen-space shader inputs
+- global directions like top, bottom, north, east, south, and west should resolve from renderer-owned world-axis truth here rather than becoming camera-owned names
+- camera view orientation may reinterpret which world axis is acting as depth for the current view, but it should not redefine the renderer-global direction language
+- 2d and 3d intake paths should remain compatible through this shared world space even if their pre-projection rotation behavior differs

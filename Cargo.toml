@@ -1,0 +1,22 @@
+[workspace]
+members = [
+  "domain",
+  "tools/camera",
+  "tools/color",
+  "tools/window-surface",
+  "workers/breath-fallback-clock",
+  "orchestration/asset-root",
+  "orchestration/boot"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["J"]
+
+[workspace.dependencies]
+anyhow = "1"
+fontdue = "0.9"
+png = "0.17"
+winit = "0.30"

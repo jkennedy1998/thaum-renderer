@@ -6,6 +6,7 @@ Own glyph-based cell graphics rendered as thaum mono characters or equivalent mo
 ## owns
 - the glyph graphic form for a cell
 - unicode-character-backed graphic truth tuned to thaum mono
+- the first proving glyph source path for Thaum Mono font assets and weight variants
 - the rule that glyph source decode resolves into the same final renderer shape used by sprites
 - glyph compatibility with shared flat-color and material resolution
 
@@ -46,3 +47,4 @@ Own glyph-based cell graphics rendered as thaum mono characters or equivalent mo
 
 ## notes
 - glyph binary and mono assumptions should not fork the wider renderer color system
+- the first target tile shape is Thaum Mono at 12x16 with four weight variants

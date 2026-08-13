@@ -1,0 +1,14 @@
+[package]
+name = "thaum-renderer-domain"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+fontdue.workspace = true
+png.workspace = true
+thaum-renderer-tools-color = { path = "../tools/color" }
+
+[lib]
+path = "lib.rs"

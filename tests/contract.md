@@ -1,45 +1,46 @@
 # /home/j/Repos/thaum-renderer/tests
 
 ## purpose
-Own consumer-shaped validation seams for thaum-renderer.
+Own renderer-local proof tests and smoke checks for thaum-renderer without becoming a second app launcher surface.
 
 ## owns
-- renderer-facing test consumers and scenes
-- lightweight scenarios that help prove the contract bounds of the renderer
-- manual visual validation seams where a human confirms the rendered output looks right
+- renderer-local proof test declarations
+- renderer-local test-only helpers when a proof needs them
+- repo-local smoke coverage for compile/build behavior
 
 ## does not own
-- renderer production ownership
-- app gameplay logic
+- the canonical manual proof app
+- app-shaped scene development
+- a second bootable test executable
 
 ## children-encapsulations
-- `thaum-renderer-test-scene/`
-  - default
-
-## contents
 - none
 
+## contents
+- `contract.md`
+  - contract for the renderer-local tests seam
+
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/`
-- `/home/j/Repos/thaum-renderer/orchestration/`
+- `/home/j/Repos/thaum-renderer/`
+- `/home/j/Repos/thaum-renderer-test-user/` as the consumed external manual proof app
 
 ## exposed interfaces
 - none
 
 ## interface consumers
-- humans and operators shaping thaum-renderer
-- future automated tests
+- humans and operators validating thaum-renderer
 
 ## artifacts
 - none
 
 ## tests
-- `thaum-renderer-test-scene`
-  - planned
-  - validates a broad boot scene with manual visual confirmation over sprite, glyph, material, and composition behavior.
+- `workspace-build-smoke`
+  - light
+  - proves the renderer workspace compiles after local renderer changes.
 
 ## data
 - none
 
 ## notes
-- test consumers are acceptable places to define module-shaped or scene-shaped examples when the goal is validation rather than renderer ownership
+- the canonical manual proof executable is `/home/j/Repos/thaum-renderer-test-user/target/release/thaum-renderer-test-user`
+- renderer-local `tests/` should hold proof tests, not a second consumer app

@@ -1,40 +1,41 @@
 # /home/j/Repos/thaum-renderer/domain/cell-warble
 
 ## purpose
-Own the renderer-facing per-cell warble vocabulary and output shape used when shaders drive cell-local displacement-style art direction.
+Own the renderer-facing per-cell warble slot language authored on cells and transferred into post effects.
 
 ## owns
 - the canonical cell-warble contract
-- renderer-owned per-cell warble categories
-- display-location-level warble/displacement expectations at the cell render surface
-- the initial three warble families:
-  - `texture-warble` - low-kernel noise style displacement
-  - `fudge-warble` - medium-kernel noise style displacement
-  - `distort-warble` - large-kernel noise style displacement
-- the rule that shaders may control warble outputs without owning the warble seam itself
+- the authored per-cell warble slot consumed by the renderer cell shape
+- the warble byte-code language written into the post-effect bus green channel
+- the rule that warble is a localized bending or displacement intent signal rather than direct execution behavior
+- the rule that shaders may override warble without owning the warble seam itself
 
 ## does not own
 - shader stack ownership
-- blur ownership
-- full-frame post-effect warble behavior
+- post-effect execution ownership
+- fine surface texture ownership
+- depth-of-field ownership
 - app-specific tag semantics
 
 ## children-encapsulations
 - none
 
 ## contents
-- none
+- `cell_warble.rs`
+  - rust cell-warble value shape owned by this encapsulation
 
 ## dependencies
 - `/home/j/Repos/thaum-renderer/domain/cell/`
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
+- `/home/j/Repos/thaum-renderer/domain/post-effects/`
 
 ## exposed interfaces
 - cell-warble shape
-  - describes the per-cell warble outputs and renderer-facing expectations for cell-local displacement-style visuals
+  - describes the authored per-cell warble signal as a single byte code carried by a cell and later packed into the post-effect bus
 
 ## interface consumers
+- `/home/j/Repos/thaum-renderer/domain/cell/`
 - `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `/home/j/Repos/thaum-renderer/domain/post-effects/warble/`
 - future renderer implementation surfaces
 
 ## artifacts
@@ -47,5 +48,7 @@ Own the renderer-facing per-cell warble vocabulary and output shape used when sh
 - none
 
 ## notes
-- these warbles are intended to affect cells at display-location level like texture displacement or vector displacement rather than as simple screen-wide post effects
-- the current boundary is intentionally descriptive rather than performance-locked; real renderer testing should decide later whether every captured warble remains viable per cell
+- `cell-warble/` is the medium band in the art vocabulary: visible bending, localized waving, and displacement-style life in the cell image
+- warble is authored per cell so artists can place it directly, while shaders remain free to override it
+- post effects decide what each nonzero warble code means at sample time
+- warble should feel larger and more shape-bending than texture while still staying cell-authored in origin

@@ -23,7 +23,8 @@ Own the renderer sprite color-space contract used to decode sprite pixels into s
 - none
 
 ## contents
-- none
+- `sprite_color_space.rs`
+  - rust sprite color-space decode and canonical palette helpers owned by this encapsulation
 
 ## dependencies
 - `/home/j/Repos/thaum-renderer/domain/cell-graphic/sprite/`

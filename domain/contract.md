@@ -1,10 +1,10 @@
 # /home/j/Repos/thaum-renderer/domain
 
 ## purpose
-Own the renderer-specific design contracts for the atomic cell system, grouped render space, composition flow, global coordinate space, camera semantics, atlas intake, renderer-wide data lanes, post-effects, and renderer-consumed cell slots.
+Own the renderer-specific design contracts for the atomic cell system, grouped render space, composition flow, global coordinate space, camera semantics, atlas intake, renderer-wide data lanes, post-effects, renderer-consumed cell slots, and the cell-to-post-effect signal language.
 
 ## owns
-- the renderer-domain split for cell, cell-group, cell-weight, cell-color, cell-graphic, atlas-intake, cell-shader, cell-blur, cell-warble, data-lanes, post-effects, cell-materials, cell-adjacency, coordinate-space, composition, and camera
+- the renderer-domain split for cell, cell-group, cell-weight, cell-color, cell-graphic, atlas-intake, cell-shader, cell-texture, cell-warble, data-lanes, post-effects, cell-materials, cell-adjacency, coordinate-space, composition, and camera
 - the broad v1 semantic boundaries for recognizable renderer reconstruction
 - renderer-owned design truth that should live in domain before implementation hardens
 
@@ -29,9 +29,9 @@ Own the renderer-specific design contracts for the atomic cell system, grouped r
   - default
 - `cell-shader/`
   - default
-- `cell-blur/`
-  - default
 - `cell-warble/`
+  - default
+- `cell-texture/`
   - default
 - `data-lanes/`
   - default
@@ -49,7 +49,10 @@ Own the renderer-specific design contracts for the atomic cell system, grouped r
   - default
 
 ## contents
-- none
+- `Cargo.toml`
+  - rust crate manifest for the renderer domain package
+- `lib.rs`
+  - crate entrypoint that wires rust modules to their colocated encapsulation-owned files
 
 ## dependencies
 - `/home/j/Repos/thaum-renderer/`
@@ -77,5 +80,9 @@ Own the renderer-specific design contracts for the atomic cell system, grouped r
 - composition owns render ordering because overlap is an artifact of composition over shared space
 - atlas intake should stay separate from sprite logic so atlas consumption rules can evolve without hiding inside the sprite seam
 - renderer-wide data lanes should stay outside shader ownership even when shaders are the first main consumer
+- cells author texture and warble as first-class slots, shaders may override those slots, and post effects own the final execution of those authored signals
+- the post-effect bus is the transfer seam between cell authorship and screen-space execution: `R = texture code`, `G = warble code`, `B = relative depth code`
+- depth in the post-effect bus is focus-relative, with `128` as the focus plane, darker values toward camera, and brighter values away
 - world xyz and local xyz are now the standard coordinate language; older one-off axis naming should not return as primary shape
 - cell groups are the renderer-facing submission shape; UI, tile, item, character, and similar app concepts should arrive through that shape rather than becoming renderer-owned concepts
+- rust code should live colocated inside the encapsulation that owns it; `lib.rs` is only the crate entry seam that points at those owned files

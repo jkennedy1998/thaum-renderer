@@ -6,6 +6,7 @@ Own renderer camera swing semantics.
 ## owns
 - swing meaning for the camera
 - swing-oriented state and transition truth used by the renderer camera
+- authored transitions between the six principal view families used to interpolate the displayed matrix
 
 ## does not own
 - generic helper math
@@ -41,3 +42,4 @@ Own renderer camera swing semantics.
 
 ## notes
 - swing is camera-owned even if some low-level helper work later becomes reusable
+- swing should follow the six authored view families rather than becoming fully free camera rotation as the default renderer truth

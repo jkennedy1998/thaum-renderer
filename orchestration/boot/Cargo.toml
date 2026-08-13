@@ -1,0 +1,15 @@
+[package]
+name = "thaum-renderer-boot"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thaum-renderer-breath-fallback-clock = { path = "../../workers/breath-fallback-clock" }
+thaum-renderer-domain = { path = "../../domain" }
+thaum-renderer-window-surface = { path = "../../tools/window-surface" }
+
+[lib]
+path = "src/lib.rs"

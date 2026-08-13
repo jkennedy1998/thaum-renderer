@@ -21,7 +21,8 @@ Own the renderer material format, default test materials, and shared storage sha
 - none
 
 ## contents
-- none
+- `cell_materials.rs`
+  - rust material ids and band shapes owned by this encapsulation
 
 ## dependencies
 - `/home/j/Repos/thaum-renderer/domain/cell-color/`
