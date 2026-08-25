@@ -6,14 +6,15 @@ use thaum_renderer_domain::{
     apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
     apply_debug_warble_post_effect_to_rgba, compose_cells,
     encode_relative_depth_to_post_effect_bus, project_flat_2d_world_to_view_plane,
-    project_rotating_3d_world_to_view_plane, projected_plane_is_visible, resolve_shaded_texture,
-    resolve_shaded_warble, resolve_shaded_weight, Camera, CameraProjectedPoint, Cell,
-    CellGroupIntakeBehavior, Composition, DataLanes, GlyphFontSet, IndexColorClampEffect,
-    SpriteAtlasSet, WorldPoint, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+    project_rotating_3d_world_to_view_plane, projected_plane_is_visible,
+    projected_plane_scale_factor, resolve_shaded_texture, resolve_shaded_warble,
+    resolve_shaded_weight, Camera, CameraProjectedPoint, Cell, CellGroupIntakeBehavior,
+    Composition, DataLanes, GlyphFontSet, IndexColorClampEffect, SpriteAtlasSet, WorldPoint,
+    GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
 };
 use thaum_renderer_window_surface::{
-    run_window_surface, run_window_surface_with_frame_provider, SurfaceQuad, SurfaceSize,
-    WindowSurfaceConfig, WindowSurfaceFrameContext, WindowSurfaceScene,
+    run_window_surface_with_frame_provider, SurfaceQuad, SurfaceSize, WindowSurfaceConfig,
+    WindowSurfaceFrameContext, WindowSurfaceScene,
 };
 
 mod effect_quads;
@@ -38,6 +39,7 @@ pub struct BootConfig {
     pub motion_noise_post_effect: bool,
     pub depth_of_field_minimum_falloff_cells: f32,
     pub fog_span_cells: f32,
+    pub surface_cull_bleed_cells: f32,
     pub debug_texture_post_effect: bool,
     pub debug_warble_post_effect: bool,
     pub debug_depth_post_effect: bool,
@@ -54,6 +56,7 @@ impl Default for BootConfig {
             motion_noise_post_effect: true,
             depth_of_field_minimum_falloff_cells: 5.0,
             fog_span_cells: 5.0,
+            surface_cull_bleed_cells: 2.0,
             debug_texture_post_effect: false,
             debug_warble_post_effect: false,
             debug_depth_post_effect: false,
@@ -114,11 +117,6 @@ pub fn run_renderer_window(config: BootConfig) -> Result<()> {
 }
 
 pub fn run_renderer_window_with_state(state: BootState) -> Result<()> {
-    if !state.uses_fallback_breath {
-        let scene = build_window_surface_scene(&state)?;
-        return run_window_surface(state.config.window, scene);
-    }
-
     run_renderer_window_with_state_frame_provider(state, |_, _| Ok(()))
 }
 
@@ -143,11 +141,18 @@ pub fn run_renderer_window_with_state_frame_provider(
         }
 
         frame_provider(&mut frame_state, &frame)?;
-        build_window_surface_scene(&frame_state)
+        build_window_surface_scene_for_surface(&frame_state, frame.surface_size)
     })
 }
 
 pub fn build_window_surface_scene(state: &BootState) -> Result<WindowSurfaceScene> {
+    build_window_surface_scene_for_surface(state, SurfaceSize::from(&state.config.window))
+}
+
+pub fn build_window_surface_scene_for_surface(
+    state: &BootState,
+    surface_size: SurfaceSize,
+) -> Result<WindowSurfaceScene> {
     let visible_stack = thaum_renderer_domain::visible_plane_stack_for_camera(state.camera);
     let fog_nearest_depth_code = encode_relative_depth_to_post_effect_bus(visible_stack.min_plane);
     let fog_farthest_depth_code = encode_relative_depth_to_post_effect_bus(visible_stack.max_plane);
@@ -184,17 +189,19 @@ pub fn build_window_surface_scene(state: &BootState) -> Result<WindowSurfaceScen
     } else {
         None
     };
-    let surface_size = SurfaceSize::from(&state.config.window);
     let base_cell_clip_size = cell_clip_size_for_surface(surface_size);
     let cell_clip_size = [
         base_cell_clip_size[0] * state.camera.zoom,
         base_cell_clip_size[1] * state.camera.zoom,
     ];
 
-    for plane in group_projected_boot_cells_by_plane(stage_projected_boot_cells(state)) {
+    for plane in
+        group_projected_boot_cells_by_plane(stage_projected_boot_cells(state, cell_clip_size))
+    {
         let _plane_index = plane.plane;
         for projected_cell in plane.cells {
             scene.quads.extend(project_cell_to_surface_quads(
+                state.camera,
                 projected_cell,
                 state.data_lanes,
                 glyph_fonts.as_ref(),
@@ -206,7 +213,10 @@ pub fn build_window_surface_scene(state: &BootState) -> Result<WindowSurfaceScen
 
     apply_depth_edge_fade_to_scene(
         &mut scene,
-        state.config.fog_span_cells,
+        effective_depth_edge_fade_span_cells(
+            state.config.fog_span_cells,
+            visible_stack.planes.len(),
+        ),
         fog_nearest_depth_code,
         fog_farthest_depth_code,
     );
@@ -270,6 +280,18 @@ fn depth_edge_fade_amount_for_edge(distance_to_edge: f32, fade_span_cells: f32) 
     }
 }
 
+fn effective_depth_edge_fade_span_cells(
+    base_fade_span_cells: f32,
+    visible_plane_count: usize,
+) -> f32 {
+    match visible_plane_count {
+        0..=2 => 0.0,
+        3 => base_fade_span_cells * (1.0 / 3.0),
+        4 => base_fade_span_cells * (2.0 / 3.0),
+        _ => base_fade_span_cells,
+    }
+}
+
 fn apply_depth_edge_fade_to_scene(
     scene: &mut WindowSurfaceScene,
     fade_span_cells: f32,
@@ -305,6 +327,7 @@ fn composition_contains_visible_sprites(composition: &Composition) -> bool {
 }
 
 fn project_cell_to_surface_quads(
+    camera: Camera,
     projected_cell: ProjectedBootCell,
     data_lanes: DataLanes,
     glyph_fonts: Option<&GlyphFontSet>,
@@ -315,6 +338,8 @@ fn project_cell_to_surface_quads(
         return Ok(Vec::new());
     }
 
+    let projected_cell_clip_size =
+        projected_cell_clip_size_for_surface(camera, projected_cell.projected, cell_clip_size);
     let cell_center = projected_cell_center_for_surface(projected_cell.projected, cell_clip_size);
     let shaded_weight = resolve_shaded_weight(
         projected_cell.cell.weight,
@@ -347,7 +372,7 @@ fn project_cell_to_surface_quads(
             GLYPH_BINARY_ALPHA_THRESHOLD,
             true,
             cell_center,
-            cell_clip_size,
+            projected_cell_clip_size,
             projected_cell.cell.color.resolve_glyph(),
             shaded_texture,
             shaded_warble,
@@ -371,7 +396,7 @@ fn project_cell_to_surface_quads(
             &raster,
             SPRITE_BINARY_ALPHA_THRESHOLD,
             cell_center,
-            cell_clip_size,
+            projected_cell_clip_size,
             shaded_texture,
             shaded_warble,
             depth_code,
@@ -383,7 +408,30 @@ fn project_cell_to_surface_quads(
     Ok(Vec::new())
 }
 
-fn stage_projected_boot_cells(state: &BootState) -> Vec<ProjectedBootCell> {
+fn projected_cell_intersects_surface(
+    camera: Camera,
+    projected: CameraProjectedPoint,
+    cell_clip_size: [f32; 2],
+    bleed_cells: f32,
+) -> bool {
+    let projected_cell_clip_size =
+        projected_cell_clip_size_for_surface(camera, projected, cell_clip_size);
+    let cell_center = projected_cell_center_for_surface(projected, cell_clip_size);
+    let half_width = projected_cell_clip_size[0] * 0.5;
+    let half_height = projected_cell_clip_size[1] * 0.5;
+    let bleed_width = projected_cell_clip_size[0] * bleed_cells.max(0.0);
+    let bleed_height = projected_cell_clip_size[1] * bleed_cells.max(0.0);
+
+    cell_center[0] + half_width >= -1.0 - bleed_width
+        && cell_center[0] - half_width <= 1.0 + bleed_width
+        && cell_center[1] + half_height >= -1.0 - bleed_height
+        && cell_center[1] - half_height <= 1.0 + bleed_height
+}
+
+fn stage_projected_boot_cells(
+    state: &BootState,
+    cell_clip_size: [f32; 2],
+) -> Vec<ProjectedBootCell> {
     compose_cells(&state.composition)
         .into_iter()
         .filter_map(|composed| {
@@ -397,7 +445,14 @@ fn stage_projected_boot_cells(state: &BootState) -> Vec<ProjectedBootCell> {
                     composed.cell.position,
                 ),
             };
-            projected_plane_is_visible(state.camera, projected.plane).then_some(ProjectedBootCell {
+            (projected_plane_is_visible(state.camera, projected.plane)
+                && projected_cell_intersects_surface(
+                    state.camera,
+                    projected,
+                    cell_clip_size,
+                    state.config.surface_cull_bleed_cells,
+                ))
+            .then_some(ProjectedBootCell {
                 world: composed.world,
                 projected,
                 cell: composed.cell,
@@ -420,8 +475,22 @@ fn group_projected_boot_cells_by_plane(
 
     grouped
         .into_iter()
+        .rev()
         .map(|(plane, cells)| ProjectedBootPlane { plane, cells })
         .collect()
+}
+
+fn projected_cell_clip_size_for_surface(
+    camera: Camera,
+    projected: CameraProjectedPoint,
+    base_cell_clip_size: [f32; 2],
+) -> [f32; 2] {
+    let scale = projected_plane_scale_factor(projected.plane, camera.projection_mode);
+
+    [
+        base_cell_clip_size[0] * scale,
+        base_cell_clip_size[1] * scale,
+    ]
 }
 
 fn projected_cell_center_for_surface(
@@ -513,7 +582,10 @@ mod tests {
             uses_fallback_breath: false,
         };
 
-        let staged = stage_projected_boot_cells(&state);
+        let staged = stage_projected_boot_cells(
+            &state,
+            cell_clip_size_for_surface(SurfaceSize::from(&state.config.window)),
+        );
         assert_eq!(staged.len(), 2);
         assert_eq!(staged[0].projected.plane, -1);
         assert_eq!(staged[1].projected.plane, 2);
@@ -555,13 +627,113 @@ mod tests {
             uses_fallback_breath: false,
         };
 
-        let staged = stage_projected_boot_cells(&state);
+        let staged = stage_projected_boot_cells(
+            &state,
+            cell_clip_size_for_surface(SurfaceSize::from(&state.config.window)),
+        );
         assert_eq!(staged.len(), 1);
         assert_eq!(staged[0].projected.plane, 0);
     }
 
     #[test]
-    fn group_projected_boot_cells_by_plane_sorts_and_groups_planes() {
+    fn stage_projected_boot_cells_filters_cells_outside_surface_xy_bounds() {
+        let mut config = BootConfig::default();
+        config.window.width = 1280;
+        config.window.height = 720;
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [
+                        Cell {
+                            position: CellPoint { x: 0, y: 0, z: 0 },
+                            graphic: CellGraphic::Glyph('A'),
+                            ..Cell::default()
+                        },
+                        Cell {
+                            position: CellPoint { x: 30, y: 0, z: 0 },
+                            graphic: CellGraphic::Glyph('B'),
+                            ..Cell::default()
+                        },
+                    ],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config,
+            uses_fallback_breath: false,
+        };
+
+        let staged = stage_projected_boot_cells(
+            &state,
+            cell_clip_size_for_surface(SurfaceSize::from(&state.config.window)),
+        );
+        assert_eq!(staged.len(), 1);
+        assert_eq!(staged[0].world, WorldPoint::origin());
+    }
+
+    #[test]
+    fn build_window_surface_scene_for_surface_uses_live_surface_size_for_xy_culling() {
+        let mut config = BootConfig::default();
+        config.window.width = 1280;
+        config.window.height = 720;
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [
+                        Cell {
+                            position: CellPoint { x: 0, y: 0, z: 0 },
+                            graphic: CellGraphic::Glyph('A'),
+                            ..Cell::default()
+                        },
+                        Cell {
+                            position: CellPoint { x: 10, y: 0, z: 0 },
+                            graphic: CellGraphic::Glyph('B'),
+                            ..Cell::default()
+                        },
+                    ],
+                )],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config,
+            uses_fallback_breath: false,
+        };
+
+        let wide_staged = stage_projected_boot_cells(
+            &state,
+            cell_clip_size_for_surface(SurfaceSize {
+                width: 1280,
+                height: 720,
+            }),
+        );
+        let narrow_staged = stage_projected_boot_cells(
+            &state,
+            cell_clip_size_for_surface(SurfaceSize {
+                width: 640,
+                height: 720,
+            }),
+        );
+
+        assert!(wide_staged.len() > narrow_staged.len());
+    }
+
+    #[test]
+    fn effective_depth_edge_fade_turns_off_for_tiny_plane_counts() {
+        assert_eq!(effective_depth_edge_fade_span_cells(5.0, 1), 0.0);
+        assert_eq!(effective_depth_edge_fade_span_cells(5.0, 2), 0.0);
+        assert!((effective_depth_edge_fade_span_cells(5.0, 3) - (5.0 / 3.0)).abs() < 0.0001);
+        assert!((effective_depth_edge_fade_span_cells(5.0, 4) - (10.0 / 3.0)).abs() < 0.0001);
+        assert_eq!(effective_depth_edge_fade_span_cells(5.0, 5), 5.0);
+    }
+
+    #[test]
+    fn group_projected_boot_cells_by_plane_orders_far_planes_before_near_planes() {
         let grouped = group_projected_boot_cells_by_plane(vec![
             ProjectedBootCell {
                 world: WorldPoint { x: 3, y: 0, z: 0 },
@@ -603,10 +775,10 @@ mod tests {
 
         assert_eq!(
             grouped.iter().map(|plane| plane.plane).collect::<Vec<_>>(),
-            vec![-2, 1]
+            vec![1, -2]
         );
-        assert_eq!(grouped[0].cells.len(), 1);
-        assert_eq!(grouped[1].cells.len(), 2);
+        assert_eq!(grouped[0].cells.len(), 2);
+        assert_eq!(grouped[1].cells.len(), 1);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::{Camera, CameraSwing, CellGroupIntakeBehavior, CellPoint, WorldPoint};
+use crate::{Camera, CellGroupIntakeBehavior, CellPoint, WorldPoint};
 
 use super::view_orientation::{
     camera_view_orientation_for_camera, camera_view_orientation_for_swing,
@@ -62,10 +62,10 @@ pub fn projected_plane_is_visible(camera: Camera, plane: i32) -> bool {
     plane >= stack.min_plane && plane <= stack.max_plane
 }
 
-const ROTATING_3D_PERSPECTIVE_STRENGTH: f32 = 0.5;
-const FLAT_2D_LOCAL_DEPTH_STRENGTH: f32 = 0.18;
-const PERSPECTIVE_DEPTH_EASE_POWER: f32 = 0.72;
-const PERSPECTIVE_PLANE_SPREAD_STRENGTH: f32 = 0.035;
+const FLAT_2D_LOCAL_DEPTH_STRENGTH: f32 = 0.16;
+const PERSPECTIVE_DEPTH_EASE_POWER: f32 = 0.9;
+const PERSPECTIVE_FOCAL_DISTANCE_CELLS: f32 = 13.0;
+const PERSPECTIVE_DEPTH_SCALE_STRENGTH: f32 = 0.9;
 
 fn eased_signed_depth_units(depth: i32) -> f32 {
     if depth == 0 {
@@ -77,30 +77,22 @@ fn eased_signed_depth_units(depth: i32) -> f32 {
     sign * magnitude
 }
 
-fn authored_depth_screen_direction_for_swing(swing: CameraSwing) -> [f32; 2] {
-    match swing {
-        CameraSwing::PosZ => [0.72, -0.72],
-        CameraSwing::PosX => [-0.72, -0.72],
-        CameraSwing::NegZ => [-0.72, 0.72],
-        CameraSwing::NegX => [0.72, 0.72],
-        CameraSwing::PosY => [0.42, -1.0],
-        CameraSwing::NegY => [-0.42, 1.0],
-    }
-}
-
 fn curved_depth_screen_offset(depth: i32, direction: [f32; 2], strength: f32) -> [f32; 2] {
     let magnitude = strength * eased_signed_depth_units(depth);
 
     [direction[0] * magnitude, direction[1] * magnitude]
 }
 
-fn perspective_plane_spread_factor(depth: i32) -> f32 {
-    let signed_magnitude = PERSPECTIVE_PLANE_SPREAD_STRENGTH * eased_signed_depth_units(depth);
+pub fn projected_plane_scale_factor(depth: i32, projection_mode: CameraProjectionMode) -> f32 {
+    match projection_mode {
+        CameraProjectionMode::Perspective => {
+            let depth_units = eased_signed_depth_units(depth) * PERSPECTIVE_DEPTH_SCALE_STRENGTH;
+            let denominator = (PERSPECTIVE_FOCAL_DISTANCE_CELLS + depth_units)
+                .max(PERSPECTIVE_FOCAL_DISTANCE_CELLS * 0.28);
 
-    if signed_magnitude < 0.0 {
-        1.0 + signed_magnitude.abs()
-    } else {
-        1.0 / (1.0 + signed_magnitude)
+            PERSPECTIVE_FOCAL_DISTANCE_CELLS / denominator
+        }
+        CameraProjectionMode::Orthographic => 1.0,
     }
 }
 
@@ -161,21 +153,11 @@ pub fn project_rotating_3d_world_to_view_plane(
 ) -> CameraProjectedPoint {
     let orientation = camera_view_orientation_for_camera(camera.swing, camera.roll);
     let relative = project_world_relative_to_view(orientation, camera.focus_target, world);
-    let (depth_offset, plane_spread) = match camera.projection_mode {
-        CameraProjectionMode::Perspective => (
-            curved_depth_screen_offset(
-                relative.depth,
-                authored_depth_screen_direction_for_swing(camera.swing),
-                ROTATING_3D_PERSPECTIVE_STRENGTH,
-            ),
-            perspective_plane_spread_factor(relative.depth),
-        ),
-        CameraProjectionMode::Orthographic => ([0.0, 0.0], 1.0),
-    };
+    let plane_spread = projected_plane_scale_factor(relative.depth, camera.projection_mode);
 
     CameraProjectedPoint {
-        u: relative.right as f32 * plane_spread + depth_offset[0],
-        v: relative.up as f32 * plane_spread + depth_offset[1],
+        u: relative.right as f32 * plane_spread,
+        v: relative.up as f32 * plane_spread,
         plane: relative.depth,
     }
 }
@@ -187,17 +169,7 @@ pub fn project_flat_2d_world_to_view_plane(
 ) -> CameraProjectedPoint {
     let orientation = camera_view_orientation_for_swing(camera.swing);
     let relative = project_world_relative_to_view(orientation, camera.focus_target, anchor_world);
-    let (anchor_depth_offset, anchor_plane_spread) = match camera.projection_mode {
-        CameraProjectionMode::Perspective => (
-            curved_depth_screen_offset(
-                relative.depth,
-                authored_depth_screen_direction_for_swing(camera.swing),
-                ROTATING_3D_PERSPECTIVE_STRENGTH,
-            ),
-            perspective_plane_spread_factor(relative.depth),
-        ),
-        CameraProjectionMode::Orthographic => ([0.0, 0.0], 1.0),
-    };
+    let anchor_plane_spread = projected_plane_scale_factor(relative.depth, camera.projection_mode);
     let local_depth_offset = match camera.projection_mode {
         CameraProjectionMode::Perspective => curved_depth_screen_offset(
             local.z,
@@ -208,14 +180,8 @@ pub fn project_flat_2d_world_to_view_plane(
     };
 
     CameraProjectedPoint {
-        u: relative.right as f32 * anchor_plane_spread
-            + anchor_depth_offset[0]
-            + local.x as f32
-            + local_depth_offset[0],
-        v: relative.up as f32 * anchor_plane_spread
-            + anchor_depth_offset[1]
-            + local.y as f32
-            + local_depth_offset[1],
+        u: relative.right as f32 * anchor_plane_spread + local.x as f32 + local_depth_offset[0],
+        v: relative.up as f32 * anchor_plane_spread + local.y as f32 + local_depth_offset[1],
         plane: relative.depth,
     }
 }
@@ -226,19 +192,9 @@ pub fn unproject_view_plane_to_world(
 ) -> WorldPoint {
     let orientation = camera_view_orientation_for_camera(camera.swing, camera.roll);
     let plane = projected.plane;
-    let (depth_offset, plane_spread) = match camera.projection_mode {
-        CameraProjectionMode::Perspective => (
-            curved_depth_screen_offset(
-                plane,
-                authored_depth_screen_direction_for_swing(camera.swing),
-                ROTATING_3D_PERSPECTIVE_STRENGTH,
-            ),
-            perspective_plane_spread_factor(plane),
-        ),
-        CameraProjectionMode::Orthographic => ([0.0, 0.0], 1.0),
-    };
-    let right = ((projected.u - depth_offset[0]) / plane_spread).round() as i32;
-    let up = ((projected.v - depth_offset[1]) / plane_spread).round() as i32;
+    let plane_spread = projected_plane_scale_factor(plane, camera.projection_mode);
+    let right = (projected.u / plane_spread).round() as i32;
+    let up = (projected.v / plane_spread).round() as i32;
 
     unproject_view_relative_to_world(
         orientation,
@@ -272,53 +228,54 @@ mod tests {
     }
 
     #[test]
-    fn project_world_to_view_plane_offsets_right_and_up_by_curved_depth() {
+    fn focus_target_projects_to_perspective_convergence_point() {
         let camera = Camera::default();
-        let projected = project_world_to_view_plane(camera, WorldPoint { x: 0, y: 0, z: 2 });
+        let projected = project_world_to_view_plane(camera, camera.focus_target);
 
-        assert!(projected.u > 0.0);
-        assert!(projected.v < 0.0);
-        assert!((projected.u + projected.v).abs() < 0.01);
-        assert_eq!(projected.plane, 2);
+        assert_eq!(
+            projected,
+            CameraProjectedPoint {
+                u: 0.0,
+                v: 0.0,
+                plane: 0
+            }
+        );
     }
 
     #[test]
-    fn rotating_3d_depth_offset_rotates_with_authored_horizontal_views() {
-        let world = WorldPoint { x: 2, y: 0, z: 0 };
+    fn perspective_scales_screen_offset_toward_focus_target_without_extra_drift() {
+        let near = project_world_to_view_plane(Camera::default(), WorldPoint { x: 2, y: 0, z: -2 });
+        let far = project_world_to_view_plane(Camera::default(), WorldPoint { x: 2, y: 0, z: 2 });
 
+        assert!(near.u > far.u);
+        assert_eq!(near.v, 0.0);
+        assert_eq!(far.v, 0.0);
+    }
+
+    #[test]
+    fn all_swings_keep_zero_right_up_points_on_the_focus_convergence_axis() {
         let pos_x = project_world_to_view_plane(
             Camera {
                 swing: CameraSwing::PosX,
                 ..Camera::default()
             },
-            world,
+            WorldPoint { x: 2, y: 0, z: 0 },
         );
         let neg_x = project_world_to_view_plane(
             Camera {
                 swing: CameraSwing::NegX,
                 ..Camera::default()
             },
-            world,
+            WorldPoint { x: 2, y: 0, z: 0 },
         );
-
-        assert!(pos_x.u < 0.0);
-        assert!(pos_x.v < 0.0);
-        assert_eq!(pos_x.plane, 2);
-        assert!(neg_x.u < 0.0);
-        assert!(neg_x.v < 0.0);
-        assert_eq!(neg_x.plane, -2);
-    }
-
-    #[test]
-    fn vertical_swings_keep_the_same_depth_push_but_in_a_different_direction() {
-        let top = project_world_to_view_plane(
+        let pos_y = project_world_to_view_plane(
             Camera {
                 swing: CameraSwing::PosY,
                 ..Camera::default()
             },
             WorldPoint { x: 0, y: 2, z: 0 },
         );
-        let bottom = project_world_to_view_plane(
+        let neg_y = project_world_to_view_plane(
             Camera {
                 swing: CameraSwing::NegY,
                 ..Camera::default()
@@ -326,12 +283,10 @@ mod tests {
             WorldPoint { x: 0, y: 2, z: 0 },
         );
 
-        assert!(top.u > 0.0);
-        assert!(top.v < 0.0);
-        assert_eq!(top.plane, 2);
-        assert!(bottom.u > 0.0);
-        assert!(bottom.v < 0.0);
-        assert_eq!(bottom.plane, -2);
+        assert_eq!((pos_x.u, pos_x.v, pos_x.plane), (0.0, 0.0, 2));
+        assert_eq!((neg_x.u, neg_x.v, neg_x.plane), (0.0, 0.0, -2));
+        assert_eq!((pos_y.u, pos_y.v, pos_y.plane), (0.0, 0.0, 2));
+        assert_eq!((neg_y.u, neg_y.v, neg_y.plane), (0.0, 0.0, -2));
     }
 
     #[test]
@@ -371,22 +326,28 @@ mod tests {
 
     #[test]
     fn curved_depth_eases_the_first_steps_but_still_grows_with_distance() {
-        let near = project_world_to_view_plane(Camera::default(), WorldPoint { x: 0, y: 0, z: 1 });
-        let mid = project_world_to_view_plane(Camera::default(), WorldPoint { x: 0, y: 0, z: 2 });
-        let far = project_world_to_view_plane(Camera::default(), WorldPoint { x: 0, y: 0, z: 3 });
+        let near = projected_plane_scale_factor(1, CameraProjectionMode::Perspective);
+        let mid = projected_plane_scale_factor(2, CameraProjectionMode::Perspective);
+        let far = projected_plane_scale_factor(3, CameraProjectionMode::Perspective);
 
-        assert!(near.u > 0.0);
-        assert!(mid.u > near.u);
-        assert!(far.u > mid.u);
-        assert!(far.u < near.u * 3.0);
+        assert!(near < 1.0);
+        assert!(mid < near);
+        assert!(far < mid);
+        assert!(far > near / 3.0);
     }
 
     #[test]
     fn plane_spread_expands_toward_camera_and_contracts_away_from_camera() {
-        assert!(perspective_plane_spread_factor(-3) > 1.0);
-        assert!(perspective_plane_spread_factor(3) < 1.0);
-        assert!(perspective_plane_spread_factor(-3) > perspective_plane_spread_factor(-1));
-        assert!(perspective_plane_spread_factor(3) < perspective_plane_spread_factor(1));
+        assert!(projected_plane_scale_factor(-3, CameraProjectionMode::Perspective) > 1.0);
+        assert!(projected_plane_scale_factor(3, CameraProjectionMode::Perspective) < 1.0);
+        assert!(
+            projected_plane_scale_factor(-3, CameraProjectionMode::Perspective)
+                > projected_plane_scale_factor(-1, CameraProjectionMode::Perspective)
+        );
+        assert!(
+            projected_plane_scale_factor(3, CameraProjectionMode::Perspective)
+                < projected_plane_scale_factor(1, CameraProjectionMode::Perspective)
+        );
     }
 
     #[test]

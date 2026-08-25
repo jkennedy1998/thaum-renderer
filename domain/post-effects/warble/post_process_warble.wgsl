@@ -15,7 +15,7 @@ fn warble_displacement(global_uv: vec2<f32>, breath_phase: f32, texel_uv_size: f
 
 fn warble_sample_matches(origin_bus: vec4<f32>, sample_uv: vec2<f32>) -> bool {
     let sample_bus = textureSample(bus_tex, nearest_sampler, sample_uv);
-    let sample_color = textureSample(color_tex, linear_sampler, sample_uv);
+    let sample_color = sample_surface_color(sample_uv);
 
     return decode_byte(sample_bus.g) == decode_byte(origin_bus.g)
         && decode_byte(sample_bus.b) == decode_byte(origin_bus.b)
@@ -45,7 +45,7 @@ fn resolve_warble_color(base_color: vec4<f32>, origin_bus: vec4<f32>, origin_met
 
     let outward_uv = clamp(uv + displacement, vec2<f32>(0.0), vec2<f32>(1.0));
     if warble_sample_matches(origin_bus, outward_uv) {
-        let displaced_color = textureSample(color_tex, linear_sampler, outward_uv);
+        let displaced_color = sample_surface_color(outward_uv);
         if warble_displaced_sample_is_usable(base_color, displaced_color) {
             return composite_displaced_over_base(base_color, displaced_color);
         }
@@ -53,7 +53,7 @@ fn resolve_warble_color(base_color: vec4<f32>, origin_bus: vec4<f32>, origin_met
 
     let inward_uv = clamp(uv - displacement, vec2<f32>(0.0), vec2<f32>(1.0));
     if warble_sample_matches(origin_bus, inward_uv) {
-        let displaced_color = textureSample(color_tex, linear_sampler, inward_uv);
+        let displaced_color = sample_surface_color(inward_uv);
         if warble_displaced_sample_is_usable(base_color, displaced_color) {
             return composite_displaced_over_base(base_color, displaced_color);
         }

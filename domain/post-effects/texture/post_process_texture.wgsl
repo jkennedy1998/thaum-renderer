@@ -36,7 +36,7 @@ fn resolve_texture_color(base_color: vec4<f32>, origin_bus: vec4<f32>, origin_me
 
     let outward_uv = clamp(uv + displacement, vec2<f32>(0.0), vec2<f32>(1.0));
     if texture_sample_matches(origin_bus, origin_meta, outward_uv) {
-        let displaced_color = textureSample(color_tex, linear_sampler, outward_uv);
+        let displaced_color = sample_surface_color(outward_uv);
         if texture_displaced_sample_is_usable(base_color, displaced_color) {
             let textured_color = composite_displaced_over_base(base_color, displaced_color);
             let texture_visibility = max(
@@ -49,7 +49,7 @@ fn resolve_texture_color(base_color: vec4<f32>, origin_bus: vec4<f32>, origin_me
 
     let inward_uv = clamp(uv - displacement, vec2<f32>(0.0), vec2<f32>(1.0));
     if texture_sample_matches(origin_bus, origin_meta, inward_uv) {
-        let displaced_color = textureSample(color_tex, linear_sampler, inward_uv);
+        let displaced_color = sample_surface_color(inward_uv);
         if texture_displaced_sample_is_usable(base_color, displaced_color) {
             let textured_color = composite_displaced_over_base(base_color, displaced_color);
             let texture_visibility = max(

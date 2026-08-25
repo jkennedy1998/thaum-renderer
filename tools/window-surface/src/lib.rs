@@ -26,6 +26,18 @@ use winit::{
     window::{Window, WindowAttributes},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowSurfaceUpscaleMode {
+    Nearest,
+    Linear,
+}
+
+impl WindowSurfaceUpscaleMode {
+    fn uses_linear_filter(self) -> bool {
+        matches!(self, Self::Linear)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowSurfaceConfig {
     pub title: String,
@@ -34,6 +46,7 @@ pub struct WindowSurfaceConfig {
     pub clear_color: [f64; 4],
     pub performance_log_path: Option<PathBuf>,
     pub internal_render_scale: f32,
+    pub upscale_mode: WindowSurfaceUpscaleMode,
 }
 
 impl Default for WindowSurfaceConfig {
@@ -45,6 +58,7 @@ impl Default for WindowSurfaceConfig {
             clear_color: [0.05, 0.06, 0.08, 1.0],
             performance_log_path: None,
             internal_render_scale: 1.0,
+            upscale_mode: WindowSurfaceUpscaleMode::Nearest,
         }
     }
 }
@@ -247,6 +261,7 @@ impl ApplicationHandler for WindowSurfaceApp {
                 window.clone(),
                 scene,
                 self.config.internal_render_scale,
+                self.config.upscale_mode,
             ))
             .expect("failed to create GPU presentation surface");
 
@@ -361,6 +376,7 @@ struct GpuSurface {
     queue: wgpu::Queue,
     surface_config: wgpu::SurfaceConfiguration,
     internal_render_scale: f32,
+    upscale_mode: WindowSurfaceUpscaleMode,
     quad_draw: Option<QuadDraw>,
 }
 
@@ -369,6 +385,7 @@ impl GpuSurface {
         window: Arc<Window>,
         scene: WindowSurfaceScene,
         internal_render_scale: f32,
+        upscale_mode: WindowSurfaceUpscaleMode,
     ) -> Result<Self> {
         let instance = wgpu::Instance::default();
         let surface = instance
@@ -424,6 +441,7 @@ impl GpuSurface {
             surface_format,
             output_surface_size,
             internal_surface_size,
+            upscale_mode,
             &scene,
         );
 
@@ -434,6 +452,7 @@ impl GpuSurface {
             queue,
             surface_config,
             internal_render_scale,
+            upscale_mode,
             quad_draw,
         })
     }
@@ -461,6 +480,7 @@ impl GpuSurface {
             self.surface_config.format,
             output_surface_size,
             internal_surface_size,
+            self.upscale_mode,
             scene,
         );
     }
@@ -541,8 +561,9 @@ impl QuadDraw {
         device: &wgpu::Device,
         _queue: &wgpu::Queue,
         surface_format: TextureFormat,
-        output_surface_size: SurfaceSize,
-        _internal_surface_size: SurfaceSize,
+        _output_surface_size: SurfaceSize,
+        internal_surface_size: SurfaceSize,
+        upscale_mode: WindowSurfaceUpscaleMode,
         scene: &WindowSurfaceScene,
     ) -> Option<Self> {
         if scene.quads.is_empty() {
@@ -552,22 +573,22 @@ impl QuadDraw {
         let color_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("thaum-renderer-offscreen-color"),
             size: wgpu::Extent3d {
-                width: output_surface_size.width.max(1),
-                height: output_surface_size.height.max(1),
+                width: internal_surface_size.width.max(1),
+                height: internal_surface_size.height.max(1),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
+            format: TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let bus_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("thaum-renderer-offscreen-bus"),
             size: wgpu::Extent3d {
-                width: output_surface_size.width.max(1),
-                height: output_surface_size.height.max(1),
+                width: internal_surface_size.width.max(1),
+                height: internal_surface_size.height.max(1),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -580,8 +601,8 @@ impl QuadDraw {
         let meta_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("thaum-renderer-offscreen-meta"),
             size: wgpu::Extent3d {
-                width: output_surface_size.width.max(1),
-                height: output_surface_size.height.max(1),
+                width: internal_surface_size.width.max(1),
+                height: internal_surface_size.height.max(1),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -594,8 +615,8 @@ impl QuadDraw {
         let warble_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("thaum-renderer-offscreen-warble"),
             size: wgpu::Extent3d {
-                width: output_surface_size.width.max(1),
-                height: output_surface_size.height.max(1),
+                width: internal_surface_size.width.max(1),
+                height: internal_surface_size.height.max(1),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -681,7 +702,7 @@ impl QuadDraw {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[
                     Some(wgpu::ColorTargetState {
-                        format: TextureFormat::Rgba8UnormSrgb,
+                        format: TextureFormat::Rgba8Unorm,
                         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
@@ -730,8 +751,8 @@ impl QuadDraw {
             label: Some("thaum-renderer-post-uniforms"),
             contents: bytemuck::bytes_of(&TexturePostEffectUniforms::new(
                 scene,
-                output_surface_size,
-                output_surface_size,
+                internal_surface_size,
+                upscale_mode,
             )),
             usage: wgpu::BufferUsages::UNIFORM,
         });
@@ -878,7 +899,7 @@ impl QuadDraw {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -1087,7 +1108,7 @@ impl TexturePostEffectUniforms {
     fn new(
         scene: &WindowSurfaceScene,
         surface_size: SurfaceSize,
-        _output_surface_size: SurfaceSize,
+        upscale_mode: WindowSurfaceUpscaleMode,
     ) -> Self {
         let depth_of_field_uv_step =
             if scene.depth_of_field_enabled && surface_size.width > 0 && surface_size.height > 0 {
@@ -1120,7 +1141,11 @@ impl TexturePostEffectUniforms {
                     0.0
                 },
                 scene.indexed_color_palette.len() as f32,
-                0.0,
+                if upscale_mode.uses_linear_filter() {
+                    1.0
+                } else {
+                    0.0
+                },
             ],
         }
     }
@@ -1354,7 +1379,8 @@ fn pick_surface_format(formats: &[TextureFormat]) -> Option<TextureFormat> {
     formats
         .iter()
         .copied()
-        .find(TextureFormat::is_srgb)
+        .find(|format| !format.is_srgb())
+        .or_else(|| formats.iter().copied().find(TextureFormat::is_srgb))
         .or_else(|| formats.first().copied())
 }
 
@@ -1368,7 +1394,12 @@ fn pick_present_mode(modes: &[PresentMode]) -> PresentMode {
 }
 
 fn pick_alpha_mode(modes: &[CompositeAlphaMode]) -> CompositeAlphaMode {
-    modes.first().copied().unwrap_or(CompositeAlphaMode::Auto)
+    modes
+        .iter()
+        .copied()
+        .find(|mode| *mode == CompositeAlphaMode::Opaque)
+        .or_else(|| modes.first().copied())
+        .unwrap_or(CompositeAlphaMode::Opaque)
 }
 
 fn normalize_byte(value: u8) -> f32 {

@@ -15,8 +15,8 @@ pub use projection::{
     focus_plane_for_camera, project_flat_2d_world_to_view_plane,
     project_rotating_3d_world_to_view_plane, project_world_to_view_plane,
     project_world_to_view_plane_for_intake, projected_plane_is_visible,
-    unproject_view_plane_to_world, visible_plane_stack_for_camera, CameraProjectedPoint,
-    CameraProjectionMode, VisiblePlaneStack,
+    projected_plane_scale_factor, unproject_view_plane_to_world, visible_plane_stack_for_camera,
+    CameraProjectedPoint, CameraProjectionMode, VisiblePlaneStack,
 };
 pub use roll::CameraRoll;
 pub use screen_world_remap::{

@@ -456,6 +456,22 @@ pub(crate) fn cell_clip_size_for_surface(surface_size: SurfaceSize) -> [f32; 2] 
 mod tests {
     use super::*;
 
+    fn test_world() -> WorldPoint {
+        WorldPoint::origin()
+    }
+
+    fn quad_has_any_local_uv_outside_authored_tile(quad: &SurfaceQuad) -> bool {
+        quad.local_uv_corners
+            .iter()
+            .any(|uv| uv[0] < 0.0 || uv[0] > 1.0 || uv[1] < 0.0 || uv[1] > 1.0)
+    }
+
+    fn quad_has_all_local_uv_inside_authored_tile(quad: &SurfaceQuad) -> bool {
+        quad.local_uv_corners
+            .iter()
+            .all(|uv| uv[0] >= 0.0 && uv[0] <= 1.0 && uv[1] >= 0.0 && uv[1] <= 1.0)
+    }
+
     #[test]
     fn textured_glyphs_emit_a_texture_buffer_around_visible_texels() {
         let quads = raster_to_surface_quads(
@@ -471,6 +487,7 @@ mod tests {
             CellWarble::none(),
             128,
             7,
+            test_world(),
         )
         .unwrap();
 
@@ -496,6 +513,7 @@ mod tests {
             CellWarble::none(),
             128,
             7,
+            test_world(),
         )
         .unwrap();
 
@@ -518,6 +536,7 @@ mod tests {
             CellWarble::none(),
             128,
             7,
+            test_world(),
         )
         .unwrap();
 
@@ -531,12 +550,7 @@ mod tests {
             .collect::<Vec<_>>();
         let ring_quads = invisible_quads
             .iter()
-            .filter(|quad| {
-                quad.local_uv[0] < 0.0
-                    || quad.local_uv[0] > 1.0
-                    || quad.local_uv[1] < 0.0
-                    || quad.local_uv[1] > 1.0
-            })
+            .filter(|quad| quad_has_any_local_uv_outside_authored_tile(quad))
             .collect::<Vec<_>>();
 
         assert!(visible_quads.iter().all(|quad| quad.size == [0.5, 0.5]));
@@ -560,6 +574,7 @@ mod tests {
             CellWarble::new(1),
             128,
             7,
+            test_world(),
         )
         .unwrap();
 
@@ -585,18 +600,13 @@ mod tests {
             CellWarble::none(),
             128,
             7,
+            test_world(),
         )
         .unwrap();
 
         let interior_invisible = quads
             .iter()
-            .filter(|quad| {
-                quad.color[3] == 0.0
-                    && quad.local_uv[0] >= 0.0
-                    && quad.local_uv[0] <= 1.0
-                    && quad.local_uv[1] >= 0.0
-                    && quad.local_uv[1] <= 1.0
-            })
+            .filter(|quad| quad.color[3] == 0.0 && quad_has_all_local_uv_inside_authored_tile(quad))
             .count();
 
         assert_eq!(quads.len(), 9);

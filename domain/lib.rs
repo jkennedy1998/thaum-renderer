@@ -42,11 +42,11 @@ pub use camera::{
     project_rotating_3d_world_to_view_plane, project_world_relative_to_view,
     project_world_to_camera_units, project_world_to_view_plane,
     project_world_to_view_plane_for_intake, projected_plane_is_visible,
-    remap_camera_units_to_active_plane_world, remap_camera_units_to_world_on_plane,
-    remap_surface_units_to_active_plane_world, unproject_view_plane_to_world,
-    unproject_view_relative_to_world, visible_plane_stack_for_camera, Camera, CameraProjectedPoint,
-    CameraProjectionMode, CameraRoll, CameraSwing, CameraViewOrientation, ViewRelativePoint,
-    VisiblePlaneStack,
+    projected_plane_scale_factor, remap_camera_units_to_active_plane_world,
+    remap_camera_units_to_world_on_plane, remap_surface_units_to_active_plane_world,
+    unproject_view_plane_to_world, unproject_view_relative_to_world,
+    visible_plane_stack_for_camera, Camera, CameraProjectedPoint, CameraProjectionMode, CameraRoll,
+    CameraSwing, CameraViewOrientation, ViewRelativePoint, VisiblePlaneStack,
 };
 pub use cell::Cell;
 pub use cell_color::{CellColor, CellColorSlot};

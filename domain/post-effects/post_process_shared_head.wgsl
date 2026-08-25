@@ -74,6 +74,14 @@ fn layered_noise(p: vec2<f32>) -> f32 {
     return n0 * 0.6 + n1 * 0.3 + n2 * 0.1;
 }
 
+fn sample_surface_color(uv: vec2<f32>) -> vec4<f32> {
+    if uniforms.flags.w >= 0.5 {
+        return textureSample(color_tex, linear_sampler, uv);
+    }
+
+    return textureSample(color_tex, nearest_sampler, uv);
+}
+
 fn sample_bus_meta(uv: vec2<f32>) -> vec4<f32> {
     let bus = textureSample(bus_tex, nearest_sampler, uv);
     let meta_sample = textureSample(meta_tex, nearest_sampler, uv);
