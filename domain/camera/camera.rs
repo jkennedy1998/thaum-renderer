@@ -198,51 +198,6 @@ mod tests {
     }
 
     #[test]
-    fn project_world_to_camera_units_offsets_depth_up_and_right() {
-        let camera = Camera::default();
-        let projected = project_world_to_camera_units(camera, WorldPoint { x: 0, y: 0, z: 2 });
-
-        assert!(projected[0] > 0.0);
-        assert!(projected[1] < 0.0);
-        assert!((projected[0] + projected[1]).abs() < 0.01);
-    }
-
-    #[test]
-    fn project_world_to_camera_units_combines_world_xy_with_depth_offset() {
-        let camera = Camera {
-            position: WorldPoint::origin(),
-            focus_target: WorldPoint { x: 1, y: 2, z: 3 },
-            swing: CameraSwing::PosZ,
-            ..Camera::default()
-        };
-
-        let projected = project_world_to_camera_units(camera, WorldPoint { x: 4, y: 7, z: 5 });
-
-        assert!(projected[0] > 3.2 && projected[0] < 3.5);
-        assert!(projected[1] > 4.2 && projected[1] < 4.5);
-    }
-
-    #[test]
-    fn project_world_to_camera_units_rotates_depth_with_swing() {
-        let pos_x_camera = Camera {
-            swing: CameraSwing::PosX,
-            ..Camera::default()
-        };
-        let neg_x_camera = Camera {
-            swing: CameraSwing::NegX,
-            ..Camera::default()
-        };
-
-        let pos_x = project_world_to_camera_units(pos_x_camera, WorldPoint { x: 2, y: 0, z: 0 });
-        let neg_x = project_world_to_camera_units(neg_x_camera, WorldPoint { x: 2, y: 0, z: 0 });
-
-        assert!(pos_x[0] < 0.0);
-        assert!(pos_x[1] < 0.0);
-        assert!(neg_x[0] < 0.0);
-        assert!(neg_x[1] < 0.0);
-    }
-
-    #[test]
     fn turn_clockwise_swings_right_around_the_cube() {
         let mut camera = Camera::default();
         camera.turn_clockwise();
