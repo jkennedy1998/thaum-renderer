@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, path::PathBuf, time::Instant};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use anyhow::{Context, Result};
 use thaum_renderer_breath_fallback_clock::{FallbackBreathClock, FALLBACK_BREATH_TICK_DURATION};
@@ -74,6 +79,40 @@ pub struct BootState {
     pub uses_fallback_breath: bool,
 }
 
+#[derive(Default)]
+struct RendererAssetCache {
+    glyph_fonts: RefCell<Option<GlyphFontSet>>,
+    sprite_atlases: RefCell<Option<SpriteAtlasSet>>,
+}
+
+impl RendererAssetCache {
+    fn ensure_glyph_fonts(&self, asset_root: &Path, hot_reload: bool) -> Result<()> {
+        let already_loaded = self.glyph_fonts.borrow().is_some();
+        if hot_reload || !already_loaded {
+            let loaded =
+                GlyphFontSet::load_from_asset_root(asset_root).map_err(anyhow::Error::msg)?;
+            *self.glyph_fonts.borrow_mut() = Some(loaded);
+        }
+        Ok(())
+    }
+
+    fn glyph_fonts(&self) -> Ref<'_, Option<GlyphFontSet>> {
+        self.glyph_fonts.borrow()
+    }
+
+    fn ensure_sprite_atlases(&self, asset_root: &Path, hot_reload: bool) {
+        let already_loaded = self.sprite_atlases.borrow().is_some();
+        if hot_reload || !already_loaded {
+            *self.sprite_atlases.borrow_mut() =
+                Some(SpriteAtlasSet::load_from_asset_root(asset_root));
+        }
+    }
+
+    fn sprite_atlases(&self) -> RefMut<'_, Option<SpriteAtlasSet>> {
+        self.sprite_atlases.borrow_mut()
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ProjectedBootCell {
     world: WorldPoint,
@@ -129,6 +168,7 @@ pub fn run_renderer_window_with_state_frame_provider(
         FallbackBreathClock::new(frame_state.data_lanes.breath().unwrap_or(0));
     let mut last_tick = Instant::now();
     let window_config = frame_state.config.window.clone();
+    let asset_cache = RendererAssetCache::default();
 
     run_window_surface_with_frame_provider(window_config, move |frame| {
         let now = Instant::now();
@@ -141,7 +181,11 @@ pub fn run_renderer_window_with_state_frame_provider(
         }
 
         frame_provider(&mut frame_state, &frame)?;
-        build_window_surface_scene_for_surface(&frame_state, frame.surface_size)
+        build_window_surface_scene_for_surface_with_cache(
+            &frame_state,
+            frame.surface_size,
+            &asset_cache,
+        )
     })
 }
 
@@ -152,6 +196,18 @@ pub fn build_window_surface_scene(state: &BootState) -> Result<WindowSurfaceScen
 pub fn build_window_surface_scene_for_surface(
     state: &BootState,
     surface_size: SurfaceSize,
+) -> Result<WindowSurfaceScene> {
+    build_window_surface_scene_for_surface_with_cache(
+        state,
+        surface_size,
+        &RendererAssetCache::default(),
+    )
+}
+
+fn build_window_surface_scene_for_surface_with_cache(
+    state: &BootState,
+    surface_size: SurfaceSize,
+    asset_cache: &RendererAssetCache,
 ) -> Result<WindowSurfaceScene> {
     let visible_stack = thaum_renderer_domain::visible_plane_stack_for_camera(state.camera);
     let fog_nearest_depth_code = encode_relative_depth_to_post_effect_bus(visible_stack.min_plane);
@@ -174,21 +230,15 @@ pub fn build_window_surface_scene_for_surface(
         ],
         ..WindowSurfaceScene::default()
     };
-    let glyph_fonts = if composition_contains_visible_glyphs(&state.composition) {
-        Some(
-            GlyphFontSet::load_from_asset_root(&state.config.asset_root)
-                .map_err(anyhow::Error::msg)?,
-        )
-    } else {
-        None
-    };
-    let mut sprite_atlases = if composition_contains_visible_sprites(&state.composition) {
-        Some(SpriteAtlasSet::load_from_asset_root(
-            &state.config.asset_root,
-        ))
-    } else {
-        None
-    };
+    if composition_contains_visible_glyphs(&state.composition) {
+        asset_cache.ensure_glyph_fonts(&state.config.asset_root, state.config.hot_reload)?;
+    }
+    if composition_contains_visible_sprites(&state.composition) {
+        asset_cache.ensure_sprite_atlases(&state.config.asset_root, state.config.hot_reload);
+    }
+    let glyph_fonts_borrow = asset_cache.glyph_fonts();
+    let glyph_fonts = glyph_fonts_borrow.as_ref();
+    let mut sprite_atlases_borrow = asset_cache.sprite_atlases();
     let base_cell_clip_size = cell_clip_size_for_surface(surface_size);
     let cell_clip_size = [
         base_cell_clip_size[0] * state.camera.zoom,
@@ -204,8 +254,8 @@ pub fn build_window_surface_scene_for_surface(
                 state.camera,
                 projected_cell,
                 state.data_lanes,
-                glyph_fonts.as_ref(),
-                sprite_atlases.as_mut(),
+                glyph_fonts,
+                sprite_atlases_borrow.as_mut(),
                 cell_clip_size,
             )?);
         }
