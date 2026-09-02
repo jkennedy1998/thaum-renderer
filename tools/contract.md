@@ -16,6 +16,8 @@ Own reusable low-level helper surfaces for thaum-renderer that are not the prima
   - default
 - `color/`
   - default
+- `theme-roles/`
+  - default
 - `window-surface/`
   - default
 

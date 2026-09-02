@@ -23,6 +23,16 @@ pub enum CellMaterialId {
 }
 
 impl CellMaterialId {
+    pub const fn all() -> &'static [Self] {
+        &[Self::GrayScale]
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::GrayScale => "gray-scale",
+        }
+    }
+
     pub fn resolve_band(self, band: ColorBand) -> [f32; 4] {
         match self {
             Self::GrayScale => GRAY_SCALE_BANDS[band.as_index()],

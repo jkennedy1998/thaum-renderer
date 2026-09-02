@@ -9,19 +9,20 @@ pub mod swing;
 #[path = "view-orientation/view_orientation.rs"]
 pub mod view_orientation;
 
-use crate::{coordinate_space::WorldPoint, GlobalDirection};
+use crate::{coordinate_space::CellPoint, coordinate_space::WorldPoint, GlobalDirection};
 pub use projection::{
     build_visible_plane_stack_around_focus, derive_visible_plane_stack_from_world_points,
     focus_plane_for_camera, project_flat_2d_world_to_view_plane,
     project_rotating_3d_world_to_view_plane, project_world_to_view_plane,
     project_world_to_view_plane_for_intake, projected_plane_is_visible,
-    projected_plane_scale_factor, unproject_view_plane_to_world, visible_plane_stack_for_camera,
-    CameraProjectedPoint, CameraProjectionMode, VisiblePlaneStack,
+    projected_plane_scale_factor, unproject_flat_2d_view_plane_to_local,
+    unproject_view_plane_to_world, visible_plane_stack_for_camera, CameraProjectedPoint,
+    CameraProjectionMode, VisiblePlaneStack,
 };
 pub use roll::CameraRoll;
 pub use screen_world_remap::{
     remap_camera_units_to_active_plane_world, remap_camera_units_to_world_on_plane,
-    remap_surface_units_to_active_plane_world,
+    remap_surface_units_to_active_plane_world, remap_surface_units_to_flat_2d_local,
 };
 pub use swing::CameraSwing;
 pub use view_orientation::{
@@ -41,6 +42,11 @@ pub struct Camera {
     pub visible_plane_radius: i32,
     pub visible_plane_depth_offset: i32,
     pub zoom: f32,
+    /// Screen-space pan applied to every `Flat2d` (HUD) cell, on top of its
+    /// own local offset. Independent of `focus_target`/`swing`/`roll` so the
+    /// 2D layer can be navigated (e.g. to reach off-screen panels) without
+    /// disturbing the 3D scene pan.
+    pub hud_pan_offset: CellPoint,
 }
 
 impl Default for Camera {
@@ -54,6 +60,7 @@ impl Default for Camera {
             visible_plane_radius: 8,
             visible_plane_depth_offset: 0,
             zoom: 1.0,
+            hud_pan_offset: CellPoint::origin(),
         }
     }
 }
@@ -123,6 +130,45 @@ impl Camera {
 
     pub fn zoom_out(&mut self) {
         self.zoom = (self.zoom / Self::ZOOM_STEP_FACTOR).max(Self::MIN_ZOOM);
+    }
+
+    /// Pans `focus_target` sideways in the current view orientation — moves
+    /// the 3D scene (Rotating3d content) under a screen-fixed HUD.
+    pub fn pan_focus_right(&mut self, delta: i32) {
+        self.step_focus_target(
+            camera_view_orientation_for_camera(self.swing, self.roll).right,
+            delta,
+        );
+    }
+
+    /// Pans `focus_target` vertically in the current view orientation.
+    pub fn pan_focus_up(&mut self, delta: i32) {
+        self.step_focus_target(
+            camera_view_orientation_for_camera(self.swing, self.roll).up,
+            delta,
+        );
+    }
+
+    /// Pans `focus_target` along the active depth axis (into/out of the screen).
+    pub fn pan_focus_depth(&mut self, delta: i32) {
+        self.step_focus_target(active_depth_direction_for_swing(self.swing), delta);
+    }
+
+    fn step_focus_target(&mut self, direction: GlobalDirection, delta: i32) {
+        let unit = direction.unit_vector();
+        self.focus_target.x += unit[0] * delta;
+        self.focus_target.y += unit[1] * delta;
+        self.focus_target.z += unit[2] * delta;
+    }
+
+    /// Pans the 2D HUD layer sideways, independent of `focus_target`/swing/roll.
+    pub fn pan_hud_right(&mut self, delta: i32) {
+        self.hud_pan_offset.x += delta;
+    }
+
+    /// Pans the 2D HUD layer vertically, independent of `focus_target`/swing/roll.
+    pub fn pan_hud_up(&mut self, delta: i32) {
+        self.hud_pan_offset.y += delta;
     }
 }
 
@@ -267,6 +313,37 @@ mod tests {
 
         assert_eq!(camera.swing, start.swing);
         assert_eq!(camera.roll, start.roll);
+    }
+
+    #[test]
+    fn pan_focus_right_and_up_move_focus_target_in_view_orientation() {
+        let mut camera = Camera {
+            swing: CameraSwing::PosX,
+            ..Camera::default()
+        };
+        camera.pan_focus_right(2);
+        camera.pan_focus_up(3);
+
+        assert_ne!(camera.focus_target, WorldPoint::origin());
+        assert_eq!(camera.hud_pan_offset, CellPoint::origin());
+    }
+
+    #[test]
+    fn pan_focus_depth_moves_along_the_active_depth_axis() {
+        let mut camera = Camera::default();
+        camera.pan_focus_depth(4);
+
+        assert_eq!(camera.focus_target, WorldPoint { x: 0, y: 0, z: 4 });
+    }
+
+    #[test]
+    fn pan_hud_moves_only_the_hud_pan_offset() {
+        let mut camera = Camera::default();
+        camera.pan_hud_right(5);
+        camera.pan_hud_up(-2);
+
+        assert_eq!(camera.hud_pan_offset, CellPoint { x: 5, y: -2, z: 0 });
+        assert_eq!(camera.focus_target, WorldPoint::origin());
     }
 
     #[test]

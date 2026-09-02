@@ -9,6 +9,7 @@ Own the minimal boot seam for standing up thaum-renderer usage when a reusable r
 - boot-time intake of the consumer-chosen renderer asset root
 - boot-time intake of optional hot-reload mode
 - boot-time intake of renderer presentation target setup when the renderer is being asked to open or bind to one
+- re-exporting `tools/window-surface`'s per-frame input/frame-context shape and a camera-zoom-aware `cell_clip_size_for_state` helper, so a consumer can convert a clip-space click into a world/cell coordinate without depending on `tools/window-surface` directly
 
 ## does not own
 - domain design truth

@@ -186,6 +186,21 @@ pub fn project_flat_2d_world_to_view_plane(
     }
 }
 
+/// Inverse of `project_flat_2d_world_to_view_plane` when the anchor is always
+/// `camera.focus_target` (the only anchor the boot pipeline uses) — the
+/// anchor's relative offset is always zero, so this needs none of
+/// `camera`'s swing/roll/focus_target, only its own HUD pan offset.
+pub fn unproject_flat_2d_view_plane_to_local(
+    camera: Camera,
+    projected: CameraProjectedPoint,
+) -> CellPoint {
+    CellPoint {
+        x: projected.u.round() as i32 - camera.hud_pan_offset.x,
+        y: projected.v.round() as i32 - camera.hud_pan_offset.y,
+        z: 0,
+    }
+}
+
 pub fn unproject_view_plane_to_world(
     camera: Camera,
     projected: CameraProjectedPoint,
@@ -363,6 +378,47 @@ mod tests {
         let flat = project_flat_2d_world_to_view_plane(camera, world, CellPoint::origin());
 
         assert_eq!(rotating, flat);
+    }
+
+    #[test]
+    fn unproject_flat_2d_view_plane_to_local_round_trips_projected_local_offsets() {
+        let local = CellPoint { x: -6, y: 12, z: 0 };
+        let camera = Camera {
+            focus_target: WorldPoint {
+                x: 40,
+                y: -17,
+                z: 6,
+            },
+            swing: CameraSwing::PosX,
+            roll: crate::CameraRoll::Deg90,
+            ..Camera::default()
+        };
+        let projected = project_flat_2d_world_to_view_plane(camera, camera.focus_target, local);
+
+        assert_eq!(
+            unproject_flat_2d_view_plane_to_local(camera, projected),
+            local
+        );
+    }
+
+    #[test]
+    fn unproject_flat_2d_view_plane_to_local_reverses_hud_pan_offset() {
+        let camera = Camera {
+            hud_pan_offset: CellPoint { x: 5, y: -3, z: 0 },
+            ..Camera::default()
+        };
+
+        assert_eq!(
+            unproject_flat_2d_view_plane_to_local(
+                camera,
+                CameraProjectedPoint {
+                    u: 5.0,
+                    v: -3.0,
+                    plane: 0,
+                },
+            ),
+            CellPoint::origin()
+        );
     }
 
     #[test]

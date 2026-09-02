@@ -1,6 +1,6 @@
 use std::{
     cell::{Ref, RefCell, RefMut},
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -9,17 +9,16 @@ use anyhow::{Context, Result};
 use thaum_renderer_breath_fallback_clock::{FallbackBreathClock, FALLBACK_BREATH_TICK_DURATION};
 use thaum_renderer_domain::{
     apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
-    apply_debug_warble_post_effect_to_rgba, compose_cells,
-    encode_relative_depth_to_post_effect_bus, project_flat_2d_world_to_view_plane,
-    project_rotating_3d_world_to_view_plane, projected_plane_is_visible,
-    projected_plane_scale_factor, resolve_shaded_texture, resolve_shaded_warble,
-    resolve_shaded_weight, Camera, CameraProjectedPoint, Cell, CellGroupIntakeBehavior,
-    Composition, DataLanes, GlyphFontSet, IndexColorClampEffect, SpriteAtlasSet, WorldPoint,
-    GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+    apply_debug_warble_post_effect_to_rgba, encode_relative_depth_to_post_effect_bus,
+    project_flat_2d_world_to_view_plane, project_rotating_3d_world_to_view_plane,
+    projected_plane_is_visible, projected_plane_scale_factor, resolve_shaded_texture,
+    resolve_shaded_warble, resolve_shaded_weight, Camera, CameraProjectedPoint, Cell,
+    CellGroupIntakeBehavior, CellPoint, Composition, DataLanes, GlyphFontSet,
+    IndexColorClampEffect, SpriteAtlasSet, WorldPoint, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
 };
-use thaum_renderer_window_surface::{
+pub use thaum_renderer_window_surface::{
     run_window_surface_with_frame_provider, SurfaceQuad, SurfaceSize, WindowSurfaceConfig,
-    WindowSurfaceFrameContext, WindowSurfaceScene,
+    WindowSurfaceFrameContext, WindowSurfaceInput, WindowSurfaceScene,
 };
 
 mod effect_quads;
@@ -202,6 +201,16 @@ pub fn build_window_surface_scene_for_surface(
         surface_size,
         &RendererAssetCache::default(),
     )
+}
+
+/// The camera-zoom-adjusted cell clip size used to render `state`'s
+/// composition for a given surface size. A consumer converting a clip-space
+/// cursor/click position into a world/cell coordinate (via
+/// `thaum_renderer_domain::remap_surface_units_to_active_plane_world`) must
+/// use this same value so hit-testing agrees with what was actually drawn.
+pub fn cell_clip_size_for_state(state: &BootState, surface_size: SurfaceSize) -> [f32; 2] {
+    let base = cell_clip_size_for_surface(surface_size);
+    [base[0] * state.camera.zoom, base[1] * state.camera.zoom]
 }
 
 fn build_window_surface_scene_for_surface_with_cache(
@@ -482,33 +491,77 @@ fn stage_projected_boot_cells(
     state: &BootState,
     cell_clip_size: [f32; 2],
 ) -> Vec<ProjectedBootCell> {
-    compose_cells(&state.composition)
-        .into_iter()
-        .filter_map(|composed| {
-            let projected = match composed.intake_behavior {
+    let mut staged = Vec::new();
+    let mut projected_to_index = HashMap::<(i32, u32, u32), usize>::new();
+
+    for group_index in state.composition.pass_order.iter().copied() {
+        let group = state
+            .composition
+            .groups
+            .get(group_index)
+            .unwrap_or_else(|| {
+                panic!("composition pass_order references missing group index {group_index}")
+            });
+
+        for cell in group.iter_cells() {
+            let world = group.world_point_for(cell.position);
+            let projected = match group.intake_behavior {
                 CellGroupIntakeBehavior::Rotating3d => {
-                    project_rotating_3d_world_to_view_plane(state.camera, composed.world)
+                    project_rotating_3d_world_to_view_plane(state.camera, world)
                 }
-                CellGroupIntakeBehavior::Flat2d => project_flat_2d_world_to_view_plane(
-                    state.camera,
-                    composed.group_origin,
-                    composed.cell.position,
-                ),
+                CellGroupIntakeBehavior::Flat2d => {
+                    // Flat2d content is a screen-locked 2D layer: its group
+                    // origin is a screen-space offset, not a world anchor, so
+                    // it always projects relative to the camera's own focus
+                    // target (the active render depth) instead of drifting
+                    // as the camera pans between unrelated world anchors.
+                    // `hud_pan_offset` is the one thing allowed to move it,
+                    // so the 2D layer can be panned on its own.
+                    let local = CellPoint {
+                        x: group.origin.x + cell.position.x + state.camera.hud_pan_offset.x,
+                        y: group.origin.y + cell.position.y + state.camera.hud_pan_offset.y,
+                        z: group.origin.z + cell.position.z,
+                    };
+                    project_flat_2d_world_to_view_plane(
+                        state.camera,
+                        state.camera.focus_target,
+                        local,
+                    )
+                }
             };
-            (projected_plane_is_visible(state.camera, projected.plane)
-                && projected_cell_intersects_surface(
+
+            if !projected_plane_is_visible(state.camera, projected.plane)
+                || !projected_cell_intersects_surface(
                     state.camera,
                     projected,
                     cell_clip_size,
                     state.config.surface_cull_bleed_cells,
-                ))
-            .then_some(ProjectedBootCell {
-                world: composed.world,
+                )
+            {
+                continue;
+            }
+
+            let key = (
+                projected.plane,
+                projected.u.to_bits(),
+                projected.v.to_bits(),
+            );
+            let next = ProjectedBootCell {
+                world,
                 projected,
-                cell: composed.cell,
-            })
-        })
-        .collect()
+                cell: cell.clone(),
+            };
+            if let Some(index) = projected_to_index.get(&key).copied() {
+                staged[index] = next;
+            } else {
+                let index = staged.len();
+                staged.push(next);
+                projected_to_index.insert(key, index);
+            }
+        }
+    }
+
+    staged
 }
 
 fn group_projected_boot_cells_by_plane(
@@ -588,6 +641,181 @@ mod tests {
         let state = boot_renderer(BootConfig::default()).unwrap();
         assert_eq!(state.data_lanes.breath(), Some(0));
         assert!(state.uses_fallback_breath);
+    }
+
+    #[test]
+    fn stage_projected_boot_cells_keeps_flat_2d_modules_screen_locked_across_camera_pan_and_swing()
+    {
+        let module_group = CellGroup::from_cells(
+            WorldPoint { x: 5, y: 2, z: 0 },
+            [Cell {
+                position: CellPoint { x: 1, y: 1, z: 0 },
+                graphic: CellGraphic::Glyph('A'),
+                ..Cell::default()
+            }],
+        )
+        .with_intake_behavior(CellGroupIntakeBehavior::Flat2d);
+
+        let build_state = |camera: Camera| BootState {
+            camera,
+            composition: Composition {
+                groups: vec![module_group.clone()],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+        let cell_clip_size =
+            cell_clip_size_for_surface(SurfaceSize::from(&BootConfig::default().window));
+
+        let at_origin = build_state(Camera::default());
+        let panned = build_state(Camera {
+            focus_target: WorldPoint {
+                x: 40,
+                y: -17,
+                z: 6,
+            },
+            ..Camera::default()
+        });
+        let swung = build_state(Camera {
+            focus_target: WorldPoint {
+                x: 40,
+                y: -17,
+                z: 6,
+            },
+            swing: CameraSwing::PosX,
+            ..Camera::default()
+        });
+
+        let origin_staged = stage_projected_boot_cells(&at_origin, cell_clip_size);
+        let panned_staged = stage_projected_boot_cells(&panned, cell_clip_size);
+        let swung_staged = stage_projected_boot_cells(&swung, cell_clip_size);
+
+        assert_eq!(origin_staged.len(), 1);
+        assert_eq!(origin_staged[0].projected, panned_staged[0].projected);
+        assert_eq!(origin_staged[0].projected, swung_staged[0].projected);
+        assert_eq!(swung_staged[0].projected.plane, 0);
+    }
+
+    #[test]
+    fn stage_projected_boot_cells_hud_pan_offset_moves_flat_2d_but_not_rotating_3d_cells() {
+        let module_group = CellGroup::from_cells(
+            WorldPoint { x: 5, y: 2, z: 0 },
+            [Cell {
+                position: CellPoint { x: 1, y: 1, z: 0 },
+                graphic: CellGraphic::Glyph('A'),
+                ..Cell::default()
+            }],
+        )
+        .with_intake_behavior(CellGroupIntakeBehavior::Flat2d);
+        let scene_group = CellGroup::from_cells(
+            WorldPoint { x: 1, y: 1, z: 0 },
+            [Cell {
+                position: CellPoint { x: 1, y: 1, z: 0 },
+                graphic: CellGraphic::Glyph('B'),
+                ..Cell::default()
+            }],
+        );
+
+        let build_state = |camera: Camera| BootState {
+            camera,
+            composition: Composition {
+                groups: vec![module_group.clone(), scene_group.clone()],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+        let cell_clip_size =
+            cell_clip_size_for_surface(SurfaceSize::from(&BootConfig::default().window));
+
+        let at_rest = stage_projected_boot_cells(&build_state(Camera::default()), cell_clip_size);
+        let panned = stage_projected_boot_cells(
+            &build_state(Camera {
+                hud_pan_offset: CellPoint { x: 3, y: -2, z: 0 },
+                ..Camera::default()
+            }),
+            cell_clip_size,
+        );
+
+        let flat_at_rest = at_rest
+            .iter()
+            .find(|c| c.cell.graphic == CellGraphic::Glyph('A'))
+            .unwrap();
+        let flat_panned = panned
+            .iter()
+            .find(|c| c.cell.graphic == CellGraphic::Glyph('A'))
+            .unwrap();
+        let scene_at_rest = at_rest
+            .iter()
+            .find(|c| c.cell.graphic == CellGraphic::Glyph('B'))
+            .unwrap();
+        let scene_panned = panned
+            .iter()
+            .find(|c| c.cell.graphic == CellGraphic::Glyph('B'))
+            .unwrap();
+
+        assert_eq!(flat_panned.projected.u, flat_at_rest.projected.u + 3.0);
+        assert_eq!(flat_panned.projected.v, flat_at_rest.projected.v - 2.0);
+        assert_eq!(scene_panned.projected, scene_at_rest.projected);
+    }
+
+    #[test]
+    fn stage_projected_boot_cells_reveals_rotating_3d_cells_once_flat_2d_moves_off_them() {
+        let scene_group = CellGroup::from_cells(
+            WorldPoint::origin(),
+            [Cell {
+                position: CellPoint::origin(),
+                graphic: CellGraphic::Glyph('S'),
+                ..Cell::default()
+            }],
+        );
+        let module_group = CellGroup::from_cells(
+            WorldPoint::origin(),
+            [Cell {
+                position: CellPoint::origin(),
+                graphic: CellGraphic::Glyph('M'),
+                ..Cell::default()
+            }],
+        )
+        .with_intake_behavior(CellGroupIntakeBehavior::Flat2d);
+        let build_state = |camera: Camera| BootState {
+            camera,
+            composition: Composition {
+                groups: vec![scene_group.clone(), module_group.clone()],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+        let cell_clip_size =
+            cell_clip_size_for_surface(SurfaceSize::from(&BootConfig::default().window));
+
+        let overlapping =
+            stage_projected_boot_cells(&build_state(Camera::default()), cell_clip_size);
+        let separated = stage_projected_boot_cells(
+            &build_state(Camera {
+                hud_pan_offset: CellPoint { x: 2, y: 0, z: 0 },
+                ..Camera::default()
+            }),
+            cell_clip_size,
+        );
+
+        assert_eq!(overlapping.len(), 1);
+        assert_eq!(overlapping[0].cell.graphic, CellGraphic::Glyph('M'));
+        assert_eq!(separated.len(), 2);
+        assert!(separated
+            .iter()
+            .any(|cell| cell.cell.graphic == CellGraphic::Glyph('M')));
+        assert!(separated
+            .iter()
+            .any(|cell| cell.cell.graphic == CellGraphic::Glyph('S')));
     }
 
     #[test]
@@ -1600,5 +1828,27 @@ mod tests {
 
         assert_eq!(clip_size[1], CELL_HEIGHT_CLIP_SPACE);
         assert!((clip_size[0] - 0.084375).abs() < 0.0001);
+    }
+
+    #[test]
+    fn cell_clip_size_for_state_scales_with_camera_zoom() {
+        let surface_size = SurfaceSize {
+            width: 1280,
+            height: 720,
+        };
+        let mut state = BootState {
+            camera: Camera::default(),
+            composition: Composition::default(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+
+        let base = cell_clip_size_for_state(&state, surface_size);
+        state.camera.zoom *= 2.0;
+        let zoomed = cell_clip_size_for_state(&state, surface_size);
+
+        assert_eq!(zoomed[0], base[0] * 2.0);
+        assert_eq!(zoomed[1], base[1] * 2.0);
     }
 }

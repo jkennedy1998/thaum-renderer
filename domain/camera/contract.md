@@ -64,3 +64,4 @@ Own the renderer camera shape that defines what part of the global coordinate sp
 - cursor logic is not camera ownership; programs may render cursor-like cell-groups downstream, but renderer camera truth stops at focus target and remap semantics
 - renderer may expose camera movement/swing/roll/zoom operations, but keybinding ownership stays with the consuming app
 - visible depth range calculations and similar helpers can live under `tools/camera/` without moving camera design truth out of domain
+- the camera owns two independent pan operations: focus-target pan (`pan_focus_right`/`pan_focus_up`/`pan_focus_depth`, moving the 3D scene under a screen-fixed HUD) and HUD pan (`pan_hud_right`/`pan_hud_up`, moving the screen-locked `Flat2d` layer via `hud_pan_offset`, independent of swing/roll/focus target); consuming apps route input between the two (e.g. by hover), not the camera itself

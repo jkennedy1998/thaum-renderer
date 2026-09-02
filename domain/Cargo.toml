@@ -8,6 +8,7 @@ authors.workspace = true
 [dependencies]
 fontdue.workspace = true
 png.workspace = true
+serde.workspace = true
 thaum-renderer-tools-color = { path = "../tools/color" }
 
 [lib]

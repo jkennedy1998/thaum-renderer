@@ -19,4 +19,5 @@ authors = ["J"]
 anyhow = "1"
 fontdue = "0.9"
 png = "0.17"
+serde = { version = "1", features = ["derive"] }
 winit = "0.30"

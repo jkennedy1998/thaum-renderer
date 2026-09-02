@@ -25,7 +25,8 @@ Own boot-only orchestration documentation and thin boot-facing seams for thaum-r
   - default
 
 ## contents
-- none
+- `renderer-assets/`
+  - checked-in proving asset root (glyph fonts, cell-sprite atlases, proof sprites) used for early development; not an encapsulation, see its own `README.md`
 
 ## dependencies
 - `/home/j/Repos/thaum-renderer/domain/`

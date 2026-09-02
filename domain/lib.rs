@@ -20,16 +20,38 @@ pub mod cell_texture;
 pub mod cell_warble;
 #[path = "cell-weight/cell_weight.rs"]
 pub mod cell_weight;
+#[path = "modules/individuals/color-block/color_block_module.rs"]
+pub mod color_block_module;
+#[path = "modules/individuals/color-picker/color_picker_module.rs"]
+pub mod color_picker_module;
+#[path = "modules/individuals/ui-customization/ui_customization_module.rs"]
+pub mod ui_customization_module;
+#[path = "command-bar/command_bar.rs"]
+pub mod command_bar;
 #[path = "composition/composition.rs"]
 pub mod composition;
+#[path = "controls/controls.rs"]
+pub mod controls;
 #[path = "coordinate-space/coordinate_space.rs"]
 pub mod coordinate_space;
 #[path = "data-lanes/data_lanes.rs"]
 pub mod data_lanes;
+#[path = "modules/module.rs"]
+pub mod module;
+#[path = "modules/shared/module-gizmos/module_gizmos.rs"]
+pub mod module_gizmos;
+#[path = "modules/shared/panel-chrome/panel_chrome.rs"]
+pub mod panel_chrome;
 #[path = "post-effects/post_effects.rs"]
 pub mod post_effects;
+#[path = "modules/shared/property-rows/property_rows.rs"]
+pub mod property_rows;
 #[path = "cell-graphic/sprite/sprite-color-space/sprite_color_space.rs"]
 pub mod sprite_color_space;
+#[path = "modules/shared/ui-palette/ui_palette.rs"]
+pub mod ui_palette;
+#[path = "persistence/ui-session-state/ui_session_state.rs"]
+pub mod ui_session_state;
 
 pub use atlas_intake::{
     load_sprite_atlas_image, load_sprite_atlas_spec, AtlasForm, AtlasSpec, SpriteAtlasImage,
@@ -44,6 +66,7 @@ pub use camera::{
     project_world_to_view_plane_for_intake, projected_plane_is_visible,
     projected_plane_scale_factor, remap_camera_units_to_active_plane_world,
     remap_camera_units_to_world_on_plane, remap_surface_units_to_active_plane_world,
+    remap_surface_units_to_flat_2d_local, unproject_flat_2d_view_plane_to_local,
     unproject_view_plane_to_world, unproject_view_relative_to_world,
     visible_plane_stack_for_camera, Camera, CameraProjectedPoint, CameraProjectionMode, CameraRoll,
     CameraSwing, CameraViewOrientation, ViewRelativePoint, VisiblePlaneStack,
@@ -65,9 +88,22 @@ pub use cell_shader::{
 pub use cell_texture::CellTexture;
 pub use cell_warble::CellWarble;
 pub use cell_weight::CellWeight;
+pub use color_block_module::ColorBlockModule;
+pub use color_picker_module::ColorPickerModule;
+pub use ui_customization_module::UiCustomizationModule;
+pub use command_bar::{
+    CommandBar, CommandBarButton, CommandBarClickOutcome, CommandBarLayout,
+    PersistedCommandBarState,
+};
 pub use composition::{compose_cells, ComposedCell, Composition};
+pub use controls::{ActionBindingMap, ActionName, PressureSample, RawInput};
 pub use coordinate_space::{AxisSign, CellPoint, GlobalDirection, WorldAxis, WorldPoint};
 pub use data_lanes::DataLanes;
+pub use module::{
+    BlankPanelModule, Module, ModulePointerButton, ModulePointerEvent, ModuleRect, ModuleRegistry,
+};
+pub use module_gizmos::{GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, ResizeEdge};
+pub use panel_chrome::{PanelBorderEdge, PanelBorderStyle, PanelChrome};
 pub use post_effects::{
     apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
     apply_debug_warble_post_effect_to_rgba, clamp_rgba_collection_to_index_palette,
@@ -80,7 +116,15 @@ pub use post_effects::{
     WARBLE_POST_EFFECT_BREATH_SCROLL_RATE, WARBLE_POST_EFFECT_PRESET_NONE,
     WARBLE_POST_EFFECT_PRESET_PERLIN_SWELL, WARBLE_POST_PROCESS_SHADER_SNIPPET,
 };
+pub use property_rows::{
+    PropertyHit, PropertyMatrixColumn, PropertyMatrixSide, PropertyRow, PropertyRows,
+};
 pub use sprite_color_space::{
     canonical_sprite_palette, decode_sprite_pixel, decode_sprite_rgba, DecodedSpritePixel,
     SpriteColorChannel,
+};
+pub use ui_palette::{UiColorRole, UiPalette};
+pub use ui_session_state::{
+    PersistedCameraUiState, PersistedModuleRect, PersistedModuleUiState,
+    PersistedRendererUiSessionState, PersistedUiPaletteColor, PersistedUiPaletteState,
 };

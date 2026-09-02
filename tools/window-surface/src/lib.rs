@@ -20,7 +20,7 @@ use wgpu::{
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::{ElementState, WindowEvent},
+    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes},
@@ -152,16 +152,47 @@ pub struct SurfaceSize {
     pub height: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct WindowSurfaceInput {
     pub pressed_keys: Vec<KeyCode>,
     pub just_pressed_keys: Vec<KeyCode>,
+    /// Cursor position in clip space (-1..1, x right, y up, origin at the
+    /// window center), matching the same space `SurfaceQuad::center` renders
+    /// into. `None` when the cursor has never moved into the window or has
+    /// left it.
+    pub cursor_position: Option<[f32; 2]>,
+    /// Clip-space position of a primary (left) mouse button press that
+    /// happened this frame. `None` on every frame without a new click.
+    pub just_clicked: Option<[f32; 2]>,
+    /// Whether the primary (left) mouse button is currently held down,
+    /// persisting across frames for as long as it stays pressed — a
+    /// consumer combines this with `cursor_position` to drive a drag
+    /// session (e.g. a module's move/resize gizmo) after the initial click.
+    pub pointer_down: bool,
+    /// Clip-space position of a secondary (right) mouse button press that
+    /// happened this frame. `None` on every frame without a new right click.
+    pub just_right_clicked: Option<[f32; 2]>,
+    /// Whether the secondary (right) mouse button is currently held down.
+    pub right_pointer_down: bool,
+    /// Net horizontal mouse-wheel delta gathered this frame.
+    pub wheel_delta_x: f32,
+    /// Net vertical mouse-wheel delta gathered this frame.
+    pub wheel_delta_y: f32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WindowSurfaceFrameContext {
     pub surface_size: SurfaceSize,
     pub input: WindowSurfaceInput,
+}
+
+fn clip_position_from_physical_cursor(
+    position: winit::dpi::PhysicalPosition<f64>,
+    surface_size: SurfaceSize,
+) -> [f32; 2] {
+    let nx = (position.x / surface_size.width.max(1) as f64) * 2.0 - 1.0;
+    let ny = 1.0 - (position.y / surface_size.height.max(1) as f64) * 2.0;
+    [nx as f32, ny as f32]
 }
 
 impl From<&WindowSurfaceConfig> for SurfaceSize {
@@ -202,6 +233,13 @@ struct WindowSurfaceApp {
     surface_size: SurfaceSize,
     pressed_keys: Vec<KeyCode>,
     just_pressed_keys: Vec<KeyCode>,
+    cursor_position: Option<[f32; 2]>,
+    just_clicked: Option<[f32; 2]>,
+    pointer_down: bool,
+    just_right_clicked: Option<[f32; 2]>,
+    right_pointer_down: bool,
+    wheel_delta_x: f32,
+    wheel_delta_y: f32,
     performance_log: Option<PerformanceLogState>,
     pending_frame_sample: Option<PerformanceSample>,
 }
@@ -226,6 +264,13 @@ impl WindowSurfaceApp {
             surface_size,
             pressed_keys: Vec::new(),
             just_pressed_keys: Vec::new(),
+            cursor_position: None,
+            just_clicked: None,
+            pointer_down: false,
+            just_right_clicked: None,
+            right_pointer_down: false,
+            wheel_delta_x: 0.0,
+            wheel_delta_y: 0.0,
             performance_log,
             pending_frame_sample: None,
         }
@@ -307,6 +352,59 @@ impl ApplicationHandler for WindowSurfaceApp {
                     }
                 }
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_position = Some(clip_position_from_physical_cursor(
+                    position,
+                    self.surface_size,
+                ));
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.cursor_position = None;
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.pointer_down = true;
+                if let Some(position) = self.cursor_position {
+                    self.just_clicked = Some(position);
+                }
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.pointer_down = false;
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Right,
+                ..
+            } => {
+                self.right_pointer_down = true;
+                if let Some(position) = self.cursor_position {
+                    self.just_right_clicked = Some(position);
+                }
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Right,
+                ..
+            } => {
+                self.right_pointer_down = false;
+            }
+            WindowEvent::MouseWheel { delta, .. } => match delta {
+                MouseScrollDelta::LineDelta(x, y) => {
+                    self.wheel_delta_x += x;
+                    self.wheel_delta_y += y;
+                }
+                MouseScrollDelta::PixelDelta(position) => {
+                    self.wheel_delta_x += position.x as f32;
+                    self.wheel_delta_y += position.y as f32;
+                }
+            },
             WindowEvent::RedrawRequested => {
                 if let Some(gpu_surface) = &mut self.gpu_surface {
                     let render_started_at = Instant::now();
@@ -339,6 +437,13 @@ impl ApplicationHandler for WindowSurfaceApp {
                 input: WindowSurfaceInput {
                     pressed_keys: self.pressed_keys.clone(),
                     just_pressed_keys: self.just_pressed_keys.clone(),
+                    cursor_position: self.cursor_position,
+                    just_clicked: self.just_clicked,
+                    pointer_down: self.pointer_down,
+                    just_right_clicked: self.just_right_clicked,
+                    right_pointer_down: self.right_pointer_down,
+                    wheel_delta_x: self.wheel_delta_x,
+                    wheel_delta_y: self.wheel_delta_y,
                 },
             }) {
                 Ok(scene) => scene,
@@ -347,6 +452,10 @@ impl ApplicationHandler for WindowSurfaceApp {
                 }
             };
             self.just_pressed_keys.clear();
+            self.just_clicked = None;
+            self.just_right_clicked = None;
+            self.wheel_delta_x = 0.0;
+            self.wheel_delta_y = 0.0;
             let scene_build_ms = scene_build_started_at.elapsed().as_secs_f64() * 1000.0;
             let mut sample = PerformanceSample::from_scene(
                 self.surface_size,

@@ -4,14 +4,14 @@
 Own the renderer-specific design contracts for the atomic cell system, grouped render space, composition flow, global coordinate space, camera semantics, atlas intake, renderer-wide data lanes, post-effects, renderer-consumed cell slots, and the cell-to-post-effect signal language.
 
 ## owns
-- the renderer-domain split for cell, cell-group, cell-weight, cell-color, cell-graphic, atlas-intake, cell-shader, cell-texture, cell-warble, data-lanes, post-effects, cell-materials, cell-adjacency, coordinate-space, composition, and camera
+- the renderer-domain split for cell, cell-group, cell-weight, cell-color, cell-graphic, atlas-intake, cell-shader, cell-texture, cell-warble, data-lanes, post-effects, cell-materials, cell-adjacency, coordinate-space, composition, camera, controls, and modules
 - the broad v1 semantic boundaries for recognizable renderer reconstruction
 - renderer-owned design truth that should live in domain before implementation hardens
 
 ## does not own
 - reusable low-level helpers that fit better in `tools/`
 - boot-oriented orchestration outside the domain contracts
-- app-level module semantics
+- app-specific module content or business logic
 - gameplay logic that should remain outside renderer-only rendering concerns
 
 ## children-encapsulations
@@ -46,6 +46,10 @@ Own the renderer-specific design contracts for the atomic cell system, grouped r
 - `composition/`
   - default
 - `camera/`
+  - default
+- `controls/`
+  - default
+- `modules/`
   - default
 
 ## contents

@@ -34,6 +34,8 @@ Own the renderer material format, default test materials, and shared storage sha
   - describes the renderer-owned place where default or example materials can live
 - consumer material compatibility shape
   - describes the shared format expected from consumer-authored materials loaded from a consumer-provided path established at boot
+- `CellMaterialId::all()` / `CellMaterialId::label()`
+  - small discovery helpers for UI surfaces listing available material choices
 
 ## interface consumers
 - `/home/j/Repos/thaum-renderer/domain/cell-color/`
