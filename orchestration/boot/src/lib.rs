@@ -11,11 +11,11 @@ use thaum_renderer_domain::{
     apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
     apply_debug_warble_post_effect_to_rgba, encode_relative_depth_to_post_effect_bus,
     project_flat_2d_world_to_view_plane, project_rotating_3d_world_to_view_plane,
-    projected_plane_is_visible, projected_plane_scale_factor, resolve_shaded_color,
-    resolve_shaded_graphic, resolve_shaded_texture, resolve_shaded_warble, resolve_shaded_weight,
-    Camera, CameraProjectedPoint, Cell, CellColor, CellGroupIntakeBehavior, CellPoint,
-    Composition, DataLanes, GlyphFontSet, IndexColorClampEffect, SpriteAtlasSet, WorldPoint,
-    GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+    projected_plane_is_visible, projected_plane_scale_factor, resolve_shaded_graphic,
+    resolve_shaded_texture, resolve_shaded_warble, resolve_shaded_weight, Camera,
+    CameraProjectedPoint, Cell, CellGroupIntakeBehavior, CellPoint, Composition, DataLanes,
+    GlyphFontSet, IndexColorClampEffect, SpriteAtlasSet, WorldPoint, GLYPH_TILE_HEIGHT,
+    GLYPH_TILE_WIDTH,
 };
 pub use thaum_renderer_window_surface::{
     run_window_surface_with_frame_provider, SurfaceQuad, SurfaceSize, WindowSurfaceConfig,
@@ -410,17 +410,6 @@ fn project_cell_to_surface_quads(
     if !shaded_graphic.is_visible() {
         return Ok(Vec::new());
     }
-    let flash_color = data_lanes
-        .flash()
-        .map(CellColor::from_packed_rgba)
-        .unwrap_or_default();
-    let shaded_color = resolve_shaded_color(
-        projected_cell.cell.color,
-        &projected_cell.cell.shader_stack,
-        projected_cell.world,
-        data_lanes,
-        flash_color,
-    );
     let shaded_weight = resolve_shaded_weight(
         projected_cell.cell.weight,
         &projected_cell.cell.shader_stack,
@@ -453,7 +442,7 @@ fn project_cell_to_surface_quads(
             true,
             cell_center,
             projected_cell_clip_size,
-            shaded_color.resolve_glyph(),
+            projected_cell.cell.color.resolve_glyph(),
             shaded_texture,
             shaded_warble,
             depth_code,
@@ -469,7 +458,7 @@ fn project_cell_to_surface_quads(
             .rasterize_single_sprite_tile(
                 sprite.atlas_relative_path(),
                 shaded_weight,
-                shaded_color,
+                projected_cell.cell.color,
             )
             .map_err(anyhow::Error::msg)?;
         return sprite_raster_to_surface_quads(

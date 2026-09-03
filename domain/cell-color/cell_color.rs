@@ -24,32 +24,6 @@ impl Default for CellColor {
 }
 
 impl CellColor {
-    /// Packs one Flat color into 0xRRGGBBAA for lane/shader transport.
-    pub fn to_packed_rgba(self) -> Option<u32> {
-        match self {
-            Self::Flat([r, g, b, a]) => {
-                let channel = |v: f32| ((v.clamp(0.0, 1.0) * 255.0 + 0.5) as u32) & 0xFF;
-                Some(
-                    (channel(r) << 24)
-                        | (channel(g) << 16)
-                        | (channel(b) << 8)
-                        | channel(a),
-                )
-            }
-            _ => None,
-        }
-    }
-
-    /// Unpacks one 0xRRGGBBAA lane value back into a Flat color.
-    pub const fn from_packed_rgba(packed: u32) -> Self {
-        Self::Flat([
-            ((packed >> 24) & 0xFF) as f32 / 255.0,
-            ((packed >> 16) & 0xFF) as f32 / 255.0,
-            ((packed >> 8) & 0xFF) as f32 / 255.0,
-            (packed & 0xFF) as f32 / 255.0,
-        ])
-    }
-
     pub const fn slots(a: CellColorSlot, b: CellColorSlot, c: CellColorSlot) -> Self {
         Self::Slots { a, b, c }
     }

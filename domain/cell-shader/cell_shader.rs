@@ -1,4 +1,4 @@
-use crate::{CellColor, CellGraphic, CellTexture, CellWarble, CellWeight, DataLanes, WorldPoint};
+use crate::{CellGraphic, CellTexture, CellWarble, CellWeight, DataLanes, WorldPoint};
 
 pub const CELL_SHADER_PASS: u32 = 0;
 pub const CELL_SHADER_WEIGHT_SIN: u32 = 1;
@@ -8,16 +8,21 @@ pub const CELL_SHADER_WARBLE_FUDGE_1: u32 = 6;
 pub const CELL_SHADER_WARBLE_DISTORT_1: u32 = 7;
 pub const CELL_SHADER_WARBLE_FUDGE_5: u32 = 9;
 pub const CELL_SHADER_WARBLE_DISTORT_5: u32 = 10;
-/// Overlay flash: the cell alternates between hidden (the drawing beneath
-/// shows through) and its own graphic in the flash color — the vivid-dot
-/// preview behavior shared by lasso interiors and selection flashes.
+/// Overlay flash pair: two phases over the breath clock. A cell carrying
+/// `CELL_SHADER_VIVID_FLASH` shows only during the lit phase; a cell carrying
+/// `CELL_SHADER_VIVID_FLASH_ALT` shows only during the off phase. Overlays
+/// pair the two to flash one region between two fully-specified appearances
+/// (lasso preview: current-cell-in-vivid vs the cell release will paint;
+/// selection: current-cell-in-vivid vs the cell as drawn). Colors and glyphs
+/// are baked into the overlay cells by the painter — the shaders only gate
+/// visibility, one half of the two-step animation each.
 pub const CELL_SHADER_VIVID_FLASH: u32 = 11;
-/// Breath ticks per flash phase; matches the painter's selection blink rate.
-pub const VIVID_FLASH_BREATH_PERIOD: i32 = 6;
+pub const CELL_SHADER_VIVID_FLASH_ALT: u32 = 12;
+/// Breath ticks per flash phase.
+pub const VIVID_FLASH_BREATH_PERIOD: i32 = 3;
 
 /// Which phase the vivid flash is in for this breath tick: `true` when the
-/// flash state (dot in the flash color) shows, `false` when the overlay cell
-/// hides and the current displayed state shows through.
+/// `CELL_SHADER_VIVID_FLASH` half shows, `false` when the alt half shows.
 pub fn vivid_flash_is_lit(breath: i32) -> bool {
     (breath / VIVID_FLASH_BREATH_PERIOD).rem_euclid(2) == 1
 }
@@ -109,30 +114,16 @@ pub fn resolve_shaded_graphic(
     world: WorldPoint,
     data_lanes: DataLanes,
 ) -> CellGraphic {
+    let lit = vivid_flash_is_lit(data_lanes.breath().unwrap_or(0));
     for shader in shader_stack {
-        if *shader == CELL_SHADER_VIVID_FLASH && !vivid_flash_is_lit(data_lanes.breath().unwrap_or(0)) {
-            return CellGraphic::None;
+        match *shader {
+            CELL_SHADER_VIVID_FLASH if !lit => return CellGraphic::None,
+            CELL_SHADER_VIVID_FLASH_ALT if lit => return CellGraphic::None,
+            _ => {}
         }
     }
     let _ = world;
     base_graphic
-}
-
-pub fn resolve_shaded_color(
-    base_color: CellColor,
-    shader_stack: &[u32],
-    world: WorldPoint,
-    data_lanes: DataLanes,
-    flash_color: CellColor,
-) -> CellColor {
-    let mut color = base_color;
-    for shader in shader_stack {
-        if *shader == CELL_SHADER_VIVID_FLASH && vivid_flash_is_lit(data_lanes.breath().unwrap_or(0)) {
-            color = flash_color;
-        }
-    }
-    let _ = world;
-    color
 }
 
 fn apply_weight_sin(base_weight: CellWeight, world: WorldPoint, breath: i32) -> CellWeight {
@@ -287,5 +278,61 @@ mod tests {
             DataLanes::with_breath(2),
         );
         assert_eq!(warble.code(), 144);
+    }
+
+    #[test]
+    fn the_flash_pair_splits_the_two_animation_halves() {
+        let glyph = CellGraphic::Glyph('•');
+        // Lit phase: FLASH cells show, ALT cells hide.
+        assert_eq!(
+            resolve_shaded_graphic(
+                glyph.clone(),
+                &[CELL_SHADER_VIVID_FLASH],
+                WorldPoint::origin(),
+                DataLanes::with_breath(VIVID_FLASH_BREATH_PERIOD),
+            ),
+            glyph
+        );
+        assert_eq!(
+            resolve_shaded_graphic(
+                glyph.clone(),
+                &[CELL_SHADER_VIVID_FLASH_ALT],
+                WorldPoint::origin(),
+                DataLanes::with_breath(VIVID_FLASH_BREATH_PERIOD),
+            ),
+            CellGraphic::None
+        );
+        // Off phase (breath 0): the reverse.
+        assert_eq!(
+            resolve_shaded_graphic(
+                glyph.clone(),
+                &[CELL_SHADER_VIVID_FLASH],
+                WorldPoint::origin(),
+                DataLanes::with_breath(0),
+            ),
+            CellGraphic::None
+        );
+        assert_eq!(
+            resolve_shaded_graphic(
+                glyph,
+                &[CELL_SHADER_VIVID_FLASH_ALT],
+                WorldPoint::origin(),
+                DataLanes::with_breath(0),
+            ),
+            CellGraphic::Glyph('•')
+        );
+    }
+
+    #[test]
+    fn cells_without_flash_shaders_are_never_hidden() {
+        assert_eq!(
+            resolve_shaded_graphic(
+                CellGraphic::Glyph('a'),
+                &[],
+                WorldPoint::origin(),
+                DataLanes::with_breath(0),
+            ),
+            CellGraphic::Glyph('a')
+        );
     }
 }

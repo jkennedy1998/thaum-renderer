@@ -82,9 +82,9 @@ pub use cell_graphic::{
 pub use cell_group::{CellBounds, CellClip, CellGroup, CellGroupFacing, CellGroupIntakeBehavior};
 pub use cell_materials::{CellMaterialId, ColorBand};
 pub use cell_shader::{
-    resolve_shaded_color, resolve_shaded_graphic, resolve_shaded_texture, resolve_shaded_warble,
-    resolve_shaded_weight, vivid_flash_is_lit, CELL_SHADER_PASS, CELL_SHADER_TEXTURE_SHIMMER,
-    CELL_SHADER_VIVID_FLASH, CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WARBLE_DISTORT_1,
+    resolve_shaded_graphic, resolve_shaded_texture, resolve_shaded_warble, resolve_shaded_weight,
+    vivid_flash_is_lit, CELL_SHADER_PASS, CELL_SHADER_TEXTURE_SHIMMER, CELL_SHADER_VIVID_FLASH,
+    CELL_SHADER_VIVID_FLASH_ALT, CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WARBLE_DISTORT_1,
     CELL_SHADER_WARBLE_DISTORT_5, CELL_SHADER_WARBLE_FUDGE_1, CELL_SHADER_WARBLE_FUDGE_5,
     CELL_SHADER_WEIGHT_SIN, VIVID_FLASH_BREATH_PERIOD,
 };
