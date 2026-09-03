@@ -1,16 +1,21 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DataLanes {
     breath: Option<i32>,
+    flash: Option<u32>,
 }
 
 impl DataLanes {
     pub const fn new() -> Self {
-        Self { breath: None }
+        Self {
+            breath: None,
+            flash: None,
+        }
     }
 
     pub const fn with_breath(breath: i32) -> Self {
         Self {
             breath: Some(breath),
+            flash: None,
         }
     }
 
@@ -24,6 +29,16 @@ impl DataLanes {
 
     pub fn set_breath(&mut self, breath: i32) {
         self.breath = Some(breath);
+    }
+
+    /// Flash lane: packed 0xRRGGBBAA color overlay shaders alternate
+    /// affected cells toward (lasso previews, selection flashes).
+    pub const fn flash(&self) -> Option<u32> {
+        self.flash
+    }
+
+    pub fn set_flash(&mut self, packed_rgba: u32) {
+        self.flash = Some(packed_rgba);
     }
 
     pub fn set_fallback_breath_if_unset(&mut self, breath: i32) {

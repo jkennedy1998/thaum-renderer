@@ -11,10 +11,11 @@ use thaum_renderer_domain::{
     apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
     apply_debug_warble_post_effect_to_rgba, encode_relative_depth_to_post_effect_bus,
     project_flat_2d_world_to_view_plane, project_rotating_3d_world_to_view_plane,
-    projected_plane_is_visible, projected_plane_scale_factor, resolve_shaded_texture,
-    resolve_shaded_warble, resolve_shaded_weight, Camera, CameraProjectedPoint, Cell,
-    CellGroupIntakeBehavior, CellPoint, Composition, DataLanes, GlyphFontSet,
-    IndexColorClampEffect, SpriteAtlasSet, WorldPoint, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+    projected_plane_is_visible, projected_plane_scale_factor, resolve_shaded_color,
+    resolve_shaded_graphic, resolve_shaded_texture, resolve_shaded_warble, resolve_shaded_weight,
+    Camera, CameraProjectedPoint, Cell, CellColor, CellGroupIntakeBehavior, CellPoint,
+    Composition, DataLanes, GlyphFontSet, IndexColorClampEffect, SpriteAtlasSet, WorldPoint,
+    GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
 };
 pub use thaum_renderer_window_surface::{
     run_window_surface_with_frame_provider, SurfaceQuad, SurfaceSize, WindowSurfaceConfig,
@@ -400,6 +401,26 @@ fn project_cell_to_surface_quads(
     let projected_cell_clip_size =
         projected_cell_clip_size_for_surface(camera, projected_cell.projected, cell_clip_size);
     let cell_center = projected_cell_center_for_surface(projected_cell.projected, cell_clip_size);
+    let shaded_graphic = resolve_shaded_graphic(
+        projected_cell.cell.graphic.clone(),
+        &projected_cell.cell.shader_stack,
+        projected_cell.world,
+        data_lanes,
+    );
+    if !shaded_graphic.is_visible() {
+        return Ok(Vec::new());
+    }
+    let flash_color = data_lanes
+        .flash()
+        .map(CellColor::from_packed_rgba)
+        .unwrap_or_default();
+    let shaded_color = resolve_shaded_color(
+        projected_cell.cell.color,
+        &projected_cell.cell.shader_stack,
+        projected_cell.world,
+        data_lanes,
+        flash_color,
+    );
     let shaded_weight = resolve_shaded_weight(
         projected_cell.cell.weight,
         &projected_cell.cell.shader_stack,
@@ -421,7 +442,7 @@ fn project_cell_to_surface_quads(
     let depth_code = encode_relative_depth_to_post_effect_bus(projected_cell.projected.plane);
     let gate_id = post_effect_gate_id_for_world_point(projected_cell.world);
 
-    if let Some(glyph) = projected_cell.cell.graphic.glyph_char() {
+    if let Some(glyph) = shaded_graphic.glyph_char() {
         let glyph_fonts = glyph_fonts.context("visible glyph cells require loaded glyph fonts")?;
         let raster = glyph_fonts.rasterize_glyph_tile(glyph, shaded_weight);
         return raster_to_surface_quads(
@@ -432,7 +453,7 @@ fn project_cell_to_surface_quads(
             true,
             cell_center,
             projected_cell_clip_size,
-            projected_cell.cell.color.resolve_glyph(),
+            shaded_color.resolve_glyph(),
             shaded_texture,
             shaded_warble,
             depth_code,
@@ -441,14 +462,14 @@ fn project_cell_to_surface_quads(
         );
     }
 
-    if let Some(sprite) = projected_cell.cell.graphic.sprite() {
+    if let Some(sprite) = shaded_graphic.sprite() {
         let sprite_atlases =
             sprite_atlases.context("visible sprite cells require loaded sprite atlases")?;
         let raster = sprite_atlases
             .rasterize_single_sprite_tile(
                 sprite.atlas_relative_path(),
                 shaded_weight,
-                projected_cell.cell.color,
+                shaded_color,
             )
             .map_err(anyhow::Error::msg)?;
         return sprite_raster_to_surface_quads(

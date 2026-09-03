@@ -1,4 +1,4 @@
-use crate::{CellTexture, CellWarble, CellWeight, DataLanes, WorldPoint};
+use crate::{CellColor, CellGraphic, CellTexture, CellWarble, CellWeight, DataLanes, WorldPoint};
 
 pub const CELL_SHADER_PASS: u32 = 0;
 pub const CELL_SHADER_WEIGHT_SIN: u32 = 1;
@@ -8,6 +8,19 @@ pub const CELL_SHADER_WARBLE_FUDGE_1: u32 = 6;
 pub const CELL_SHADER_WARBLE_DISTORT_1: u32 = 7;
 pub const CELL_SHADER_WARBLE_FUDGE_5: u32 = 9;
 pub const CELL_SHADER_WARBLE_DISTORT_5: u32 = 10;
+/// Overlay flash: the cell alternates between hidden (the drawing beneath
+/// shows through) and its own graphic in the flash color — the vivid-dot
+/// preview behavior shared by lasso interiors and selection flashes.
+pub const CELL_SHADER_VIVID_FLASH: u32 = 11;
+/// Breath ticks per flash phase; matches the painter's selection blink rate.
+pub const VIVID_FLASH_BREATH_PERIOD: i32 = 6;
+
+/// Which phase the vivid flash is in for this breath tick: `true` when the
+/// flash state (dot in the flash color) shows, `false` when the overlay cell
+/// hides and the current displayed state shows through.
+pub fn vivid_flash_is_lit(breath: i32) -> bool {
+    (breath / VIVID_FLASH_BREATH_PERIOD).rem_euclid(2) == 1
+}
 
 pub fn resolve_shaded_weight(
     base_weight: CellWeight,
@@ -88,6 +101,38 @@ pub fn resolve_shaded_warble(
     }
 
     warble
+}
+
+pub fn resolve_shaded_graphic(
+    base_graphic: CellGraphic,
+    shader_stack: &[u32],
+    world: WorldPoint,
+    data_lanes: DataLanes,
+) -> CellGraphic {
+    for shader in shader_stack {
+        if *shader == CELL_SHADER_VIVID_FLASH && !vivid_flash_is_lit(data_lanes.breath().unwrap_or(0)) {
+            return CellGraphic::None;
+        }
+    }
+    let _ = world;
+    base_graphic
+}
+
+pub fn resolve_shaded_color(
+    base_color: CellColor,
+    shader_stack: &[u32],
+    world: WorldPoint,
+    data_lanes: DataLanes,
+    flash_color: CellColor,
+) -> CellColor {
+    let mut color = base_color;
+    for shader in shader_stack {
+        if *shader == CELL_SHADER_VIVID_FLASH && vivid_flash_is_lit(data_lanes.breath().unwrap_or(0)) {
+            color = flash_color;
+        }
+    }
+    let _ = world;
+    color
 }
 
 fn apply_weight_sin(base_weight: CellWeight, world: WorldPoint, breath: i32) -> CellWeight {
