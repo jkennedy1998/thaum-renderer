@@ -124,7 +124,8 @@ pub use post_effects::{
     WARBLE_POST_EFFECT_PRESET_PERLIN_SWELL, WARBLE_POST_PROCESS_SHADER_SNIPPET,
 };
 pub use property_rows::{
-    PropertyHit, PropertyMatrixColumn, PropertyMatrixSide, PropertyRow, PropertyRows,
+    NumberFieldEdit, PropertyHit, PropertyMatrixColumn, PropertyMatrixSide, PropertyRow,
+    PropertyRows,
 };
 pub use sprite_color_space::{
     canonical_sprite_palette, decode_sprite_pixel, decode_sprite_rgba, DecodedSpritePixel,

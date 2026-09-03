@@ -314,6 +314,22 @@ impl ModuleRegistry {
         Some(self.order[index].id())
     }
 
+    /// Release the pointer for every module: the captured module (if any)
+    /// and every other visible module each get one `Up`, and capture clears.
+    /// Consumers should call this on every physical pointer release — drags
+    /// that never requested capture (or lost it) would otherwise follow the
+    /// pointer forever through hover moves, since `Up` used to only reach
+    /// the captured module.
+    pub fn dispatch_pointer_up_all(&mut self, x: i32, y: i32) {
+        self.captured = None;
+        for module in &mut self.order {
+            if module.is_hidden() {
+                continue;
+            }
+            module.on_pointer_event(ModulePointerEvent::Up { x, y });
+        }
+    }
+
     /// Whether any module currently holds pointer capture for an active drag
     /// interaction such as move/resize.
     /// Offer one captured key label to registered modules in registration
