@@ -9,7 +9,6 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DragTarget {
     Field,
-    Slider,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -147,8 +146,16 @@ impl ColorBlockModule {
     }
 
     pub fn set_selected_rgb(&mut self, rgb: [u8; 3]) {
-        self.selected_rgb = self.snap_rgb(rgb);
-        self.selected_hsv = rgb_to_hsv(self.selected_rgb);
+        let snapped = self.snap_rgb(rgb);
+        if snapped == self.selected_rgb {
+            // Re-applying the already-committed color (e.g. a consumer syncing
+            // its hand color before a click) must not re-derive HSV from the
+            // snapped palette entry: that would drag the wheel-scrolled hue
+            // marker away from where the user left it.
+            return;
+        }
+        self.selected_rgb = snapped;
+        self.selected_hsv = rgb_to_hsv(snapped);
     }
 
     fn snap_rgb(&self, rgb: [u8; 3]) -> [u8; 3] {
@@ -167,12 +174,6 @@ impl ColorBlockModule {
         let (field_x0, field_x1, field_y0, field_y1, _) = content_layout(self.rect);
         self.selected_hsv.saturation = ratio_at(x, field_x0, field_x1);
         self.selected_hsv.value = ratio_at(y, field_y0, field_y1);
-        self.selected_rgb = self.resolve_rgb(self.selected_hsv);
-    }
-
-    fn set_from_slider_point(&mut self, y: i32) {
-        let (_, _, field_y0, field_y1, _) = content_layout(self.rect);
-        self.selected_hsv.hue = ratio_at(y, field_y0, field_y1);
         self.selected_rgb = self.resolve_rgb(self.selected_hsv);
     }
 
@@ -237,7 +238,7 @@ impl Module for ColorBlockModule {
                     position: CellPoint { x, y, z: 0 },
                     graphic: CellGraphic::Glyph('█'),
                     color: rgb_cell(rgb),
-                    weight: CellWeight::from_index_clamped(3),
+                    weight: CellWeight::from_index_clamped(1),
                     ..Cell::default()
                 });
             }
@@ -257,7 +258,7 @@ impl Module for ColorBlockModule {
                 },
                 graphic: CellGraphic::Glyph('█'),
                 color: rgb_cell(rgb),
-                weight: CellWeight::from_index_clamped(3),
+                weight: CellWeight::from_index_clamped(1),
                 ..Cell::default()
             });
         }
@@ -334,7 +335,7 @@ impl Module for ColorBlockModule {
                     }
                     return;
                 }
-                let (field_x0, field_x1, field_y0, field_y1, slider_x) = content_layout(self.rect);
+                let (field_x0, field_x1, field_y0, field_y1, _) = content_layout(self.rect);
                 if x >= self.rect.x0 + field_x0
                     && x <= self.rect.x0 + field_x1
                     && y >= self.rect.y0 + field_y0
@@ -342,14 +343,10 @@ impl Module for ColorBlockModule {
                 {
                     self.drag_target = Some(DragTarget::Field);
                     self.set_from_field_point(x - self.rect.x0, y - self.rect.y0);
-                } else if x >= self.rect.x0 + slider_x - 1
-                    && x <= self.rect.x0 + slider_x
-                    && y >= self.rect.y0 + field_y0
-                    && y <= self.rect.y0 + field_y1
-                {
-                    self.drag_target = Some(DragTarget::Slider);
-                    self.set_from_slider_point(y - self.rect.y0);
                 }
+                // Clicks outside the field (hue-slider column included) are
+                // intentionally inert: the hue marker may only move via wheel
+                // scroll, so clicking can never relocate it.
             }
             ModulePointerEvent::Move { x, y } => {
                 self.gizmo_state.note_pointer(&self.gizmos, self.rect, x, y);
@@ -361,7 +358,6 @@ impl Module for ColorBlockModule {
                     Some(DragTarget::Field) => {
                         self.set_from_field_point(x - self.rect.x0, y - self.rect.y0)
                     }
-                    Some(DragTarget::Slider) => self.set_from_slider_point(y - self.rect.y0),
                     None => {}
                 }
             }
@@ -437,14 +433,40 @@ mod tests {
     }
 
     #[test]
-    fn clicking_the_slider_changes_the_hue() {
+    fn clicking_the_slider_does_not_change_the_hue() {
         let mut module = ColorBlockModule::new("block", rect(), UiPalette::default());
         module.set_selected_rgb([255, 0, 0]);
         let before = module.selected_rgb();
+        let hue_before = module.selected_hsv.hue;
+        let (_, _, _, _, slider_x) = content_layout(rect());
 
-        module.set_from_slider_point(6);
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: slider_x,
+            y: 5,
+            button: ModulePointerButton::Left,
+        });
 
-        assert_ne!(module.selected_rgb(), before);
+        // The hue marker may only move via wheel scroll; a click on the
+        // slider column must leave both the hue and the selection alone.
+        assert_eq!(module.selected_hsv.hue, hue_before);
+        assert_eq!(module.selected_rgb(), before);
+    }
+
+    #[test]
+    fn reapplying_the_committed_rgb_keeps_the_scrolled_hue() {
+        let mut module = ColorBlockModule::new("block", rect(), UiPalette::default())
+            .with_indexed_palette(&[[0, 0, 0], [255, 0, 0], [255, 255, 255]]);
+        module.selected_hsv.hue = 0.04;
+        module.selected_rgb = module.resolve_rgb(module.selected_hsv);
+        let committed = module.selected_rgb;
+        let hue_before = module.selected_hsv.hue;
+
+        // Consumers re-apply the committed hand color before each click;
+        // that round-trip must not snap the continuous hue to the palette
+        // entry's own hue.
+        module.set_selected_rgb(committed);
+
+        assert_eq!(module.selected_hsv.hue, hue_before);
     }
 
     #[test]
