@@ -561,8 +561,14 @@ fn stage_projected_boot_cells(
                 projected,
                 cell: cell.clone(),
             };
-            if let Some(index) = projected_to_index.get(&key).copied() {
-                staged[index] = next;
+            if let Some(&index) = projected_to_index.get(&key) {
+                // One visible cell per projected position: later pass-order
+                // cells win, but a cell whose shader hides it this frame (a
+                // flashing overlay in its off half) yields to what is staged
+                // beneath it instead of blanking the position.
+                if staged_cell_renders_this_frame(&next, state.data_lanes) {
+                    staged[index] = next;
+                }
             } else {
                 let index = staged.len();
                 staged.push(next);
@@ -572,6 +578,20 @@ fn stage_projected_boot_cells(
     }
 
     staged
+}
+
+/// Whether a cell would render a visible graphic this frame: its base
+/// graphic is visible and no shader in its stack hides it (the vivid flash
+/// pair hides its cell during the opposite half of the breath cycle).
+fn staged_cell_renders_this_frame(projected_cell: &ProjectedBootCell, data_lanes: DataLanes) -> bool {
+    projected_cell.cell.graphic.is_visible()
+        && resolve_shaded_graphic(
+            projected_cell.cell.graphic.clone(),
+            &projected_cell.cell.shader_stack,
+            projected_cell.world,
+            data_lanes,
+        )
+        .is_visible()
 }
 
 fn group_projected_boot_cells_by_plane(
@@ -634,8 +654,9 @@ mod tests {
     use super::*;
     use thaum_renderer_domain::{
         project_world_to_view_plane, CameraSwing, Cell, CellColor, CellGraphic, CellGroup,
-        CellGroupFacing, CellMaterialId, CellPoint, CellWeight, CELL_SHADER_TEXTURE_SHIMMER,
-        CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WEIGHT_SIN,
+        CellGroupFacing, CellMaterialId, CellPoint, CellWeight, DataLanes,
+        CELL_SHADER_TEXTURE_SHIMMER, CELL_SHADER_VIVID_FLASH, CELL_SHADER_VIVID_FLASH_ALT,
+        CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WEIGHT_SIN, VIVID_FLASH_BREATH_PERIOD,
     };
 
     fn staged_asset_root() -> PathBuf {
@@ -772,6 +793,92 @@ mod tests {
         assert_eq!(flat_panned.projected.u, flat_at_rest.projected.u + 3.0);
         assert_eq!(flat_panned.projected.v, flat_at_rest.projected.v - 2.0);
         assert_eq!(scene_panned.projected, scene_at_rest.projected);
+    }
+
+    #[test]
+    fn stage_projected_boot_cells_flash_pair_yields_to_beneath_cells_instead_of_blank()
+    {
+        // Document cell, then the two flash halves stacked above it. Each
+        // phase must surface the half that renders, and when an overlay half
+        // is empty the document cell beneath shows through — no blank state.
+        let scene_group = CellGroup::from_cells(
+            WorldPoint::origin(),
+            [Cell {
+                position: CellPoint::origin(),
+                graphic: CellGraphic::Glyph('S'),
+                ..Cell::default()
+            }],
+        );
+        let alt_group = CellGroup::from_cells(
+            WorldPoint::origin(),
+            [Cell {
+                position: CellPoint::origin(),
+                graphic: CellGraphic::Glyph('V'),
+                shader_stack: vec![CELL_SHADER_VIVID_FLASH_ALT],
+                ..Cell::default()
+            }],
+        );
+        let flash_group = CellGroup::from_cells(
+            WorldPoint::origin(),
+            [Cell {
+                position: CellPoint::origin(),
+                graphic: CellGraphic::Glyph('F'),
+                shader_stack: vec![CELL_SHADER_VIVID_FLASH],
+                ..Cell::default()
+            }],
+        );
+        let build_state = |data_lanes: DataLanes| BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![scene_group.clone(), alt_group.clone(), flash_group.clone()],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes,
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+        let cell_clip_size =
+            cell_clip_size_for_surface(SurfaceSize::from(&BootConfig::default().window));
+
+        // Lit half: the FLASH overlay wins over everything beneath.
+        let lit = stage_projected_boot_cells(
+            &build_state(DataLanes::with_breath(VIVID_FLASH_BREATH_PERIOD)),
+            cell_clip_size,
+        );
+        assert_eq!(lit.len(), 1);
+        assert_eq!(lit[0].cell.graphic, CellGraphic::Glyph('F'));
+
+        // Off half: the FLASH overlay yields to the ALT half beneath it.
+        let off =
+            stage_projected_boot_cells(&build_state(DataLanes::with_breath(0)), cell_clip_size);
+        assert_eq!(off.len(), 1);
+        assert_eq!(off[0].cell.graphic, CellGraphic::Glyph('V'));
+
+        // Off half with an empty ALT half: the document cell shows through.
+        let empty_alt_group = CellGroup::from_cells(
+            WorldPoint::origin(),
+            [Cell {
+                position: CellPoint::origin(),
+                graphic: CellGraphic::None,
+                shader_stack: vec![CELL_SHADER_VIVID_FLASH_ALT],
+                ..Cell::default()
+            }],
+        );
+        let reveal_state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![scene_group.clone(), empty_alt_group, flash_group.clone()],
+                pass_order: Vec::new(),
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::with_breath(0),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+        let revealed = stage_projected_boot_cells(&reveal_state, cell_clip_size);
+        assert_eq!(revealed.len(), 1);
+        assert_eq!(revealed[0].cell.graphic, CellGraphic::Glyph('S'));
     }
 
     #[test]
