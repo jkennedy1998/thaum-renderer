@@ -101,6 +101,9 @@ impl ActionBindingMap {
 #[path = "tai/tai.rs"]
 pub mod tai;
 
+#[path = "typing-mode/typing_mode.rs"]
+pub mod typing_mode;
+
 #[cfg(test)]
 mod tests {
     use super::*;

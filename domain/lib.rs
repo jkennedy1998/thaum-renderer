@@ -101,6 +101,7 @@ pub use command_bar::{
 pub use composition::{compose_cells, ComposedCell, Composition};
 pub use controls::{
     profile::{conflicting_actions, effective_bindings, format_raw_input, ControlsProfile},
+    typing_mode::{TypingMode, TypingRoute},
     ActionBindingMap, ActionName, PressureSample, RawInput,
 };
 pub use coordinate_space::{AxisSign, CellPoint, GlobalDirection, WorldAxis, WorldPoint};

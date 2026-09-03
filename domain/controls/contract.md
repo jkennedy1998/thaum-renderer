@@ -7,6 +7,7 @@ Own the renderer's input capture and remappable action-binding infrastructure, s
 - raw pointer, keyboard, and pressure input event shapes
 - the named-action binding/remap system: action name <-> physical input, many-to-one and remappable
 - pressure-sensitivity data as a first-class input shape
+- the typing-mode input-focus gate (`typing-mode/`): while a session owns the input surface, inputs route to the session, declared reserved inputs stay live, and everything else is suppressed
 - the rule that this domain ships no default bindings; consuming programs declare and bind their own named actions
 
 ## does not own
@@ -18,6 +19,7 @@ Own the renderer's input capture and remappable action-binding infrastructure, s
 
 ## children-encapsulations
 - `/home/j/Repos/thaum-renderer/domain/controls/tai/`
+- `/home/j/Repos/thaum-renderer/domain/controls/typing-mode/`
 
 ## contents
 - `contract.md`
@@ -26,6 +28,8 @@ Own the renderer's input capture and remappable action-binding infrastructure, s
   - rust input event shapes and the action-binding map, owned by this encapsulation
 - `tai/`
   - tool-assisted input testing surface: script format, breath-timed replay runner, template, and growable individuals registry
+- `typing-mode/`
+  - input-focus gate for typing sessions: `TypingMode` + `TypingRoute`, reserved set declared at `begin` by the consuming program
 
 ## dependencies
 - `/home/j/Repos/thaum-renderer/domain/`
