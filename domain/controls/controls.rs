@@ -1,9 +1,15 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
+#[path = "profile.rs"]
+pub mod profile;
+
 /// A raw physical input, independent of what any program has bound it to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "kebab-case")]
 pub enum RawInput {
-    Key(&'static str),
+    Key(String),
     MouseButton(u8),
     MouseWheelUp,
     MouseWheelDown,
@@ -66,6 +72,18 @@ impl ActionBindingMap {
         self.bindings.insert(action, vec![input]);
     }
 
+    /// Remove every binding for a named action while keeping it declared.
+    pub fn unbind(&mut self, action: ActionName) {
+        if let Some(inputs) = self.bindings.get_mut(&action) {
+            inputs.clear();
+        }
+    }
+
+    /// Every declared action. Lookup order only, not declaration order.
+    pub fn actions(&self) -> impl Iterator<Item = &ActionName> {
+        self.bindings.keys()
+    }
+
     pub fn bindings_for(&self, action: &ActionName) -> &[RawInput] {
         self.bindings.get(action).map(Vec::as_slice).unwrap_or(&[])
     }
@@ -79,6 +97,9 @@ impl ActionBindingMap {
             .collect()
     }
 }
+
+#[path = "tai/tai.rs"]
+pub mod tai;
 
 #[cfg(test)]
 mod tests {
@@ -96,17 +117,17 @@ mod tests {
     fn bind_resolves_raw_input_to_named_action() {
         let mut map = ActionBindingMap::new();
         let pan_left = ActionName::new("camera_pan_left");
-        map.bind(pan_left.clone(), RawInput::Key("A"));
+        map.bind(pan_left.clone(), RawInput::Key("A".to_string()));
 
-        assert_eq!(map.bindings_for(&pan_left), &[RawInput::Key("A")]);
-        assert_eq!(map.actions_for(RawInput::Key("A")), vec![&pan_left]);
+        assert_eq!(map.bindings_for(&pan_left), &[RawInput::Key("A".to_string())]);
+        assert_eq!(map.actions_for(RawInput::Key("A".to_string())), vec![&pan_left]);
     }
 
     #[test]
     fn rebind_replaces_rather_than_accumulates() {
         let mut map = ActionBindingMap::new();
         let zoom_in = ActionName::new("zoom_in");
-        map.bind(zoom_in.clone(), RawInput::Key("-"));
+        map.bind(zoom_in.clone(), RawInput::Key("-".to_string()));
         map.rebind(zoom_in.clone(), RawInput::MouseWheelUp);
 
         assert_eq!(map.bindings_for(&zoom_in), &[RawInput::MouseWheelUp]);

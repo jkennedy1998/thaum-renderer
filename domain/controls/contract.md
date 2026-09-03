@@ -17,13 +17,15 @@ Own the renderer's input capture and remappable action-binding infrastructure, s
 - `domain/modules/` gizmo/drag interaction logic, which consumes this domain rather than owning it
 
 ## children-encapsulations
-- none
+- `/home/j/Repos/thaum-renderer/domain/controls/tai/`
 
 ## contents
 - `contract.md`
   - controls contract
 - `controls.rs`
   - rust input event shapes and the action-binding map, owned by this encapsulation
+- `tai/`
+  - tool-assisted input testing surface: script format, breath-timed replay runner, template, and growable individuals registry
 
 ## dependencies
 - `/home/j/Repos/thaum-renderer/domain/`
@@ -54,3 +56,4 @@ Own the renderer's input capture and remappable action-binding infrastructure, s
 - "like Unity does inputs" is the reference shape from J: a generic action-based system with no built-in default action map.
 - pressure sensitivity lives here rather than in a painter-only seam so any renderer consumer (painter, game, other programs) gets it for free.
 - the remap-UI module built on top of this lives in `domain/modules/individuals/`, not here — this domain owns the data/binding system, not its own settings-panel chrome.
+- `RawInput::Key` holds an owned `String` (not `&'static str`) so runtime-captured and TAI-scripted key codes can both flow through without leaking.

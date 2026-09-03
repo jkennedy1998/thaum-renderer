@@ -98,6 +98,13 @@ pub trait Module {
         false
     }
 
+    /// Offer one captured key label to the module (input-capture flows such
+    /// as the controls panel's rebind wait). Returns `true` when the module
+    /// consumed the key. `false` by default.
+    fn on_key_capture(&mut self, _label: &str) -> bool {
+        false
+    }
+
     /// Snapshot the module's user-facing UI/session state when this module
     /// wants renderer-owned persistence support.
     fn persisted_ui_state(&self) -> Option<PersistedModuleUiState> {
@@ -309,6 +316,17 @@ impl ModuleRegistry {
 
     /// Whether any module currently holds pointer capture for an active drag
     /// interaction such as move/resize.
+    /// Offer one captured key label to registered modules in registration
+    /// order. Returns the consuming module's id, if any.
+    pub fn dispatch_key_capture(&mut self, label: &str) -> Option<&str> {
+        for module in self.order.iter_mut() {
+            if module.on_key_capture(label) {
+                return Some(module.id());
+            }
+        }
+        None
+    }
+
     pub fn is_pointer_captured(&self) -> bool {
         self.captured.is_some()
     }

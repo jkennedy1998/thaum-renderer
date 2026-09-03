@@ -9,6 +9,7 @@ authors.workspace = true
 fontdue.workspace = true
 png.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thaum-renderer-tools-color = { path = "../tools/color" }
 
 [lib]

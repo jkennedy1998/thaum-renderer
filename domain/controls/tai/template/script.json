@@ -1,0 +1,12 @@
+{
+  "id": "template",
+  "description": "copy this folder into individuals/taiNN_name/, rename the id, then fill in actions and expectations",
+  "actions": [
+    { "at": 0, "input": { "type": "key", "code": "A" } },
+    { "at": 2, "input": { "type": "mouse_button", "button": 0 } },
+    { "at": 4, "input": { "type": "wheel_up" } }
+  ],
+  "expect": [
+    { "at": 0, "action": "example_action" }
+  ]
+}

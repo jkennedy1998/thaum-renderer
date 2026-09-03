@@ -24,6 +24,8 @@ pub mod cell_weight;
 pub mod color_block_module;
 #[path = "modules/individuals/color-picker/color_picker_module.rs"]
 pub mod color_picker_module;
+#[path = "modules/individuals/controls-panel/controls_panel_module.rs"]
+pub mod controls_panel_module;
 #[path = "modules/individuals/ui-customization/ui_customization_module.rs"]
 pub mod ui_customization_module;
 #[path = "command-bar/command_bar.rs"]
@@ -90,13 +92,17 @@ pub use cell_warble::CellWarble;
 pub use cell_weight::CellWeight;
 pub use color_block_module::ColorBlockModule;
 pub use color_picker_module::ColorPickerModule;
+pub use controls_panel_module::{ControlActionRow, ControlsPanelModule};
 pub use ui_customization_module::UiCustomizationModule;
 pub use command_bar::{
     CommandBar, CommandBarButton, CommandBarClickOutcome, CommandBarLayout,
     PersistedCommandBarState,
 };
 pub use composition::{compose_cells, ComposedCell, Composition};
-pub use controls::{ActionBindingMap, ActionName, PressureSample, RawInput};
+pub use controls::{
+    profile::{conflicting_actions, effective_bindings, format_raw_input, ControlsProfile},
+    ActionBindingMap, ActionName, PressureSample, RawInput,
+};
 pub use coordinate_space::{AxisSign, CellPoint, GlobalDirection, WorldAxis, WorldPoint};
 pub use data_lanes::DataLanes;
 pub use module::{
