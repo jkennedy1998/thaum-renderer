@@ -30,15 +30,6 @@ fn swatch_position(order_index: usize, columns: i32, content_height: i32) -> (i3
     (order_index % columns, content_height - 1 - row)
 }
 
-fn standard_gizmo_bar() -> GizmoBar {
-    GizmoBar::new(vec![
-        GizmoKind::Move,
-        GizmoKind::Close,
-        GizmoKind::Resize,
-        GizmoKind::Seamless,
-    ])
-}
-
 /// A flowing-list color picker drawing every color in the renderer's
 /// canonical palette as one clickable swatch, packed edge-to-edge with no
 /// gap and wrapping to fit whatever width is currently available. Clicking
@@ -73,7 +64,7 @@ impl ColorPickerModule {
             order: (0..indexed_palette.len()).collect(),
             indexed_palette,
             selected_index: None,
-            gizmos: standard_gizmo_bar(),
+            gizmos: GizmoBar::standard(),
             gizmo_state: GizmoState::new(),
             hidden: false,
         }

@@ -86,6 +86,17 @@ pub struct GizmoBar {
 }
 
 impl GizmoBar {
+    /// The standard gizmo bar every gizmo-enabled module ships: move, close,
+    /// resize, seamless, in that order.
+    pub fn standard() -> Self {
+        Self::new(vec![
+            GizmoKind::Move,
+            GizmoKind::Close,
+            GizmoKind::Resize,
+            GizmoKind::Seamless,
+        ])
+    }
+
     pub fn new(kinds: Vec<GizmoKind>) -> Self {
         Self { kinds }
     }
@@ -415,12 +426,18 @@ mod tests {
     }
 
     fn full_bar() -> GizmoBar {
-        GizmoBar::new(vec![
-            GizmoKind::Move,
-            GizmoKind::Close,
-            GizmoKind::Resize,
-            GizmoKind::Seamless,
-        ])
+        GizmoBar::standard()
+    }
+
+    #[test]
+    fn standard_bar_ships_move_close_resize_seamless_in_order() {
+        let bar = GizmoBar::standard();
+        let rect = rect(0, 0, 20, 5);
+        assert_eq!(bar.hit_test(rect, 1, 4), Some(GizmoKind::Move));
+        assert_eq!(bar.hit_test(rect, 3, 4), Some(GizmoKind::Close));
+        assert_eq!(bar.hit_test(rect, 5, 4), Some(GizmoKind::Resize));
+        assert_eq!(bar.hit_test(rect, 7, 4), Some(GizmoKind::Seamless));
+        assert_eq!(bar.title_start_x(), 1 + 4 * 2);
     }
 
     #[test]

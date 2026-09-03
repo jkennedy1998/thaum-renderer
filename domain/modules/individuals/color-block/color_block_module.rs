@@ -19,15 +19,6 @@ struct HsvColor {
     value: f32,
 }
 
-fn standard_gizmo_bar() -> GizmoBar {
-    GizmoBar::new(vec![
-        GizmoKind::Move,
-        GizmoKind::Close,
-        GizmoKind::Resize,
-        GizmoKind::Seamless,
-    ])
-}
-
 fn clamp01(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
 }
@@ -139,7 +130,7 @@ impl ColorBlockModule {
             selected_rgb,
             selected_hsv: rgb_to_hsv(selected_rgb),
             drag_target: None,
-            gizmos: standard_gizmo_bar(),
+            gizmos: GizmoBar::standard(),
             gizmo_state: GizmoState::new(),
             hidden: false,
         }

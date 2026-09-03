@@ -5,15 +5,6 @@ use crate::{
     WorldPoint,
 };
 
-fn standard_gizmo_bar() -> GizmoBar {
-    GizmoBar::new(vec![
-        GizmoKind::Move,
-        GizmoKind::Close,
-        GizmoKind::Resize,
-        GizmoKind::Seamless,
-    ])
-}
-
 fn rgb_cell(rgb: [u8; 3]) -> CellColor {
     CellColor::Flat([
         rgb[0] as f32 / 255.0,
@@ -47,7 +38,7 @@ impl UiCustomizationModule {
             id: id.into(),
             rect,
             palette,
-            gizmos: standard_gizmo_bar(),
+            gizmos: GizmoBar::standard(),
             gizmo_state: GizmoState::new(),
             hidden: false,
             selected_role: UiColorRole::Vivid,

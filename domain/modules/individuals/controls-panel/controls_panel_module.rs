@@ -20,15 +20,6 @@ enum PanelSlot {
     Row(usize),
 }
 
-fn standard_gizmo_bar() -> GizmoBar {
-    GizmoBar::new(vec![
-        GizmoKind::Move,
-        GizmoKind::Close,
-        GizmoKind::Resize,
-        GizmoKind::Seamless,
-    ])
-}
-
 /// The big-list controls panel: every declared action with its current
 /// binding, click-to-rebind capture, and inline conflict markers. Ships no
 /// binding behavior — the consumer wires the getters/setter, so this module
@@ -65,7 +56,7 @@ impl ControlsPanelModule {
             id: id.into(),
             rect,
             palette,
-            gizmos: standard_gizmo_bar(),
+            gizmos: GizmoBar::standard(),
             gizmo_state: GizmoState::new(),
             hidden: false,
             rows,
@@ -322,6 +313,10 @@ impl Module for ControlsPanelModule {
     fn on_key_capture(&mut self, label: &str) -> bool {
         self.capture_key(label)
     }
+
+    fn wants_pointer_capture(&self) -> bool {
+        self.gizmo_state.wants_pointer_capture()
+    }
 }
 
 #[cfg(test)]
@@ -374,6 +369,22 @@ mod tests {
                     .push((action.0.clone(), binding));
             },
         )
+    }
+
+    #[test]
+    fn clicking_the_move_gizmo_starts_requesting_pointer_capture() {
+        let set_calls = Rc::new(RefCell::new(Vec::new()));
+        let mut panel = module(
+            Rc::new(RefCell::new(ActionBindingMap::new())),
+            set_calls,
+        );
+        panel.on_pointer_event(ModulePointerEvent::Click {
+            x: 1,
+            y: 11,
+            button: ModulePointerButton::Left,
+        });
+
+        assert!(panel.wants_pointer_capture());
     }
 
     #[test]
