@@ -3,7 +3,8 @@ use std::rc::Rc;
 
 use crate::{
     Cell, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    Module, ModulePointerButton, ModulePointerEvent, ModuleRect, PanelChrome, PropertyRows,
+    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerButton,
+    ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, PropertyRows,
     UiColorRole, UiPalette, WorldPoint,
 };
 use crate::PerspectiveProfile;
@@ -81,6 +82,9 @@ pub struct CameraPerspectiveModule {
     rect: ModuleRect,
     profile: Rc<RefCell<PerspectiveProfile>>,
     palette: UiPalette,
+    gizmos: GizmoBar,
+    gizmo_state: GizmoState,
+    hidden: bool,
 }
 
 impl CameraPerspectiveModule {
@@ -90,6 +94,9 @@ impl CameraPerspectiveModule {
             rect,
             profile,
             palette: UiPalette::default(),
+            gizmos: GizmoBar::standard(),
+            gizmo_state: GizmoState::new(),
+            hidden: false,
         }
     }
 
@@ -155,10 +162,21 @@ impl Module for CameraPerspectiveModule {
     }
 
     fn draw(&self) -> CellGroup {
-        let mut cells = Vec::new();
-        let chrome = PanelChrome::new(self.rect, &self.palette)
-            .with_title("PERSPECTIVE");
-        cells.extend(chrome.cells());
+        let mut cells: Vec<Cell> = if self.gizmo_state.is_seamless() {
+            Vec::new()
+        } else {
+            self.gizmo_state
+                .decorate_panel_chrome(
+                    PanelChrome::new(self.rect, &self.palette)
+                        .with_title("PERSPECTIVE")
+                        .with_title_start_x(self.gizmos.title_start_x()),
+                    &self.palette,
+                )
+                .cells()
+        };
+        if self.gizmo_state.should_draw_gizmo_bar() {
+            cells.extend(self.gizmos.cells(self.rect, &self.gizmo_state, &self.palette));
+        }
 
         let (content_x, content_y) = PanelChrome::content_origin();
         let (_, content_height) = PanelChrome::content_size(self.rect);
@@ -228,17 +246,60 @@ impl Module for CameraPerspectiveModule {
     }
 
     fn on_pointer_event(&mut self, event: ModulePointerEvent) {
-        if let ModulePointerEvent::Click {
-            x,
-            y,
-            button: ModulePointerButton::Left,
-        } = event
-        {
-            if let Some(index) = self.knob_row_at(x, y) {
-                let mut profile = self.profile.borrow_mut();
-                self.cycle_preset(&mut profile, index);
+        match event {
+            ModulePointerEvent::Click { x, y, button } => {
+                if let Some(outcome) = self.gizmo_state.handle_click(&self.gizmos, self.rect, x, y)
+                {
+                    if outcome == GizmoClickOutcome::Gizmo(GizmoKind::Close) {
+                        self.hidden = true;
+                    }
+                    return;
+                }
+                if button == ModulePointerButton::Left {
+                    if let Some(index) = self.knob_row_at(x, y) {
+                        let mut profile = self.profile.borrow_mut();
+                        self.cycle_preset(&mut profile, index);
+                    }
+                }
             }
+            ModulePointerEvent::Move { x, y } => {
+                self.gizmo_state.note_pointer(&self.gizmos, self.rect, x, y);
+                if let Some(next_rect) = self.gizmo_state.drag_rect(x, y) {
+                    self.rect = next_rect;
+                }
+            }
+            ModulePointerEvent::Up { .. } => self.gizmo_state.end_drag(),
+            ModulePointerEvent::Enter => self.gizmo_state.set_hovered(true),
+            ModulePointerEvent::Leave => self.gizmo_state.set_hovered(false),
+            ModulePointerEvent::Down { .. } => {}
         }
+    }
+
+    fn wants_pointer_capture(&self) -> bool {
+        self.gizmo_state.wants_pointer_capture()
+    }
+
+    fn is_hidden(&self) -> bool {
+        self.hidden
+    }
+
+    fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
+    }
+
+    fn persisted_ui_state(&self) -> Option<PersistedModuleUiState> {
+        Some(PersistedModuleUiState::new(
+            self.id(),
+            self.rect,
+            self.gizmo_state.is_seamless(),
+            self.hidden,
+        ))
+    }
+
+    fn apply_persisted_ui_state(&mut self, state: &PersistedModuleUiState) {
+        self.rect = state.rect.to_runtime();
+        self.gizmo_state.set_seamless(state.is_seamless);
+        self.hidden = state.is_hidden;
     }
 
     fn on_wheel(&mut self, x: i32, y: i32, _delta_x: f32, delta_y: f32) -> bool {
@@ -266,6 +327,10 @@ mod tests {
     }
 
     fn module() -> (CameraPerspectiveModule, Rc<RefCell<PerspectiveProfile>>) {
+        make_module()
+    }
+
+    fn make_module() -> (CameraPerspectiveModule, Rc<RefCell<PerspectiveProfile>>) {
         let profile = Rc::new(RefCell::new(PerspectiveProfile::default()));
         let module = CameraPerspectiveModule::new("camera_perspective", rect(), profile.clone());
         (module, profile)
@@ -275,6 +340,71 @@ mod tests {
         // Screen-space: knob rows are module-local inside draw, events are
         // screen-space, so add the rect origin.
         rect().y0 + PropertyRows::top_row_y(rect())
+    }
+
+    fn gizmo_row_y() -> i32 {
+        // Gizmo glyphs sit on the chrome's top border row: local y = height-1.
+        rect().y0 + (rect().y1 - rect().y0) - 1
+    }
+
+    #[test]
+    fn clicking_the_close_gizmo_hides_the_panel_and_recall_revives_it() {
+        let (mut module, _profile) = module();
+        assert!(!module.is_hidden());
+
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: rect().x0 + 3,
+            y: gizmo_row_y(),
+            button: ModulePointerButton::Left,
+        });
+        assert!(module.is_hidden(), "close gizmo must hide the panel");
+
+        module.set_hidden(false);
+        assert!(!module.is_hidden(), "bottom-bar recall must revive it");
+    }
+
+    #[test]
+    fn move_gizmo_drag_relocates_the_panel_through_pointer_capture() {
+        let (mut module, _profile) = module();
+        let before = module.rect();
+
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: rect().x0 + 1,
+            y: gizmo_row_y(),
+            button: ModulePointerButton::Left,
+        });
+        assert!(module.wants_pointer_capture(), "move drag must hold capture");
+
+        module.on_pointer_event(ModulePointerEvent::Move {
+            x: rect().x0 + 4,
+            y: gizmo_row_y() + 2,
+        });
+        assert_eq!(module.rect(), ModuleRect {
+            x0: before.x0 + 3,
+            y0: before.y0 + 2,
+            x1: before.x1 + 3,
+            y1: before.y1 + 2,
+        });
+
+        module.on_pointer_event(ModulePointerEvent::Up { x: 0, y: 0 });
+        assert!(!module.wants_pointer_capture(), "release must end the drag");
+    }
+
+    #[test]
+    fn panel_ui_state_persists_rect_seamless_and_hidden() {
+        let (mut module, _profile) = module();
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: rect().x0 + 7,
+            y: gizmo_row_y(),
+            button: ModulePointerButton::Left,
+        });
+        assert!(module.gizmo_state.is_seamless());
+
+        let saved = module.persisted_ui_state().expect("ui state snapshot");
+        let (mut revived, _profile) = make_module();
+        revived.apply_persisted_ui_state(&saved);
+        assert_eq!(revived.rect(), module.rect());
+        assert!(revived.gizmo_state.is_seamless());
     }
 
     #[test]
