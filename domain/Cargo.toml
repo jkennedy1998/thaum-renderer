@@ -14,3 +14,6 @@ thaum-renderer-tools-color = { path = "../tools/color" }
 
 [lib]
 path = "lib.rs"
+
+[features]
+debug-hits = []

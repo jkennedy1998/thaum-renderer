@@ -14,7 +14,7 @@ use thaum_renderer_domain::{
     warble_post_effect_breath_phase, POST_EFFECTS_SHADER,
 };
 use wgpu::{
-    util::DeviceExt, CompositeAlphaMode, CurrentSurfaceTexture, PresentMode, SurfaceColorSpace,
+    CompositeAlphaMode, CurrentSurfaceTexture, PresentMode, SurfaceColorSpace,
     TextureFormat,
 };
 use winit::{
@@ -242,6 +242,7 @@ struct WindowSurfaceApp {
     wheel_delta_y: f32,
     performance_log: Option<PerformanceLogState>,
     pending_frame_sample: Option<PerformanceSample>,
+    last_redraw_at: Option<Instant>,
 }
 
 impl WindowSurfaceApp {
@@ -273,6 +274,7 @@ impl WindowSurfaceApp {
             wheel_delta_y: 0.0,
             performance_log,
             pending_frame_sample: None,
+            last_redraw_at: None,
         }
     }
 
@@ -309,6 +311,9 @@ impl ApplicationHandler for WindowSurfaceApp {
                 self.config.upscale_mode,
             ))
             .expect("failed to create GPU presentation surface");
+            if let Some(performance_log) = &mut self.performance_log {
+                performance_log.set_adapter(gpu_surface.adapter_label.clone());
+            }
 
             self.pending_frame_sample = Some(initial_sample);
 
@@ -406,6 +411,17 @@ impl ApplicationHandler for WindowSurfaceApp {
                 }
             },
             WindowEvent::RedrawRequested => {
+                // Wall frame pacing: time since the previous RedrawRequested,
+                // captured before any of this frame's work so the sample
+                // reflects the true interval between presented frames.
+                let wall_ms = self
+                    .last_redraw_at
+                    .replace(Instant::now())
+                    .map(|previous| previous.elapsed().as_secs_f64() * 1000.0)
+                    .unwrap_or(0.0);
+                if let Some(sample) = &mut self.pending_frame_sample {
+                    sample.wall_ms = wall_ms;
+                }
                 if let Some(gpu_surface) = &mut self.gpu_surface {
                     let render_started_at = Instant::now();
                     match gpu_surface.render(self.config.clear_color) {
@@ -479,6 +495,7 @@ impl ApplicationHandler for WindowSurfaceApp {
 }
 
 struct GpuSurface {
+    adapter_label: String,
     _instance: wgpu::Instance,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -515,6 +532,7 @@ impl GpuSurface {
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
             .context("failed to create renderer GPU device")?;
+        let adapter_info = adapter.get_info();
 
         let surface_capabilities = surface.get_capabilities(&adapter);
         let surface_format = pick_surface_format(&surface_capabilities.formats)
@@ -546,7 +564,6 @@ impl GpuSurface {
 
         let quad_draw = QuadDraw::new(
             &device,
-            &queue,
             surface_format,
             output_surface_size,
             internal_surface_size,
@@ -563,6 +580,10 @@ impl GpuSurface {
             internal_render_scale,
             upscale_mode,
             quad_draw,
+            adapter_label: format!(
+                "{} / {:?} / {}",
+                adapter_info.name, adapter_info.backend, adapter_info.driver
+            ),
         })
     }
 
@@ -583,15 +604,36 @@ impl GpuSurface {
         };
         let internal_surface_size =
             scaled_internal_surface_size(output_surface_size, self.internal_render_scale);
-        self.quad_draw = QuadDraw::new(
-            &self.device,
-            &self.queue,
-            self.surface_config.format,
-            output_surface_size,
-            internal_surface_size,
-            self.upscale_mode,
-            scene,
-        );
+
+        // Persistent resources: pipelines, offscreen targets, bind groups, and
+        // the vertex buffer survive across frames. They are only rebuilt when
+        // the rebuild signature changes (size, format, palette length). Per-
+        // frame data (vertices, post uniforms, palette texels) flows through
+        // queue writes into the existing buffers instead.
+        let needs_rebuild = self
+            .quad_draw
+            .as_ref()
+            .map(|quad_draw| quad_draw.needs_rebuild(
+                self.surface_config.format,
+                output_surface_size,
+                internal_surface_size,
+                self.upscale_mode,
+                scene.indexed_color_palette.len(),
+            ))
+            .unwrap_or(true);
+        if needs_rebuild {
+            self.quad_draw = QuadDraw::new(
+                &self.device,
+                self.surface_config.format,
+                output_surface_size,
+                internal_surface_size,
+                self.upscale_mode,
+                scene,
+            );
+        }
+        if let Some(quad_draw) = &mut self.quad_draw {
+            quad_draw.update_frame(&self.device, &self.queue, scene);
+        }
     }
 
     fn render(&mut self, clear_color: [f64; 4]) -> RenderOutcome {
@@ -655,20 +697,119 @@ struct QuadDraw {
     quad_pipeline: wgpu::RenderPipeline,
     post_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    vertex_capacity_bytes: usize,
     vertex_count: u32,
     post_bind_group: wgpu::BindGroup,
-    _post_uniform_buffer: wgpu::Buffer,
+    post_uniform_buffer: wgpu::Buffer,
+    indexed_palette_texture: wgpu::Texture,
     color_view: wgpu::TextureView,
     bus_view: wgpu::TextureView,
     meta_view: wgpu::TextureView,
     warble_view: wgpu::TextureView,
     _indexed_palette_view: wgpu::TextureView,
+    // Rebuild signature: resources are only recreated when one of these
+    // changes; otherwise frames reuse the same GPU objects.
+    surface_format: TextureFormat,
+    output_surface_size: SurfaceSize,
+    internal_surface_size: SurfaceSize,
+    upscale_mode: WindowSurfaceUpscaleMode,
+    palette_len: usize,
 }
 
 impl QuadDraw {
+    /// Vertex bytes needed for `quad_count` quads (6 verts × 18 floats each).
+    fn vertex_bytes_for(quad_count: usize) -> usize {
+        quad_count * 6 * std::mem::size_of::<SurfaceVertex>()
+    }
+
+    const VERTEX_CAPACITY_MIN_BYTES: usize = 1 << 20; // 1 MiB floor
+
+    fn needs_rebuild(
+        &self,
+        surface_format: TextureFormat,
+        output_surface_size: SurfaceSize,
+        internal_surface_size: SurfaceSize,
+        upscale_mode: WindowSurfaceUpscaleMode,
+        palette_len: usize,
+    ) -> bool {
+        self.surface_format != surface_format
+            || self.output_surface_size != output_surface_size
+            || self.internal_surface_size != internal_surface_size
+            || self.upscale_mode != upscale_mode
+            || self.palette_len != palette_len
+    }
+
+    /// Per-frame update: pushes vertices, post uniforms, and palette texels
+    /// into the persistent GPU buffers without recreating any GPU objects.
+    fn update_frame(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        scene: &WindowSurfaceScene,
+    ) {
+        queue.write_buffer(
+            &self.post_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&TexturePostEffectUniforms::new(
+                scene,
+                self.internal_surface_size,
+                self.upscale_mode,
+            )),
+        );
+
+        if !scene.indexed_color_palette.is_empty() {
+            let palette_bytes: Vec<u8> = scene
+                .indexed_color_palette
+                .iter()
+                .flat_map(|rgba| rgba.iter().copied())
+                .collect();
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.indexed_palette_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &palette_bytes,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some((scene.indexed_color_palette.len() * 4) as u32),
+                    rows_per_image: Some(1),
+                },
+                wgpu::Extent3d {
+                    width: scene.indexed_color_palette.len() as u32,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+
+        let needed_bytes = Self::vertex_bytes_for(scene.quads.len());
+        if needed_bytes > self.vertex_capacity_bytes {
+            let grown_capacity = needed_bytes + needed_bytes / 2;
+            self.vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("thaum-renderer-surface-quad-vertices"),
+                size: grown_capacity as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.vertex_capacity_bytes = grown_capacity;
+        }
+        if needed_bytes > 0 {
+            let vertices: Vec<_> = scene.quads.iter().flat_map(SurfaceQuad::vertices).collect();
+            queue.write_buffer(
+                &self.vertex_buffer,
+                0,
+                bytemuck::cast_slice(&vertices),
+            );
+            self.vertex_count = vertices.len() as u32;
+        } else {
+            self.vertex_count = 0;
+        }
+    }
+
     fn new(
         device: &wgpu::Device,
-        _queue: &wgpu::Queue,
         surface_format: TextureFormat,
         _output_surface_size: SurfaceSize,
         internal_surface_size: SurfaceSize,
@@ -750,33 +891,6 @@ impl QuadDraw {
             view_formats: &[],
         });
 
-        if !scene.indexed_color_palette.is_empty() {
-            let palette_bytes: Vec<u8> = scene
-                .indexed_color_palette
-                .iter()
-                .flat_map(|rgba| rgba.iter().copied())
-                .collect();
-            _queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &indexed_palette_texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &palette_bytes,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some((scene.indexed_color_palette.len() * 4) as u32),
-                    rows_per_image: Some(1),
-                },
-                wgpu::Extent3d {
-                    width: scene.indexed_color_palette.len() as u32,
-                    height: 1,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-
         let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let bus_view = bus_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let meta_view = meta_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -856,14 +970,11 @@ impl QuadDraw {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             ..Default::default()
         });
-        let post_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let post_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("thaum-renderer-post-uniforms"),
-            contents: bytemuck::bytes_of(&TexturePostEffectUniforms::new(
-                scene,
-                internal_surface_size,
-                upscale_mode,
-            )),
-            usage: wgpu::BufferUsages::UNIFORM,
+            size: std::mem::size_of::<TexturePostEffectUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let post_bind_group_layout =
@@ -1016,25 +1127,34 @@ impl QuadDraw {
             cache: None,
         });
 
-        let vertices: Vec<_> = scene.quads.iter().flat_map(SurfaceQuad::vertices).collect();
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let initial_vertex_capacity = (Self::vertex_bytes_for(scene.quads.len()))
+            .max(Self::VERTEX_CAPACITY_MIN_BYTES);
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("thaum-renderer-surface-quad-vertices"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
+            size: initial_vertex_capacity as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         Some(Self {
             quad_pipeline,
             post_pipeline,
             vertex_buffer,
-            vertex_count: vertices.len() as u32,
+            vertex_capacity_bytes: initial_vertex_capacity,
+            vertex_count: 0,
             post_bind_group,
-            _post_uniform_buffer: post_uniform_buffer,
+            post_uniform_buffer,
+            indexed_palette_texture,
             color_view,
             bus_view,
             meta_view,
             warble_view,
             _indexed_palette_view: indexed_palette_view,
+            surface_format,
+            output_surface_size: _output_surface_size,
+            internal_surface_size,
+            upscale_mode,
+            palette_len: scene.indexed_color_palette.len(),
         })
     }
 
@@ -1280,6 +1400,9 @@ struct PerformanceSample {
     scene_build_ms: f64,
     scene_upload_ms: f64,
     render_ms: f64,
+    /// Wall time since the previous RedrawRequested. Reflects real frame pacing
+    /// (vsync included), unlike render_ms which only measures CPU submit cost.
+    wall_ms: f64,
 }
 
 impl PerformanceSample {
@@ -1300,6 +1423,7 @@ impl PerformanceSample {
             scene_build_ms: 0.0,
             scene_upload_ms: 0.0,
             render_ms: 0.0,
+            wall_ms: 0.0,
         }
     }
 
@@ -1335,6 +1459,7 @@ struct PerformanceLogBucket {
     scene_build_ms_sum: f64,
     scene_upload_ms_sum: f64,
     render_ms_sum: f64,
+    wall_ms_sum: f64,
 }
 
 impl PerformanceLogBucket {
@@ -1348,6 +1473,7 @@ impl PerformanceLogBucket {
             scene_build_ms_sum: 0.0,
             scene_upload_ms_sum: 0.0,
             render_ms_sum: 0.0,
+            wall_ms_sum: 0.0,
         }
     }
 
@@ -1358,6 +1484,7 @@ impl PerformanceLogBucket {
         self.scene_build_ms_sum += sample.scene_build_ms;
         self.scene_upload_ms_sum += sample.scene_upload_ms;
         self.render_ms_sum += sample.render_ms;
+        self.wall_ms_sum += sample.wall_ms;
     }
 }
 
@@ -1365,11 +1492,28 @@ impl PerformanceLogBucket {
 struct PerformanceLogState {
     path: PathBuf,
     bucket: Option<PerformanceLogBucket>,
+    adapter: Option<String>,
 }
 
 impl PerformanceLogState {
     fn new(path: PathBuf) -> Self {
-        Self { path, bucket: None }
+        Self {
+            path,
+            bucket: None,
+            adapter: None,
+        }
+    }
+
+    fn set_adapter(&mut self, adapter_label: String) {
+        self.adapter = Some(adapter_label);
+    }
+
+    fn adapter_json(&self) -> String {
+        self.adapter
+            .as_deref()
+            .unwrap_or("unknown")
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
     }
 
     fn record(&mut self, sample: PerformanceSample) {
@@ -1407,10 +1551,17 @@ impl PerformanceLogState {
         } else {
             0.0
         };
+        let avg_wall_ms = average(bucket.wall_ms_sum);
+        let wall_fps = if avg_wall_ms > 0.0 {
+            1000.0 / avg_wall_ms
+        } else {
+            0.0
+        };
         let line = format!(
             concat!(
                 "{{",
                 "\"timestamp_ms\":{},",
+                "\"adapter\":\"{}\",",
                 "\"frames\":{},",
                 "\"surface\":{{\"width\":{},\"height\":{}}},",
                 "\"internal_surface\":{{\"width\":{},\"height\":{}}},",
@@ -1421,10 +1572,13 @@ impl PerformanceLogState {
                 "\"avg_scene_upload_ms\":{:.4},",
                 "\"avg_render_ms\":{:.4},",
                 "\"avg_total_ms\":{:.4},",
-                "\"approx_fps\":{:.2}",
+                "\"approx_fps\":{:.2},",
+                "\"avg_wall_ms\":{:.4},",
+                "\"wall_fps\":{:.2}",
                 "}}\n"
             ),
             bucket.started_at_unix_ms,
+            self.adapter_json(),
             bucket.frame_count,
             bucket.key.width,
             bucket.key.height,
@@ -1439,6 +1593,8 @@ impl PerformanceLogState {
             average(bucket.render_ms_sum),
             avg_total_ms,
             approx_fps,
+            avg_wall_ms,
+            wall_fps,
         );
 
         if let Some(parent) = self.path.parent() {

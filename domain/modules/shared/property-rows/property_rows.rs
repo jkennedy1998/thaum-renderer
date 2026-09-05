@@ -402,6 +402,11 @@ impl PropertyRows {
                         if !enabled {
                             return None;
                         }
+                        #[cfg(feature = "debug-hits")]
+                        eprintln!(
+                            "[hit-debug] row={} column={} side={:?}",
+                            id, column.id, side
+                        );
                         return Some(PropertyHit::Matrix {
                             row_id: id.clone(),
                             side,

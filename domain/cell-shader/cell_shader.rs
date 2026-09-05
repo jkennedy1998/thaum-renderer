@@ -18,8 +18,9 @@ pub const CELL_SHADER_WARBLE_DISTORT_5: u32 = 10;
 /// visibility, one half of the two-step animation each.
 pub const CELL_SHADER_VIVID_FLASH: u32 = 11;
 pub const CELL_SHADER_VIVID_FLASH_ALT: u32 = 12;
-/// Breath ticks per flash phase.
-pub const VIVID_FLASH_BREATH_PERIOD: i32 = 3;
+/// Breath ticks per flash phase. Period 1 = fastest readable blink; longer
+/// periods slow the flash down.
+pub const VIVID_FLASH_BREATH_PERIOD: i32 = 1;
 
 /// Which phase the vivid flash is in for this breath tick: `true` when the
 /// `CELL_SHADER_VIVID_FLASH` half shows, `false` when the alt half shows.

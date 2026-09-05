@@ -75,6 +75,7 @@ Own the renderer cell-shader slot as the additive per-cell effector channel cons
 - shader writes may target flat-color, material-backed color, texture, warble, graphic, or weight without owning the underlying renderer-wide systems
 - texture and warble shader outputs should resolve as slot overrides before those values are packed into the post-effect bus
 - the initial standard shader should be a sin-style relative weight modulator driven by `breath` and renderer world xyz input
+- source-of-truth from J: the vivid flash pair (lasso/selection previews) must blink fast enough to read — `VIVID_FLASH_BREATH_PERIOD` is 1 breath tick per phase (fastest readable blink)
 - checker does not need to be part of the built-in proving set
 - there is no cheap-vs-expensive split locked yet; that line should wait for actual renderer tests
 - shaders should only pay adjacency cost when adjacency is actually used

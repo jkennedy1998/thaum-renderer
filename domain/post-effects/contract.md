@@ -68,3 +68,5 @@ Own the renderer post-effects stack that runs on the fully composed image after 
 - the post-effect bus transfers authored cell intent into screen-space execution without moving ownership of those authored slots out of cells
 - relative depth in the bus is focus-centered, with `128` representing the focus plane, darker values toward camera, and brighter values away
 - index-color-clamp should run last in the post stack
+- source-of-truth from J: the bus is the intentional performance seam — texture and warble are authored as bus codes per cell and applied in one post pass, never as extra geometry; earlier geometry-based texture approaches were rejected for compute cost
+- consequence for scene geometry: cell quads must carry bus/aux data across the whole cell rect (even unlit texels, alpha 0) so post-pass displaced sampling keeps working without ring quads; see `context/glyph-atlas-geometry-reduction.md`
