@@ -1,7 +1,8 @@
 use crate::{
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
     GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerButton,
-    ModulePointerEvent, ModuleRect, PanelChrome, RawInput, UiColorRole, UiPalette, WorldPoint,
+    ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, RawInput, UiColorRole,
+    UiPalette, WorldPoint,
 };
 
 /// One listed control: the named action plus presentation metadata. The
@@ -312,6 +313,24 @@ impl Module for ControlsPanelModule {
 
     fn on_key_capture(&mut self, label: &str) -> bool {
         self.capture_key(label)
+    }
+
+    fn persisted_ui_state(&self) -> Option<PersistedModuleUiState> {
+        Some(PersistedModuleUiState::new(
+            self.id(),
+            self.rect,
+            self.gizmo_state.is_seamless(),
+            self.hidden,
+        ))
+    }
+
+    fn apply_persisted_ui_state(&mut self, state: &PersistedModuleUiState) {
+        self.rect = state.rect.to_runtime();
+        self.gizmo_state.set_seamless(state.is_seamless);
+        self.hidden = state.is_hidden;
+        if self.hidden {
+            self.waiting_for = None;
+        }
     }
 
     fn wants_pointer_capture(&self) -> bool {
