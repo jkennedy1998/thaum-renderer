@@ -111,12 +111,7 @@ impl CameraPerspectiveModule {
             return None;
         }
         let local_y = y - self.rect.y0;
-        for index in 0..KNOB_COUNT {
-            if self.knob_row_y(index) == local_y {
-                return Some(index);
-            }
-        }
-        None
+        (0..KNOB_COUNT).find(|&index| self.knob_row_y(index) == local_y)
     }
 
     fn apply_wheel(&self, profile: &mut PerspectiveProfile, index: usize, delta_y: f32) {
