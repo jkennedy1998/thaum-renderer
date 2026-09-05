@@ -13,19 +13,21 @@ use thaum_renderer_domain::{
     project_flat_2d_world_to_view_plane, project_rotating_3d_world_to_view_plane,
     projected_plane_is_visible, projected_plane_scale_factor, resolve_shaded_graphic,
     resolve_shaded_texture, resolve_shaded_warble, resolve_shaded_weight, Camera,
-    CameraProjectedPoint, Cell, CellGroupIntakeBehavior, CellPoint, Composition, DataLanes,
-    GlyphFontSet, IndexColorClampEffect, SpriteAtlasSet, WorldPoint, GLYPH_TILE_HEIGHT,
-    GLYPH_TILE_WIDTH,
+    CameraProjectedPoint, Cell, CellGroupIntakeBehavior, CellPoint, Composition,
+    DataLanes, GlyphFontSet, IndexColorClampEffect, SpriteAtlasSet, WorldPoint,
+    GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
 };
 pub use thaum_renderer_window_surface::{
     run_window_surface_with_frame_provider, SurfaceQuad, SurfaceSize, WindowSurfaceConfig,
     WindowSurfaceFrameContext, WindowSurfaceInput, WindowSurfaceScene,
 };
+use thaum_renderer_window_surface::GlyphAtlasSceneData;
 
 mod effect_quads;
 
 use effect_quads::{
-    cell_clip_size_for_surface, raster_to_surface_quads, sprite_raster_to_surface_quads,
+    cell_clip_size_for_surface, glyph_cell_to_surface_quad, sprite_raster_to_surface_quads,
+    GlyphAtlasPlacement,
 };
 
 #[cfg(test)]
@@ -255,6 +257,17 @@ fn build_window_surface_scene_for_surface_with_cache(
         base_cell_clip_size[1] * state.camera.zoom,
     ];
 
+    // One atlas pass over the visible cells: every distinct (glyph, weight)
+    // pair becomes one 12×16 tile in the scene's glyph atlas, and each glyph
+    // cell emits exactly one whole-cell quad sampling that tile.
+    let (glyph_atlas, glyph_placement) = match glyph_fonts {
+        Some(fonts) if composition_contains_visible_glyphs(&state.composition) => {
+            build_glyph_atlas(state, cell_clip_size, fonts)
+        }
+        _ => (GlyphAtlasSceneData::default(), GlyphAtlasPlacement::default()),
+    };
+    scene.glyph_atlas = glyph_atlas;
+
     for plane in
         group_projected_boot_cells_by_plane(stage_projected_boot_cells(state, cell_clip_size))
     {
@@ -264,9 +277,9 @@ fn build_window_surface_scene_for_surface_with_cache(
                 state.camera,
                 projected_cell,
                 state.data_lanes,
-                glyph_fonts,
                 sprite_atlases_borrow.as_mut(),
                 cell_clip_size,
+                &glyph_placement,
             )?);
         }
     }
@@ -291,7 +304,68 @@ fn build_window_surface_scene_for_surface_with_cache(
         apply_debug_depth_post_effect_to_scene(&mut scene);
     }
 
+    dump_atlas_debug_if_requested(&scene);
+
     Ok(scene)
+}
+
+/// Temporary debug seam: `THAUM_ATLAS_DEBUG_PATH=path` writes the scene's
+/// glyph atlas as a PGM plus one line per quad so atlas sampling bugs can be
+/// diagnosed from a live run.
+fn dump_atlas_debug_if_requested(scene: &WindowSurfaceScene) {
+    let Some(path) = std::env::var_os("THAUM_ATLAS_DEBUG_PATH") else {
+        return;
+    };
+    let Ok(mut out) = std::fs::File::create(&path) else {
+        return;
+    };
+    use std::io::Write;
+    let atlas = &scene.glyph_atlas;
+    let columns = atlas.columns.max(1) as usize;
+    let rows = atlas.rows.max(1) as usize;
+    let tile_width = atlas.tile_width.max(1) as usize;
+    let tile_height = atlas.tile_height.max(1) as usize;
+    let _ = writeln!(
+        out,
+        "atlas {}x{} tiles={} quads={}",
+        columns * tile_width,
+        rows * tile_height,
+        atlas.tiles.len(),
+        scene.quads.len()
+    );
+    let _ = writeln!(out, "PGM {} {}", columns * tile_width, rows * tile_height);
+    let mut image = vec![0u8; columns * rows * tile_width * tile_height];
+    for (index, tile) in atlas.tiles.iter().enumerate() {
+        let column = index % columns;
+        let row = index / columns;
+        for tile_row in 0..tile_height {
+            let destination =
+                (row * tile_height + tile_row) * columns * tile_width + column * tile_width;
+            let source = tile_row * tile_width;
+            image[destination..destination + tile_width]
+                .copy_from_slice(&tile.alpha[source..source + tile_width]);
+        }
+    }
+    let _ = out.write_all(&image);
+    for (index, quad) in scene.quads.iter().enumerate() {
+        if quad.atlas_uv[0] < 0.0 {
+            continue;
+        }
+        let _ = writeln!(
+            out,
+            "quad {} center={:?} size={:?} atlas_uv={:?} color={:?} bus={:?}",
+            index,
+            quad.center,
+            quad.size,
+            quad.atlas_uv,
+            quad.color,
+            [
+                quad.post_effect_bus.texture_code,
+                quad.post_effect_bus.warble_code,
+                quad.post_effect_bus.depth_code
+            ]
+        );
+    }
 }
 
 fn apply_debug_warble_post_effect_to_scene(scene: &mut WindowSurfaceScene) {
@@ -390,9 +464,9 @@ fn project_cell_to_surface_quads(
     camera: Camera,
     projected_cell: ProjectedBootCell,
     data_lanes: DataLanes,
-    glyph_fonts: Option<&GlyphFontSet>,
     sprite_atlases: Option<&mut SpriteAtlasSet>,
     cell_clip_size: [f32; 2],
+    glyph_placement: &GlyphAtlasPlacement,
 ) -> Result<Vec<SurfaceQuad>> {
     if !projected_cell.cell.graphic.is_visible() {
         return Ok(Vec::new());
@@ -432,14 +506,12 @@ fn project_cell_to_surface_quads(
     let gate_id = post_effect_gate_id_for_world_point(projected_cell.world);
 
     if let Some(glyph) = shaded_graphic.glyph_char() {
-        let glyph_fonts = glyph_fonts.context("visible glyph cells require loaded glyph fonts")?;
-        let raster = glyph_fonts.rasterize_glyph_tile(glyph, shaded_weight);
-        return raster_to_surface_quads(
-            &raster.alpha,
-            raster.width,
-            raster.height,
-            GLYPH_BINARY_ALPHA_THRESHOLD,
-            true,
+        // One whole-cell quad sampling the glyph atlas; coverage is applied in
+        // the quad-pass fragment shader. No per-texel quads, no ring quads.
+        return Ok(vec![glyph_cell_to_surface_quad(
+            glyph_placement,
+            glyph,
+            shaded_weight.as_index() as u32,
             cell_center,
             projected_cell_clip_size,
             projected_cell.cell.color.resolve_glyph(),
@@ -448,7 +520,7 @@ fn project_cell_to_surface_quads(
             depth_code,
             gate_id,
             projected_cell.world,
-        );
+        )?]);
     }
 
     if let Some(sprite) = shaded_graphic.sprite() {
@@ -519,12 +591,12 @@ fn stage_projected_boot_cells(
                 CellGroupIntakeBehavior::Rotating3d => {
                     project_rotating_3d_world_to_view_plane(state.camera, world)
                 }
-                CellGroupIntakeBehavior::Flat2d => {
-                    // Flat2d content is a screen-locked 2D layer: its group
-                    // origin is a screen-space offset, not a world anchor, so
-                    // it always projects relative to the camera's own focus
-                    // target (the active render depth) instead of drifting
-                    // as the camera pans between unrelated world anchors.
+                CellGroupIntakeBehavior::Flat2d if state.composition.flat_2d_screen_locked => {
+                    // Opt-in screen-locked 2D layer: the group origin is a
+                    // screen-space offset, not a world anchor, so it always
+                    // projects relative to the camera's own focus target (the
+                    // active render depth) instead of drifting as the camera
+                    // pans between unrelated world anchors.
                     // `hud_pan_offset` is the one thing allowed to move it,
                     // so the 2D layer can be panned on its own.
                     let local = CellPoint {
@@ -536,6 +608,16 @@ fn stage_projected_boot_cells(
                         state.camera,
                         state.camera.focus_target,
                         local,
+                    )
+                }
+                CellGroupIntakeBehavior::Flat2d => {
+                    // Default world-anchored Flat2d: the group origin is a
+                    // world anchor, so the content sits at its world position
+                    // and drifts naturally with camera pans and swings.
+                    project_flat_2d_world_to_view_plane(
+                        state.camera,
+                        group.origin,
+                        cell.position,
                     )
                 }
             };
@@ -636,6 +718,77 @@ fn projected_cell_center_for_surface(
     ]
 }
 
+/// Collect every distinct visible (glyph, weight) pair on screen and lay the
+/// tiles out row-major in the scene atlas. One tile per pair keeps the 12×16
+/// typegrid uniform; per-frame rebuild is just a sort plus cached rasters.
+fn build_glyph_atlas(
+    state: &BootState,
+    cell_clip_size: [f32; 2],
+    glyph_fonts: &GlyphFontSet,
+) -> (GlyphAtlasSceneData, GlyphAtlasPlacement) {
+    let mut keys = std::collections::BTreeSet::new();
+    for plane in
+        group_projected_boot_cells_by_plane(stage_projected_boot_cells(state, cell_clip_size))
+    {
+        for projected_cell in plane.cells {
+            if !projected_cell.cell.graphic.is_visible() {
+                continue;
+            }
+            let shaded_graphic = resolve_shaded_graphic(
+                projected_cell.cell.graphic.clone(),
+                &projected_cell.cell.shader_stack,
+                projected_cell.world,
+                state.data_lanes,
+            );
+            if !shaded_graphic.is_visible() {
+                continue;
+            }
+            if let Some(glyph) = shaded_graphic.glyph_char() {
+                let shaded_weight = resolve_shaded_weight(
+                    projected_cell.cell.weight,
+                    &projected_cell.cell.shader_stack,
+                    projected_cell.world,
+                    state.data_lanes,
+                );
+                keys.insert((glyph, shaded_weight));
+            }
+        }
+    }
+
+    if keys.is_empty() {
+        return (GlyphAtlasSceneData::default(), GlyphAtlasPlacement::default());
+    }
+
+    let columns = ((keys.len() as f64).sqrt().ceil() as usize).max(1);
+    let rows = keys.len().div_ceil(columns).max(1);
+    let mut tiles = Vec::with_capacity(keys.len());
+    let mut placement = GlyphAtlasPlacement::default();
+    for (slot, (glyph, weight)) in keys.into_iter().enumerate() {
+        let raster = glyph_fonts.rasterize_glyph_tile(glyph, weight);
+        let alpha = raster
+            .alpha
+            .iter()
+            .map(|coverage| if *coverage >= GLYPH_BINARY_ALPHA_THRESHOLD { 255u8 } else { 0u8 })
+            .collect::<Vec<u8>>();
+        tiles.push(thaum_renderer_window_surface::GlyphAtlasTile {
+            glyph: glyph as u32,
+            weight_index: weight.as_index() as u32,
+            alpha: std::sync::Arc::new(alpha),
+        });
+        placement.slots.insert((glyph, weight.as_index() as u32), slot);
+    }
+
+    let atlas = GlyphAtlasSceneData {
+        tile_width: GLYPH_TILE_WIDTH as u32,
+        tile_height: GLYPH_TILE_HEIGHT as u32,
+        columns: columns as u32,
+        rows: rows as u32,
+        tiles,
+    };
+    placement.data = atlas.clone();
+    (atlas, placement)
+}
+
 fn post_effect_gate_id_for_world_point(world: WorldPoint) -> u16 {
     let mut hash = 0x811c9dc5u32;
 
@@ -692,6 +845,7 @@ mod tests {
             composition: Composition {
                 groups: vec![module_group.clone()],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: true,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -755,6 +909,7 @@ mod tests {
             composition: Composition {
                 groups: vec![module_group.clone(), scene_group.clone()],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: true,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -796,6 +951,53 @@ mod tests {
     }
 
     #[test]
+    fn stage_projected_boot_cells_default_flat_2d_is_world_anchored() {
+        // Without the screen-lock opt-in, Flat2d groups are world-anchored:
+        // panning the camera moves the Flat2d content across the screen just
+        // like any other world content (the repo-space viewer's default).
+        let module_group = CellGroup::from_cells(
+            WorldPoint { x: 5, y: 2, z: 0 },
+            [Cell {
+                position: CellPoint { x: 1, y: 1, z: 0 },
+                graphic: CellGraphic::Glyph('A'),
+                ..Cell::default()
+            }],
+        )
+        .with_intake_behavior(CellGroupIntakeBehavior::Flat2d);
+
+        let build_state = |camera: Camera| BootState {
+            camera,
+            composition: Composition {
+                groups: vec![module_group.clone()],
+                pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+        let cell_clip_size =
+            cell_clip_size_for_surface(SurfaceSize::from(&BootConfig::default().window));
+
+        let at_origin = stage_projected_boot_cells(&build_state(Camera::default()), cell_clip_size);
+        let panned = stage_projected_boot_cells(
+            &build_state(Camera {
+                focus_target: WorldPoint { x: 3, y: 1, z: 2 },
+                ..Camera::default()
+            }),
+            cell_clip_size,
+        );
+
+        assert_eq!(at_origin.len(), 1);
+        assert_eq!(panned.len(), 1);
+        assert_ne!(panned[0].projected, at_origin[0].projected);
+        // The anchor sits behind the focus plane after the pan, so the Flat2d
+        // content rides the world's plane spread too.
+        assert_ne!(panned[0].projected.plane, at_origin[0].projected.plane);
+    }
+
+    #[test]
     fn stage_projected_boot_cells_flash_pair_yields_to_beneath_cells_instead_of_blank()
     {
         // Document cell, then the two flash halves stacked above it. Each
@@ -832,6 +1034,7 @@ mod tests {
             composition: Composition {
                 groups: vec![scene_group.clone(), alt_group.clone(), flash_group.clone()],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes,
@@ -870,6 +1073,7 @@ mod tests {
             composition: Composition {
                 groups: vec![scene_group.clone(), empty_alt_group, flash_group.clone()],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::with_breath(0),
@@ -905,6 +1109,7 @@ mod tests {
             composition: Composition {
                 groups: vec![scene_group.clone(), module_group.clone()],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: true,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -970,6 +1175,7 @@ mod tests {
                     ],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1015,6 +1221,7 @@ mod tests {
                     ],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1054,6 +1261,7 @@ mod tests {
                     ],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1093,6 +1301,7 @@ mod tests {
                     ],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1189,6 +1398,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1324,6 +1534,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1337,10 +1548,8 @@ mod tests {
         let scene = build_window_surface_scene(&state).unwrap();
         assert!(!scene.quads.is_empty());
         let cell_clip_size = cell_clip_size_for_surface(SurfaceSize::from(&state.config.window));
-        assert!(scene
-            .quads
-            .iter()
-            .all(|quad| { quad.size == [cell_clip_size[0] / 12.0, cell_clip_size[1] / 16.0] }));
+        // Whole-cell quads: one per glyph cell, centered on the projected cell.
+        assert!(scene.quads.iter().all(|quad| quad.size == cell_clip_size));
         assert!(scene
             .quads
             .iter()
@@ -1367,6 +1576,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1402,6 +1612,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1438,6 +1649,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1449,14 +1661,14 @@ mod tests {
         };
 
         let scene = build_window_surface_scene(&state).unwrap();
+        assert_eq!(scene.quads.len(), 1);
         let first_quad = scene.quads.first().unwrap();
         let cell_clip_size = cell_clip_size_for_surface(SurfaceSize::from(&state.config.window));
-        assert_eq!(
-            first_quad.size,
-            [cell_clip_size[0] / 12.0, cell_clip_size[1] / 16.0]
-        );
-        let screen_pixel_width = first_quad.size[0] * state.config.window.width as f32;
-        let screen_pixel_height = first_quad.size[1] * state.config.window.height as f32;
+        // One quad per cell: the quad covers the full 12×16 cell rect. The
+        // typegrid's square-on-screen property lives in the texel footprint:
+        // one texel (cell_size/12 × cell_size/16) is still square on screen.
+        let screen_pixel_width = first_quad.size[0] * state.config.window.width as f32 / 12.0;
+        let screen_pixel_height = first_quad.size[1] * state.config.window.height as f32 / 16.0;
         assert!((screen_pixel_width - screen_pixel_height).abs() < 0.0001);
     }
 
@@ -1476,6 +1688,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1500,6 +1713,7 @@ mod tests {
                 )
                 .with_facing(CellGroupFacing::PosX)],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1552,6 +1766,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1563,11 +1778,18 @@ mod tests {
         };
 
         let scene = build_window_surface_scene(&state).unwrap();
-        assert!(!scene.quads.is_empty());
-        assert!(scene
-            .quads
-            .iter()
-            .any(|quad| quad.center[0] > 0.0 && quad.center[1] < 0.0));
+        let mut baseline_state = state.clone();
+        if let Some(group) = baseline_state.composition.groups.first_mut() {
+            group.origin = WorldPoint::origin();
+        }
+        let baseline_scene = build_window_surface_scene(&baseline_state).unwrap();
+
+        // World z lands as a visible plane change: the cell center projects
+        // identically but the plane's scale factor grows the cell footprint.
+        assert_eq!(scene.quads.len(), 1);
+        assert_eq!(baseline_scene.quads.len(), 1);
+        assert_eq!(scene.quads[0].center, baseline_scene.quads[0].center);
+        assert_ne!(scene.quads[0].size, baseline_scene.quads[0].size);
     }
 
     #[test]
@@ -1596,6 +1818,7 @@ mod tests {
                     ),
                 ],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::default(),
@@ -1607,15 +1830,9 @@ mod tests {
         };
 
         let scene = build_window_surface_scene(&state).unwrap();
-        let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
-        let expected_quad_count = fonts
-            .rasterize_glyph_tile('█', CellWeight::Zero)
-            .alpha
-            .into_iter()
-            .filter(|alpha| *alpha >= GLYPH_BINARY_ALPHA_THRESHOLD)
-            .count();
-
-        assert_eq!(scene.quads.len(), expected_quad_count);
+        // Exact world-xyz overlap resolves before projection: only the winning
+        // (green) cell reaches the scene, as one whole-cell quad.
+        assert_eq!(scene.quads.len(), 1);
         assert!(scene
             .quads
             .iter()
@@ -1639,6 +1856,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::with_breath(2),
@@ -1650,23 +1868,20 @@ mod tests {
         };
 
         let scene = build_window_surface_scene(&state).unwrap();
-        let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
-        let unshaded = fonts
-            .rasterize_glyph_tile('A', CellWeight::One)
-            .alpha
-            .into_iter()
-            .filter(|alpha| *alpha >= GLYPH_BINARY_ALPHA_THRESHOLD)
-            .count();
-        let shaded_expected = fonts
-            .rasterize_glyph_tile('A', CellWeight::Two)
-            .alpha
-            .into_iter()
-            .filter(|alpha| *alpha >= GLYPH_BINARY_ALPHA_THRESHOLD)
-            .count();
-        let shaded = scene.quads.len();
+        // Weight sin resolves the cell's weight through the atlas key set: the
+        // scene carries one whole-cell quad whose tile is the *shaded* weight.
+        assert_eq!(scene.quads.len(), 1);
+        assert_eq!(scene.glyph_atlas.tiles.len(), 1);
+        let tile = &scene.glyph_atlas.tiles[0];
+        assert_eq!(tile.glyph, 'A' as u32);
+        assert_eq!(tile.weight_index, CellWeight::Two.as_index() as u32);
+        assert!((scene.quads[0].atlas_uv[0] - tile_slot_u(&scene.glyph_atlas, 0)).abs() < 1e-6);
+    }
 
-        assert_eq!(shaded, shaded_expected);
-        assert_ne!(shaded, unshaded);
+    fn tile_slot_u(atlas: &GlyphAtlasSceneData, slot: usize) -> f32 {
+        let columns = atlas.columns.max(1) as usize;
+        let tile_width = atlas.tile_width.max(1) as usize;
+        ((slot % columns) * tile_width) as f32 / (columns * tile_width) as f32
     }
 
     #[test]
@@ -1685,6 +1900,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::with_breath(2),
@@ -1708,6 +1924,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             config: BootConfig {
@@ -1748,6 +1965,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::with_breath(2),
@@ -1771,6 +1989,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             ..baseline_state.clone()
@@ -1779,11 +1998,13 @@ mod tests {
         let baseline_scene = build_window_surface_scene(&baseline_state).unwrap();
         let textured_scene = build_window_surface_scene(&textured_state).unwrap();
 
-        assert!(textured_scene.quads.len() > baseline_scene.quads.len());
-        assert!(textured_scene
-            .quads
-            .iter()
-            .any(|quad| quad.color[3] == 0.0 && quad.post_effect_bus.texture_code != 0));
+        // Bus-driven texture needs zero extra geometry: both scenes carry one
+        // whole-cell quad per glyph; the textured cell's quad carries its
+        // texture code on the bus instead of footprint/ring quads.
+        assert_eq!(textured_scene.quads.len(), baseline_scene.quads.len());
+        assert_eq!(textured_scene.quads.len(), 1);
+        assert_ne!(textured_scene.quads[0].post_effect_bus.texture_code, 0);
+        assert_eq!(baseline_scene.quads[0].post_effect_bus.texture_code, 0);
     }
 
     #[test]
@@ -1802,6 +2023,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::with_breath(2),
@@ -1825,6 +2047,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             config: BootConfig {
@@ -1837,7 +2060,10 @@ mod tests {
         let baseline_scene = build_window_surface_scene(&baseline_state).unwrap();
         let warbled_scene = build_window_surface_scene(&warbled_state).unwrap();
 
-        assert!(warbled_scene.quads.len() > baseline_scene.quads.len());
+        // Warble rides the bus like texture: same one-quad-per-cell geometry,
+        // warble code carried per cell, debug recolor still applied per quad.
+        assert_eq!(warbled_scene.quads.len(), baseline_scene.quads.len());
+        assert_eq!(warbled_scene.quads.len(), 1);
         assert!(warbled_scene
             .quads
             .iter()
@@ -1866,6 +2092,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
             data_lanes: DataLanes::with_breath(2),

@@ -1,6 +1,8 @@
 use anyhow::Result;
 use thaum_renderer_domain::{CellTexture, CellWarble, SpriteTileRaster, WorldPoint};
-use thaum_renderer_window_surface::{SurfaceQuad, SurfaceQuadPostEffectBus, SurfaceSize};
+use thaum_renderer_window_surface::{
+    SurfaceQuad, SurfaceQuadPostEffectBus, SurfaceSize, SURFACE_QUAD_NO_ATLAS,
+};
 
 use crate::{CELL_HEIGHT_CLIP_SPACE, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
 
@@ -218,6 +220,7 @@ fn push_texture_buffer_ring(
                     world,
                 ),
                 post_effect_bus,
+                atlas_uv: SURFACE_QUAD_NO_ATLAS,
             });
         }
     }
@@ -312,6 +315,7 @@ pub(crate) fn sprite_raster_to_surface_quads(
                     world,
                 ),
                 post_effect_bus,
+                atlas_uv: SURFACE_QUAD_NO_ATLAS,
             });
         }
     }
@@ -333,6 +337,8 @@ pub(crate) fn sprite_raster_to_surface_quads(
     Ok(quads)
 }
 
+// Phase C candidate: sprite path still uses this; glyph path moved to the atlas.
+#[allow(dead_code)]
 pub(crate) fn raster_to_surface_quads(
     alpha: &[u8],
     width: usize,
@@ -420,6 +426,7 @@ pub(crate) fn raster_to_surface_quads(
                     world,
                 ),
                 post_effect_bus,
+                atlas_uv: SURFACE_QUAD_NO_ATLAS,
             });
         }
     }
@@ -612,4 +619,81 @@ mod tests {
         assert_eq!(quads.len(), 9);
         assert_eq!(interior_invisible, 8);
     }
+}
+
+/// Per-frame placement of the scene's glyph atlas: maps (glyph, weight) keys
+/// to their whole-cell quad sampling frame. Built by the boot atlas pass.
+#[derive(Debug, Default)]
+pub(crate) struct GlyphAtlasPlacement {
+    pub data: thaum_renderer_window_surface::GlyphAtlasSceneData,
+    pub slots: std::collections::HashMap<(char, u32), usize>,
+}
+
+impl GlyphAtlasPlacement {
+    fn tile_uv(&self, glyph: char, weight_index: u32) -> Option<[f32; 4]> {
+        let slot = *self.slots.get(&(glyph, weight_index))?;
+        let columns = self.data.columns.max(1) as usize;
+        let rows = self.data.rows.max(1) as usize;
+        let tile_width = self.data.tile_width.max(1) as usize;
+        let tile_height = self.data.tile_height.max(1) as usize;
+        let column = slot % columns;
+        let row = slot / columns;
+        let atlas_width = (columns * tile_width) as f32;
+        let atlas_height = (rows * tile_height) as f32;
+        Some([
+            (column * tile_width) as f32 / atlas_width,
+            (row * tile_height) as f32 / atlas_height,
+            tile_width as f32 / atlas_width,
+            tile_height as f32 / atlas_height,
+        ])
+    }
+}
+
+/// A glyph cell emits exactly one quad covering the whole 12×16 cell. The
+/// quad-pass fragment shader samples the glyph atlas for coverage (v=0 at the
+/// tile top, matching `local_uv` interpolation), while the bus and aux data
+/// cover the entire cell rect so post-pass displaced sampling needs no ring
+/// quads. See `context/glyph-atlas-geometry-reduction.md`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn glyph_cell_to_surface_quad(
+    placement: &GlyphAtlasPlacement,
+    glyph: char,
+    weight_index: u32,
+    cell_center: [f32; 2],
+    cell_clip_size: [f32; 2],
+    color: [f32; 4],
+    texture: CellTexture,
+    warble: CellWarble,
+    depth_code: u8,
+    gate_id: u16,
+    world: WorldPoint,
+) -> Result<SurfaceQuad> {
+    let atlas_uv = placement
+        .tile_uv(glyph, weight_index)
+        .ok_or_else(|| anyhow::anyhow!("glyph '{glyph}' missing from the built glyph atlas"))?;
+
+    Ok(SurfaceQuad {
+        center: cell_center,
+        size: cell_clip_size,
+        color,
+        local_uv_corners: [
+            [0.0, 1.0],
+            [1.0, 1.0],
+            [1.0, 0.0],
+            [0.0, 0.0],
+        ],
+        warble_uv_corners: [
+            [world.x as f32 - 0.5, world.y as f32 - 0.5],
+            [world.x as f32 + 0.5, world.y as f32 - 0.5],
+            [world.x as f32 + 0.5, world.y as f32 + 0.5],
+            [world.x as f32 - 0.5, world.y as f32 + 0.5],
+        ],
+        post_effect_bus: SurfaceQuadPostEffectBus {
+            texture_code: texture.code(),
+            warble_code: warble.code(),
+            depth_code,
+            gate_id,
+        },
+        atlas_uv,
+    })
 }

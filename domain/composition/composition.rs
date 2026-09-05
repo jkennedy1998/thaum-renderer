@@ -6,6 +6,14 @@ use crate::{Cell, CellGroup, CellGroupIntakeBehavior, WorldPoint};
 pub struct Composition {
     pub groups: Vec<CellGroup>,
     pub pass_order: Vec<usize>,
+    /// Opt-in screen-locked 2D layer. When false (default), `Flat2d` groups
+    /// are world-anchored: the group origin is a world point, so Flat2d
+    /// content drifts naturally with camera pans and swings. When true,
+    /// `Flat2d` groups are a screen-locked HUD layer: the origin is a
+    /// camera-unit offset from the camera's focus target and only
+    /// `hud_pan_offset` can move it — the behavior painter HUD panels want.
+    /// Programs opt in per composition; the shared scene stays neutral.
+    pub flat_2d_screen_locked: bool,
 }
 
 impl Composition {
@@ -13,8 +21,17 @@ impl Composition {
         Self {
             groups,
             pass_order: Vec::new(),
+            flat_2d_screen_locked: false,
         }
         .with_natural_pass_order()
+    }
+
+    /// Opts this composition's Flat2d layer into screen-locked HUD behavior
+    /// (origin as camera-unit offset from the focus target, movable only by
+    /// `hud_pan_offset`). See the field docs for the two modes.
+    pub fn with_flat_2d_screen_locked(mut self, locked: bool) -> Self {
+        self.flat_2d_screen_locked = locked;
+        self
     }
 
     pub fn with_natural_pass_order(mut self) -> Self {
@@ -174,6 +191,7 @@ mod tests {
                 ),
             ],
             pass_order: vec![1, 0],
+            flat_2d_screen_locked: false,
         };
 
         let composed = compose_cells(&composition);

@@ -76,6 +76,7 @@ pub struct WindowSurfaceScene {
     pub fog_nearest_depth_code: u8,
     pub fog_farthest_depth_code: u8,
     pub background_color: [f32; 4],
+    pub glyph_atlas: GlyphAtlasSceneData,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -94,7 +95,13 @@ pub struct SurfaceQuad {
     pub local_uv_corners: [[f32; 2]; 4],
     pub warble_uv_corners: [[f32; 2]; 4],
     pub post_effect_bus: SurfaceQuadPostEffectBus,
+    /// Glyph-atlas sampling frame: [origin_u, origin_v, tile_u_size,
+    /// tile_v_size]. A negative origin_u marks a pass-through quad that does
+    /// not sample the atlas (sprites, debug quads).
+    pub atlas_uv: [f32; 4],
 }
+
+pub const SURFACE_QUAD_NO_ATLAS: [f32; 4] = [-1.0, -1.0, 0.0, 0.0];
 
 impl SurfaceQuad {
     fn vertices(&self) -> [SurfaceVertex; 6] {
@@ -144,6 +151,26 @@ impl SurfaceQuad {
             ),
         ]
     }
+}
+
+/// One thresholded glyph tile for the GPU atlas. Tiles are uniform-sized
+/// (12×16 for the thaum typegrid) and laid out row-major by the consumer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlyphAtlasTile {
+    pub glyph: u32,
+    pub weight_index: u32,
+    pub alpha: Arc<Vec<u8>>,
+}
+
+/// Glyph atlas carried by the scene. Consumers rasterize on CPU once per
+/// distinct tile and the surface uploads tiles only when the key set changes.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GlyphAtlasSceneData {
+    pub tile_width: u32,
+    pub tile_height: u32,
+    pub columns: u32,
+    pub rows: u32,
+    pub tiles: Vec<GlyphAtlasTile>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -564,6 +591,7 @@ impl GpuSurface {
 
         let quad_draw = QuadDraw::new(
             &device,
+            &queue,
             surface_format,
             output_surface_size,
             internal_surface_size,
@@ -619,11 +647,13 @@ impl GpuSurface {
                 internal_surface_size,
                 self.upscale_mode,
                 scene.indexed_color_palette.len(),
+                &scene.glyph_atlas,
             ))
             .unwrap_or(true);
         if needs_rebuild {
             self.quad_draw = QuadDraw::new(
                 &self.device,
+                &self.queue,
                 self.surface_config.format,
                 output_surface_size,
                 internal_surface_size,
@@ -702,6 +732,9 @@ struct QuadDraw {
     post_bind_group: wgpu::BindGroup,
     post_uniform_buffer: wgpu::Buffer,
     indexed_palette_texture: wgpu::Texture,
+    atlas_texture: wgpu::Texture,
+    atlas_bind_group: wgpu::BindGroup,
+    uploaded_atlas: GlyphAtlasSceneData,
     color_view: wgpu::TextureView,
     bus_view: wgpu::TextureView,
     meta_view: wgpu::TextureView,
@@ -731,12 +764,84 @@ impl QuadDraw {
         internal_surface_size: SurfaceSize,
         upscale_mode: WindowSurfaceUpscaleMode,
         palette_len: usize,
+        atlas: &GlyphAtlasSceneData,
     ) -> bool {
         self.surface_format != surface_format
             || self.output_surface_size != output_surface_size
             || self.internal_surface_size != internal_surface_size
             || self.upscale_mode != upscale_mode
             || self.palette_len != palette_len
+            // Atlas grid geometry owns the texture/bind-group shape; a grid
+            // change rebuilds resources, key changes only re-upload texels.
+            || self.uploaded_atlas.tile_width != atlas.tile_width
+            || self.uploaded_atlas.tile_height != atlas.tile_height
+            || self.uploaded_atlas.columns != atlas.columns
+            || self.uploaded_atlas.rows != atlas.rows
+    }
+
+    fn write_atlas_texels(
+        queue: &wgpu::Queue,
+        atlas_texture: &wgpu::Texture,
+        atlas: &GlyphAtlasSceneData,
+    ) {
+        let columns = atlas.columns.max(1) as usize;
+        let rows = atlas.rows.max(1) as usize;
+        let tile_width = atlas.tile_width.max(1) as usize;
+        let tile_height = atlas.tile_height.max(1) as usize;
+        let tile_bytes = tile_width * tile_height;
+        let mut data = vec![0u8; columns * rows * tile_bytes];
+        // Tiles go to their strided slot: the buffer has one row per texture
+        // row (bytes_per_row = columns * tile_width), so a flat per-tile
+        // copy would scramble every tile not in the first atlas column.
+        for (index, tile) in atlas.tiles.iter().enumerate() {
+            let column = index % columns;
+            let row = index / columns;
+            for tile_row in 0..tile_height {
+                let destination = (row * tile_height + tile_row) * columns * tile_width
+                    + column * tile_width;
+                let source = tile_row * tile_width;
+                data[destination..destination + tile_width]
+                    .copy_from_slice(&tile.alpha[source..source + tile_width]);
+            }
+        }
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: atlas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some((columns * tile_width) as u32),
+                rows_per_image: Some((rows * tile_height) as u32),
+            },
+            wgpu::Extent3d {
+                width: (columns * tile_width) as u32,
+                height: (rows * tile_height) as u32,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    fn update_atlas(&mut self, queue: &wgpu::Queue, atlas: &GlyphAtlasSceneData) {
+        let keys_match = self.uploaded_atlas.tiles.len() == atlas.tiles.len()
+            && self
+                .uploaded_atlas
+                .tiles
+                .iter()
+                .zip(atlas.tiles.iter())
+                .all(|(uploaded, incoming)| {
+                    uploaded.glyph == incoming.glyph
+                        && uploaded.weight_index == incoming.weight_index
+                });
+        if keys_match {
+            return;
+        }
+
+        Self::write_atlas_texels(queue, &self.atlas_texture, atlas);
+        self.uploaded_atlas = atlas.clone();
     }
 
     /// Per-frame update: pushes vertices, post uniforms, and palette texels
@@ -756,6 +861,8 @@ impl QuadDraw {
                 self.upscale_mode,
             )),
         );
+
+        self.update_atlas(queue, &scene.glyph_atlas);
 
         if !scene.indexed_color_palette.is_empty() {
             let palette_bytes: Vec<u8> = scene
@@ -810,6 +917,7 @@ impl QuadDraw {
 
     fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         surface_format: TextureFormat,
         _output_surface_size: SurfaceSize,
         internal_surface_size: SurfaceSize,
@@ -907,9 +1015,85 @@ impl QuadDraw {
             source: wgpu::ShaderSource::Wgsl(POST_EFFECTS_SHADER.into()),
         });
 
+        let atlas_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("thaum-renderer-atlas-bind-group-layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let quad_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("thaum-renderer-surface-quad-pipeline-layout"),
+            bind_group_layouts: &[Some(&atlas_bind_group_layout)],
+            immediate_size: 0,
+        });
+
+        let atlas_columns = (scene.glyph_atlas.columns.max(1) as usize
+            * scene.glyph_atlas.tile_width.max(1) as usize) as u32;
+        let atlas_rows = (scene.glyph_atlas.rows.max(1) as usize
+            * scene.glyph_atlas.tile_height.max(1) as usize) as u32;
+        let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("thaum-renderer-glyph-atlas"),
+            size: wgpu::Extent3d {
+                width: atlas_columns,
+                height: atlas_rows,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let atlas_view = atlas_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("thaum-renderer-atlas-nearest-sampler"),
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            ..Default::default()
+        });
+        let atlas_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("thaum-renderer-atlas-bind-group"),
+            layout: &atlas_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&atlas_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&atlas_sampler),
+                },
+            ],
+        });
+
+        // The atlas texture is sized to the scene's grid and seeded with the
+        // scene's tiles here; later key-only changes re-upload through
+        // update_atlas. Grid-dimension changes go through needs_rebuild.
+        Self::write_atlas_texels(queue, &atlas_texture, &scene.glyph_atlas);
+
         let quad_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("thaum-renderer-surface-quad-pipeline"),
-            layout: None,
+            label: Some("thaum-renderer-surface-quad-pipeline"),            layout: Some(&quad_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &quad_shader,
                 entry_point: Some("vs_main"),
@@ -1145,6 +1329,9 @@ impl QuadDraw {
             post_bind_group,
             post_uniform_buffer,
             indexed_palette_texture,
+            atlas_texture,
+            atlas_bind_group,
+            uploaded_atlas: scene.glyph_atlas.clone(),
             color_view,
             bus_view,
             meta_view,
@@ -1211,6 +1398,7 @@ impl QuadDraw {
                 multiview_mask: None,
             });
             render_pass.set_pipeline(&self.quad_pipeline);
+            render_pass.set_bind_group(0, &self.atlas_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.draw(0..self.vertex_count, 0..1);
         }
@@ -1254,6 +1442,7 @@ struct SurfaceVertex {
     bus: [f32; 4],
     meta: [f32; 4],
     warble_uv: [f32; 4],
+    atlas_uv: [f32; 4],
 }
 
 impl SurfaceVertex {
@@ -1286,6 +1475,7 @@ impl SurfaceVertex {
                 normalize_byte(gate_lo),
             ],
             warble_uv: [warble_uv[0], warble_uv[1], 0.0, 0.0],
+            atlas_uv: quad.atlas_uv,
         }
     }
 
@@ -1321,6 +1511,12 @@ impl SurfaceVertex {
                     offset: (mem::size_of::<[f32; 2]>() + mem::size_of::<[f32; 4]>() * 3)
                         as wgpu::BufferAddress,
                     shader_location: 4,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: (mem::size_of::<[f32; 2]>() + mem::size_of::<[f32; 4]>() * 4)
+                        as wgpu::BufferAddress,
+                    shader_location: 5,
                 },
             ],
         }
@@ -1672,12 +1868,16 @@ fn normalize_byte(value: u8) -> f32 {
 }
 
 const SURFACE_QUAD_SHADER: &str = r#"
+@group(0) @binding(0) var atlas_texture: texture_2d<f32>;
+@group(0) @binding(1) var atlas_sampler: sampler;
+
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) bus: vec4<f32>,
     @location(3) aux_data: vec4<f32>,
     @location(4) warble_uv: vec4<f32>,
+    @location(5) atlas_uv: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -1686,6 +1886,7 @@ struct VertexOutput {
     @location(1) bus: vec4<f32>,
     @location(2) aux_data: vec4<f32>,
     @location(3) warble_uv: vec4<f32>,
+    @location(4) atlas_uv: vec4<f32>,
 };
 
 struct FragmentOutput {
@@ -1703,16 +1904,27 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     output.bus = input.bus;
     output.aux_data = input.aux_data;
     output.warble_uv = input.warble_uv;
+    output.atlas_uv = input.atlas_uv;
     return output;
 }
 
 @fragment
 fn fs_main(input: VertexOutput) -> FragmentOutput {
     var output: FragmentOutput;
-    output.color = input.color;
+    var color = input.color;
+    // Glyph-atlas quads carry [origin_u, origin_v, tile_u_size, tile_v_size];
+    // a negative origin marks a pass-through quad (sprites, debug quads).
+    // aux_data.xy is the interpolated cell-local uv (v=0 at tile top).
+    if (input.atlas_uv.x >= 0.0) {
+        let atlas_uv = input.atlas_uv.xy + input.aux_data.xy * input.atlas_uv.zw;
+        let coverage = textureSampleLevel(atlas_texture, atlas_sampler, atlas_uv, 0.0).r;
+        let visible = select(0.0, 1.0, coverage >= 0.5);
+        color = vec4<f32>(input.color.rgb, input.color.a * visible);
+    }
+    output.color = color;
     output.bus = input.bus;
     output.aux_data = input.aux_data;
-    output.warble_uv = input.warble_uv;
+    output.warble_uv = vec4<f32>(input.warble_uv.xy, 0.0, 0.0);
     return output;
 }
 "#;
