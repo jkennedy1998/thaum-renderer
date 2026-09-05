@@ -6,6 +6,12 @@ use crate::{Cell, CellGroup, CellGroupIntakeBehavior, WorldPoint};
 pub struct Composition {
     pub groups: Vec<CellGroup>,
     pub pass_order: Vec<usize>,
+    /// Producer-maintained content generation. `0` means unset: boot's scene
+    /// cache then falls back to hashing the composition content per frame.
+    /// A producer that rebuilds the composition only when its inputs change
+    /// should bump this on every rebuild, making the cache's per-frame
+    /// identity check O(1). Non-zero values are trusted as content identity.
+    pub revision: u64,
     /// Opt-in screen-locked 2D layer. When false (default), `Flat2d` groups
     /// are world-anchored: the group origin is a world point, so Flat2d
     /// content drifts naturally with camera pans and swings. When true,
@@ -21,9 +27,16 @@ impl Composition {
         Self {
             groups,
             pass_order: Vec::new(),
+            revision: 0,
             flat_2d_screen_locked: false,
         }
         .with_natural_pass_order()
+    }
+
+    /// Sets the producer-maintained content generation (see the field docs).
+    pub fn with_revision(mut self, revision: u64) -> Self {
+        self.revision = revision;
+        self
     }
 
     /// Opts this composition's Flat2d layer into screen-locked HUD behavior
@@ -191,6 +204,7 @@ mod tests {
                 ),
             ],
             pass_order: vec![1, 0],
+            revision: 0,
             flat_2d_screen_locked: false,
         };
 

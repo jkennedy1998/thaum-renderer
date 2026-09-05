@@ -237,19 +237,26 @@ impl From<&WindowSurfaceConfig> for SurfaceSize {
 }
 
 pub fn run_window_surface(config: WindowSurfaceConfig, scene: WindowSurfaceScene) -> Result<()> {
+    let scene = std::sync::Arc::new(scene);
     run_window_surface_with_scene_provider(config, move |_| Ok(scene.clone()))
 }
 
 pub fn run_window_surface_with_scene_provider(
     config: WindowSurfaceConfig,
-    mut scene_provider: impl FnMut(SurfaceSize) -> Result<WindowSurfaceScene> + 'static,
+    mut scene_provider: impl FnMut(SurfaceSize) -> Result<SharedWindowSurfaceScene> + 'static,
 ) -> Result<()> {
     run_window_surface_with_frame_provider(config, move |frame| scene_provider(frame.surface_size))
 }
 
+/// One shared scene per call: producers that reuse an unchanged scene
+/// (boot's scene cache) hand back the same `Arc` instead of cloning quad
+/// data every frame.
+pub type SharedWindowSurfaceScene = std::sync::Arc<WindowSurfaceScene>;
+
 pub fn run_window_surface_with_frame_provider(
     config: WindowSurfaceConfig,
-    scene_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<WindowSurfaceScene> + 'static,
+    scene_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene>
+        + 'static,
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let mut app = WindowSurfaceApp::new(config, Box::new(scene_provider));
@@ -259,7 +266,7 @@ pub fn run_window_surface_with_frame_provider(
 
 struct WindowSurfaceApp {
     config: WindowSurfaceConfig,
-    scene_provider: Box<dyn FnMut(WindowSurfaceFrameContext) -> Result<WindowSurfaceScene>>,
+    scene_provider: Box<dyn FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene>>,
     window: Option<Arc<Window>>,
     gpu_surface: Option<GpuSurface>,
     surface_size: SurfaceSize,
@@ -280,7 +287,7 @@ struct WindowSurfaceApp {
 impl WindowSurfaceApp {
     fn new(
         config: WindowSurfaceConfig,
-        scene_provider: Box<dyn FnMut(WindowSurfaceFrameContext) -> Result<WindowSurfaceScene>>,
+        scene_provider: Box<dyn FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene>>,
     ) -> Self {
         let surface_size = SurfaceSize::from(&config);
 
@@ -543,7 +550,7 @@ struct GpuSurface {
 impl GpuSurface {
     async fn new(
         window: Arc<Window>,
-        scene: WindowSurfaceScene,
+        scene: SharedWindowSurfaceScene,
         internal_render_scale: f32,
         upscale_mode: WindowSurfaceUpscaleMode,
     ) -> Result<Self> {

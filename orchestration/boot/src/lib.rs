@@ -18,8 +18,8 @@ use thaum_renderer_domain::{
     GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
 };
 pub use thaum_renderer_window_surface::{
-    run_window_surface_with_frame_provider, SurfaceQuad, SurfaceSize, WindowSurfaceConfig,
-    WindowSurfaceFrameContext, WindowSurfaceInput, WindowSurfaceScene,
+    run_window_surface_with_frame_provider, SharedWindowSurfaceScene, SurfaceQuad, SurfaceSize,
+    WindowSurfaceConfig, WindowSurfaceFrameContext, WindowSurfaceInput, WindowSurfaceScene,
 };
 use thaum_renderer_window_surface::GlyphAtlasSceneData;
 
@@ -176,6 +176,7 @@ pub fn run_renderer_window_with_state_frame_provider(
     let asset_cache = RendererAssetCache::default();
     let mut scene_cache = BootSceneCache::default();
 
+
     run_window_surface_with_frame_provider(window_config, move |frame| {
         let now = Instant::now();
         if frame_state.uses_fallback_breath {
@@ -218,7 +219,7 @@ pub fn build_window_surface_scene_for_surface_with_scene_cache(
     surface_size: SurfaceSize,
     asset_cache: &RendererAssetCache,
     scene_cache: &mut BootSceneCache,
-) -> Result<(WindowSurfaceScene, bool)> {
+) -> Result<(SharedWindowSurfaceScene, bool)> {
     scene_cache.build_or_reuse(state, surface_size, || {
         build_window_surface_scene_for_surface_with_cache(state, surface_size, asset_cache)
             .map(|(scene, _)| scene)
@@ -864,6 +865,7 @@ mod tests {
             composition: Composition {
                 groups: vec![module_group.clone()],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: true,
             }
             .with_natural_pass_order(),
@@ -928,6 +930,7 @@ mod tests {
             composition: Composition {
                 groups: vec![module_group.clone(), scene_group.clone()],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: true,
             }
             .with_natural_pass_order(),
@@ -989,6 +992,7 @@ mod tests {
             composition: Composition {
                 groups: vec![module_group.clone()],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1053,6 +1057,7 @@ mod tests {
             composition: Composition {
                 groups: vec![scene_group.clone(), alt_group.clone(), flash_group.clone()],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1092,6 +1097,7 @@ mod tests {
             composition: Composition {
                 groups: vec![scene_group.clone(), empty_alt_group, flash_group.clone()],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1128,6 +1134,7 @@ mod tests {
             composition: Composition {
                 groups: vec![scene_group.clone(), module_group.clone()],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: true,
             }
             .with_natural_pass_order(),
@@ -1194,6 +1201,7 @@ mod tests {
                     ],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1240,6 +1248,7 @@ mod tests {
                     ],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1280,6 +1289,7 @@ mod tests {
                     ],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1320,6 +1330,7 @@ mod tests {
                     ],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1417,6 +1428,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1553,6 +1565,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1595,6 +1608,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1631,6 +1645,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1668,6 +1683,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1707,6 +1723,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1732,6 +1749,7 @@ mod tests {
                 )
                 .with_facing(CellGroupFacing::PosX)],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1785,6 +1803,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1837,6 +1856,7 @@ mod tests {
                     ),
                 ],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1875,6 +1895,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1919,6 +1940,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1943,6 +1965,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -1984,6 +2007,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -2008,6 +2032,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -2042,6 +2067,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -2066,6 +2092,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),
@@ -2111,6 +2138,7 @@ mod tests {
                     }],
                 )],
                 pass_order: Vec::new(),
+                revision: 0,
                 flat_2d_screen_locked: false,
             }
             .with_natural_pass_order(),

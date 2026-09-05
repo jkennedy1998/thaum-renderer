@@ -1,6 +1,6 @@
 use anyhow::Result;
 use thaum_renderer_domain::{composition_content_hash, Camera, IndexColorClampEffect};
-use thaum_renderer_window_surface::{SurfaceSize, WindowSurfaceScene};
+use thaum_renderer_window_surface::{SharedWindowSurfaceScene, SurfaceSize, WindowSurfaceScene};
 
 /// One frame's scene cache. Boot fingerprints everything the scene build
 /// reads (composition content hash, camera, breath, surface size, config
@@ -15,14 +15,24 @@ pub struct BootSceneCache {
     last: Option<SceneCacheEntry>,
 }
 
+
+
 struct SceneCacheEntry {
     fingerprint: SceneFingerprint,
-    scene: WindowSurfaceScene,
+    scene: SharedWindowSurfaceScene,
+}
+
+/// Composition identity: a producer-maintained revision when set (O(1)
+/// comparison), a full content hash otherwise.
+#[derive(Debug, Clone, PartialEq)]
+enum CompositionIdentity {
+    Revision(u64),
+    ContentHash(u64),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct SceneFingerprint {
-    composition_hash: u64,
+    composition: CompositionIdentity,
     camera: Camera,
     breath: Option<i32>,
     surface_width: u32,
@@ -43,10 +53,10 @@ impl SceneFingerprint {
     fn capture(
         state: &crate::BootState,
         surface_size: SurfaceSize,
-        composition_hash: u64,
+        composition_identity: CompositionIdentity,
     ) -> Self {
         Self {
-            composition_hash,
+            composition: composition_identity,
             camera: state.camera,
             breath: state.data_lanes.breath(),
             surface_width: surface_size.width,
@@ -82,15 +92,17 @@ impl BootSceneCache {
         state: &crate::BootState,
         surface_size: SurfaceSize,
         build: impl FnOnce() -> Result<WindowSurfaceScene>,
-    ) -> Result<(WindowSurfaceScene, bool)> {
-        let fingerprint =
-            SceneFingerprint::capture(state, surface_size, composition_content_hash(
-                &state.composition,
-            ));
+    ) -> Result<(SharedWindowSurfaceScene, bool)> {
+        let composition_identity = if state.composition.revision != 0 {
+            CompositionIdentity::Revision(state.composition.revision)
+        } else {
+            CompositionIdentity::ContentHash(composition_content_hash(&state.composition))
+        };
+        let fingerprint = SceneFingerprint::capture(state, surface_size, composition_identity);
         if state.config.hot_reload {
             let mut scene = build()?;
             self.store(&fingerprint, &mut scene);
-            return Ok((scene, true));
+            return Ok((std::sync::Arc::new(scene), true));
         }
         if let Some(entry) = &self.last {
             if entry.fingerprint == fingerprint {
@@ -99,7 +111,7 @@ impl BootSceneCache {
         }
         let mut scene = build()?;
         self.store(&fingerprint, &mut scene);
-        Ok((scene, true))
+        Ok((std::sync::Arc::new(scene), true))
     }
 
     fn store(&mut self, fingerprint: &SceneFingerprint, scene: &mut WindowSurfaceScene) {
@@ -111,7 +123,7 @@ impl BootSceneCache {
         scene.revision = next_revision;
         self.last = Some(SceneCacheEntry {
             fingerprint: fingerprint.clone(),
-            scene: scene.clone(),
+            scene: std::sync::Arc::new(scene.clone()),
         });
     }
 }
