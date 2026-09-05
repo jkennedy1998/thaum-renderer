@@ -22,6 +22,8 @@ pub mod cell_warble;
 pub mod cell_weight;
 #[path = "modules/individuals/color-block/color_block_module.rs"]
 pub mod color_block_module;
+#[path = "modules/individuals/camera-perspective/camera_perspective_module.rs"]
+pub mod camera_perspective_module;
 #[path = "modules/individuals/color-picker/color_picker_module.rs"]
 pub mod color_picker_module;
 #[path = "modules/individuals/controls-panel/controls_panel_module.rs"]
@@ -97,6 +99,7 @@ pub use cell_texture::CellTexture;
 pub use cell_warble::CellWarble;
 pub use cell_weight::CellWeight;
 pub use color_block_module::ColorBlockModule;
+pub use camera_perspective_module::CameraPerspectiveModule;
 pub use color_picker_module::ColorPickerModule;
 pub use controls_panel_module::{ControlActionRow, ControlsPanelModule};
 pub use ui_customization_module::UiCustomizationModule;

@@ -12,6 +12,8 @@ Own the concrete modules shipped directly by thaum-renderer, reserved for module
 - the shared gizmo/chrome/registry logic those modules are built from, owned by `domain/modules/shared/`
 
 ## children-encapsulations
+- `camera-perspective/`
+  - default
 - `color-picker/`
   - default
 - `ui-customization/`
@@ -26,6 +28,7 @@ Own the concrete modules shipped directly by thaum-renderer, reserved for module
 - `/home/j/Repos/thaum-renderer/domain/modules/shared/`
 
 ## exposed interfaces
+- `CameraPerspectiveModule`, described in `camera-perspective/contract.md`
 - `ColorPickerModule`, described in `color-picker/contract.md`
 - `UiCustomizationModule`, described in `ui-customization/contract.md`
 
