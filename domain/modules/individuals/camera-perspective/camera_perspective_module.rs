@@ -218,7 +218,15 @@ impl Module for CameraPerspectiveModule {
             });
         }
 
-        let mut group = CellGroup::new(WorldPoint { x: 0, y: 0, z: 0 })
+        // Group origin is the rect origin (shared module convention): cells
+        // are rect-local, so an origin of (0,0) would draw the panel at the
+        // screen's bottom-left corner while hit-testing still listens at
+        // `self.rect` — making the panel visibly dead to input.
+        let mut group = CellGroup::new(WorldPoint {
+                x: self.rect.x0,
+                y: self.rect.y0,
+                z: 0,
+            })
             .with_intake_behavior(CellGroupIntakeBehavior::Flat2d);
         group.extend(cells);
         group
@@ -272,6 +280,17 @@ mod tests {
         // Screen-space: knob rows are module-local inside draw, events are
         // screen-space, so add the rect origin.
         rect().y0 + PropertyRows::top_row_y(rect())
+    }
+
+    #[test]
+    fn draw_output_is_anchored_at_the_module_rect_not_the_screen_origin() {
+        // Regression: a group origin of (0,0) drew the panel at the screen's
+        // bottom-left corner while hit-testing stayed at `self.rect`, so the
+        // visible panel was dead to input.
+        let (module, _profile) = module();
+        let group = module.draw();
+        let origin = group.origin;
+        assert_eq!((origin.x, origin.y), (rect().x0, rect().y0));
     }
 
     #[test]
