@@ -10,14 +10,14 @@ pub use glyph_graphic::{
 };
 pub use sprite_graphic::{SpriteAtlasSet, SpriteTileRaster};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CellGraphic {
     None,
     Glyph(char),
     Sprite(SpriteGraphic),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SpriteGraphic {
     atlas_relative_path: PathBuf,
 }

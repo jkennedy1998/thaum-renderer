@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{Cell, CellPoint, WorldPoint};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CellClip {
     pub min: CellPoint,
     pub max: CellPoint,
@@ -25,7 +25,7 @@ pub struct CellBounds {
     pub max: CellPoint,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum CellGroupFacing {
     PosX,
     NegX,
@@ -36,7 +36,7 @@ pub enum CellGroupFacing {
     NegZ,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum CellGroupIntakeBehavior {
     #[default]
     Rotating3d,

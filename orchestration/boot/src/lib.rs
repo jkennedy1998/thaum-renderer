@@ -24,6 +24,9 @@ pub use thaum_renderer_window_surface::{
 use thaum_renderer_window_surface::GlyphAtlasSceneData;
 
 mod effect_quads;
+mod scene_cache;
+
+use scene_cache::BootSceneCache;
 
 use effect_quads::{
     cell_clip_size_for_surface, glyph_cell_to_surface_quad, sprite_raster_to_surface_quads,
@@ -171,6 +174,7 @@ pub fn run_renderer_window_with_state_frame_provider(
     let mut last_tick = Instant::now();
     let window_config = frame_state.config.window.clone();
     let asset_cache = RendererAssetCache::default();
+    let mut scene_cache = BootSceneCache::default();
 
     run_window_surface_with_frame_provider(window_config, move |frame| {
         let now = Instant::now();
@@ -183,11 +187,13 @@ pub fn run_renderer_window_with_state_frame_provider(
         }
 
         frame_provider(&mut frame_state, &frame)?;
-        build_window_surface_scene_for_surface_with_cache(
+        build_window_surface_scene_for_surface_with_scene_cache(
             &frame_state,
             frame.surface_size,
             &asset_cache,
+            &mut scene_cache,
         )
+        .map(|(scene, _)| scene)
     })
 }
 
@@ -199,11 +205,24 @@ pub fn build_window_surface_scene_for_surface(
     state: &BootState,
     surface_size: SurfaceSize,
 ) -> Result<WindowSurfaceScene> {
-    build_window_surface_scene_for_surface_with_cache(
-        state,
-        surface_size,
-        &RendererAssetCache::default(),
-    )
+    build_window_surface_scene_for_surface_with_cache(state, surface_size, &RendererAssetCache::default())
+        .map(|(scene, _)| scene)
+}
+
+/// Scene build routed through a [`BootSceneCache`]: fingerprint hit returns
+/// the cached scene untouched (revision preserved, so `update_scene` also
+/// skips the GPU re-upload); miss rebuilds and bumps the revision. Returns
+/// whether the scene was rebuilt.
+pub fn build_window_surface_scene_for_surface_with_scene_cache(
+    state: &BootState,
+    surface_size: SurfaceSize,
+    asset_cache: &RendererAssetCache,
+    scene_cache: &mut BootSceneCache,
+) -> Result<(WindowSurfaceScene, bool)> {
+    scene_cache.build_or_reuse(state, surface_size, || {
+        build_window_surface_scene_for_surface_with_cache(state, surface_size, asset_cache)
+            .map(|(scene, _)| scene)
+    })
 }
 
 /// The camera-zoom-adjusted cell clip size used to render `state`'s
@@ -220,7 +239,7 @@ fn build_window_surface_scene_for_surface_with_cache(
     state: &BootState,
     surface_size: SurfaceSize,
     asset_cache: &RendererAssetCache,
-) -> Result<WindowSurfaceScene> {
+) -> Result<(WindowSurfaceScene, bool)> {
     let visible_stack = thaum_renderer_domain::visible_plane_stack_for_camera(state.camera);
     let fog_nearest_depth_code = encode_relative_depth_to_post_effect_bus(visible_stack.min_plane);
     let fog_farthest_depth_code = encode_relative_depth_to_post_effect_bus(visible_stack.max_plane);
@@ -306,7 +325,7 @@ fn build_window_surface_scene_for_surface_with_cache(
 
     dump_atlas_debug_if_requested(&scene);
 
-    Ok(scene)
+    Ok((scene, true))
 }
 
 /// Temporary debug seam: `THAUM_ATLAS_DEBUG_PATH=path` writes the scene's

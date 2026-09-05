@@ -66,6 +66,11 @@ impl Default for WindowSurfaceConfig {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct WindowSurfaceScene {
     pub quads: Vec<SurfaceQuad>,
+    /// Scene-build generation: bumped by the producer whenever the scene
+    /// content actually changed. `update_scene` skips vertex/atlas/palette
+    /// re-upload when the revision matches what the GPU already holds, so an
+    /// unchanged scene costs no per-frame upload.
+    pub revision: u64,
     pub texture_breath: i32,
     pub depth_of_field_enabled: bool,
     pub motion_noise_enabled: bool,
@@ -531,6 +536,8 @@ struct GpuSurface {
     internal_render_scale: f32,
     upscale_mode: WindowSurfaceUpscaleMode,
     quad_draw: Option<QuadDraw>,
+    /// Revision of the last scene whose frame data was pushed to the GPU.
+    uploaded_revision: Option<u64>,
 }
 
 impl GpuSurface {
@@ -608,6 +615,9 @@ impl GpuSurface {
             internal_render_scale,
             upscale_mode,
             quad_draw,
+            // QuadDraw::new creates buffers but pushes no frame data; the
+            // first update_scene call performs the initial upload.
+            uploaded_revision: None,
             adapter_label: format!(
                 "{} / {:?} / {}",
                 adapter_info.name, adapter_info.backend, adapter_info.driver
@@ -660,10 +670,16 @@ impl GpuSurface {
                 self.upscale_mode,
                 scene,
             );
+        } else if self.uploaded_revision == Some(scene.revision) {
+            // Unchanged scene revision: the GPU already holds this frame's
+            // vertices, atlas, palette, and post uniforms — skip the
+            // re-upload.
+            return;
         }
         if let Some(quad_draw) = &mut self.quad_draw {
             quad_draw.update_frame(&self.device, &self.queue, scene);
         }
+        self.uploaded_revision = Some(scene.revision);
     }
 
     fn render(&mut self, clear_color: [f64; 4]) -> RenderOutcome {

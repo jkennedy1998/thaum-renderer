@@ -32,6 +32,8 @@ pub mod ui_customization_module;
 pub mod command_bar;
 #[path = "composition/composition.rs"]
 pub mod composition;
+#[path = "composition/composition_hash.rs"]
+pub mod composition_hash;
 #[path = "controls/controls.rs"]
 pub mod controls;
 #[path = "coordinate-space/coordinate_space.rs"]
@@ -100,6 +102,7 @@ pub use command_bar::{
     PersistedCommandBarState,
 };
 pub use composition::{compose_cells, ComposedCell, Composition};
+pub use composition_hash::composition_content_hash;
 pub use controls::{
     profile::{conflicting_actions, effective_bindings, format_raw_input, ControlsProfile},
     typing_mode::{TypingMode, TypingRoute},
