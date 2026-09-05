@@ -720,7 +720,7 @@ fn projected_cell_clip_size_for_surface(
     projected: CameraProjectedPoint,
     base_cell_clip_size: [f32; 2],
 ) -> [f32; 2] {
-    let scale = projected_plane_scale_factor(projected.plane, camera.projection_mode);
+    let scale = projected_plane_scale_factor(camera, projected.plane);
 
     [
         base_cell_clip_size[0] * scale,

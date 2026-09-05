@@ -1,5 +1,7 @@
 use crate::{Camera, CellGroupIntakeBehavior, CellPoint, WorldPoint};
 
+use super::perspective::{depth_position_spread, depth_scale_factor};
+
 use super::view_orientation::{
     camera_view_orientation_for_camera, camera_view_orientation_for_swing,
     project_world_relative_to_view, unproject_view_relative_to_world, ViewRelativePoint,
@@ -63,37 +65,17 @@ pub fn projected_plane_is_visible(camera: Camera, plane: i32) -> bool {
 }
 
 const FLAT_2D_LOCAL_DEPTH_STRENGTH: f32 = 0.16;
-const PERSPECTIVE_DEPTH_EASE_POWER: f32 = 0.9;
-const PERSPECTIVE_FOCAL_DISTANCE_CELLS: f32 = 13.0;
-const PERSPECTIVE_DEPTH_SCALE_STRENGTH: f32 = 0.9;
-
-fn eased_signed_depth_units(depth: i32) -> f32 {
-    if depth == 0 {
-        return 0.0;
-    }
-
-    let sign = depth.signum() as f32;
-    let magnitude = ((depth.abs() as f32) + 1.0).powf(PERSPECTIVE_DEPTH_EASE_POWER) - 1.0;
-    sign * magnitude
-}
 
 fn curved_depth_screen_offset(depth: i32, direction: [f32; 2], strength: f32) -> [f32; 2] {
-    let magnitude = strength * eased_signed_depth_units(depth);
+    let magnitude = strength * super::perspective::eased_signed_depth_units(depth);
 
     [direction[0] * magnitude, direction[1] * magnitude]
 }
 
-pub fn projected_plane_scale_factor(depth: i32, projection_mode: CameraProjectionMode) -> f32 {
-    match projection_mode {
-        CameraProjectionMode::Perspective => {
-            let depth_units = eased_signed_depth_units(depth) * PERSPECTIVE_DEPTH_SCALE_STRENGTH;
-            let denominator = (PERSPECTIVE_FOCAL_DISTANCE_CELLS + depth_units)
-                .max(PERSPECTIVE_FOCAL_DISTANCE_CELLS * 0.28);
-
-            PERSPECTIVE_FOCAL_DISTANCE_CELLS / denominator
-        }
-        CameraProjectionMode::Orthographic => 1.0,
-    }
+/// Glyph scale factor for one depth unit under the camera's perspective
+/// profile. Position spread is the separate `depth_position_spread`.
+pub fn projected_plane_scale_factor(camera: Camera, depth: i32) -> f32 {
+    depth_scale_factor(depth, camera.projection_mode, camera.perspective)
 }
 
 fn focus_plane_local_depth_screen_direction() -> [f32; 2] {
@@ -153,7 +135,7 @@ pub fn project_rotating_3d_world_to_view_plane(
 ) -> CameraProjectedPoint {
     let orientation = camera_view_orientation_for_camera(camera.swing, camera.roll);
     let relative = project_world_relative_to_view(orientation, camera.focus_target, world);
-    let plane_spread = projected_plane_scale_factor(relative.depth, camera.projection_mode);
+    let plane_spread = depth_position_spread(relative.depth, camera.projection_mode, camera.perspective);
 
     CameraProjectedPoint {
         u: relative.right as f32 * plane_spread,
@@ -169,7 +151,8 @@ pub fn project_flat_2d_world_to_view_plane(
 ) -> CameraProjectedPoint {
     let orientation = camera_view_orientation_for_swing(camera.swing);
     let relative = project_world_relative_to_view(orientation, camera.focus_target, anchor_world);
-    let anchor_plane_spread = projected_plane_scale_factor(relative.depth, camera.projection_mode);
+    let anchor_plane_spread =
+        depth_position_spread(relative.depth, camera.projection_mode, camera.perspective);
     let local_depth_offset = match camera.projection_mode {
         CameraProjectionMode::Perspective => curved_depth_screen_offset(
             local.z,
@@ -207,7 +190,7 @@ pub fn unproject_view_plane_to_world(
 ) -> WorldPoint {
     let orientation = camera_view_orientation_for_camera(camera.swing, camera.roll);
     let plane = projected.plane;
-    let plane_spread = projected_plane_scale_factor(plane, camera.projection_mode);
+    let plane_spread = depth_position_spread(plane, camera.projection_mode, camera.perspective);
     let right = (projected.u / plane_spread).round() as i32;
     let up = (projected.v / plane_spread).round() as i32;
 
@@ -341,9 +324,10 @@ mod tests {
 
     #[test]
     fn curved_depth_eases_the_first_steps_but_still_grows_with_distance() {
-        let near = projected_plane_scale_factor(1, CameraProjectionMode::Perspective);
-        let mid = projected_plane_scale_factor(2, CameraProjectionMode::Perspective);
-        let far = projected_plane_scale_factor(3, CameraProjectionMode::Perspective);
+        let camera = Camera::default();
+        let near = projected_plane_scale_factor(camera, 1);
+        let mid = projected_plane_scale_factor(camera, 2);
+        let far = projected_plane_scale_factor(camera, 3);
 
         assert!(near < 1.0);
         assert!(mid < near);
@@ -353,16 +337,13 @@ mod tests {
 
     #[test]
     fn plane_spread_expands_toward_camera_and_contracts_away_from_camera() {
-        assert!(projected_plane_scale_factor(-3, CameraProjectionMode::Perspective) > 1.0);
-        assert!(projected_plane_scale_factor(3, CameraProjectionMode::Perspective) < 1.0);
-        assert!(
-            projected_plane_scale_factor(-3, CameraProjectionMode::Perspective)
-                > projected_plane_scale_factor(-1, CameraProjectionMode::Perspective)
-        );
-        assert!(
-            projected_plane_scale_factor(3, CameraProjectionMode::Perspective)
-                < projected_plane_scale_factor(1, CameraProjectionMode::Perspective)
-        );
+        let camera = Camera::default();
+        assert!(projected_plane_scale_factor(camera, -3) > 1.0);
+        assert!(projected_plane_scale_factor(camera, 3) < 1.0);
+        assert!(projected_plane_scale_factor(camera, -3)
+            > projected_plane_scale_factor(camera, -1));
+        assert!(projected_plane_scale_factor(camera, 3)
+            < projected_plane_scale_factor(camera, 1));
     }
 
     #[test]

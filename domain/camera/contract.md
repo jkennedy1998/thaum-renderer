@@ -1,67 +1,51 @@
 # /home/j/Repos/thaum-renderer/domain/camera
 
 ## purpose
-Own the renderer camera shape that defines what part of the global coordinate space is being viewed.
+Own the renderer's camera: view orientation (swing/roll), projection to the
+view plane, visible-plane stacking, and the user-tunable perspective shaping
+applied while projecting.
 
 ## owns
-- the canonical renderer camera contract
-- camera position on the global coordinate space
-- camera-owned focus target as one global xyz coordinate
-- camera-facing view semantics like pan, roll, swing, six-authored-view interpolation, view-relative depth behavior, and projection ownership
-- the single source of truth for the camera depth anchor through the focus target xyz
-- derived focus-plane truth through owned camera view state and focus target xyz
-- the shared perspective truth consumed by both rotating 3d intake and non-rotating 2d intake
+- the `Camera` state: position, focus target, swing, roll, projection mode,
+  perspective profile, visible-plane radius/offset, zoom, HUD pan offset
+- projection of world points to view-plane (u, v, plane) coordinates and the
+  inverse, for both rotating-3d and flat-2d intake behaviors
+- visible-plane stack derivation around the focus plane
+- depth-to-screen perspective shaping via `perspective/`
+- camera swing/roll transitions between orientations
 
 ## does not own
-- module-local panning inside app-level content
-- reusable helper calculations better suited for `tools/camera/`
-- authored scene logic outside renderer viewing
+- app-side camera intent or subject resolution (consumer domain, e.g.
+  thaum-painter `domain/rendering/camera/`)
+- which physical keys or mouse gestures move the camera (consumer controls /
+  `domain/controls/`)
+- persistence of camera UI state (`domain/persistence/ui-session-state/`)
+- UI panels that edit camera settings (renderer modules, opt-in per app)
 
 ## children-encapsulations
+- `perspective/`
+  - `PerspectiveProfile` knobs and the depth-to-scale/position math
 - `projection/`
-  - default
-- `view-orientation/`
-  - default
+  - view-plane projection and inverse, visible-plane stacks
 - `roll/`
-  - default
-- `swing/`
-  - default
+  - camera roll state
 - `screen-world-remap/`
-  - default
+  - camera-unit to world-space remapping helpers
+- `swing/`
+  - camera swing state
+- `view-orientation/`
+  - world-to-view-relative mapping for swing/roll combinations
 
 ## contents
+- `contract.md`
+  - camera contract
 - `camera.rs`
-  - rust camera shape and projection-facing helpers owned by this encapsulation
+  - `Camera` state shape, defaults, zoom bounds, module registration
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
-
-## exposed interfaces
-- camera shape
-  - describes the renderer-owned camera state consumed to determine view placement and orientation over the global coordinate space
-- `/home/j/Repos/thaum-renderer/interfaces/camera/contract.md`
-  - routed camera-control interface notes for consumers and proof apps
-
-## interface consumers
-- future renderer implementation surfaces
-- future apps consuming thaum-renderer
-
-## artifacts
-- none
+- `thaum-renderer` `coordinate-space` (`CellPoint`, `WorldPoint`),
+  `GlobalDirection`
 
 ## tests
-- none
-
-## data
-- none
-
-## notes
-- the renderer needs a camera to render
-- the camera should be the single source of truth for the focused point in world space
-- the old `focus_world_z` wording is not the right long-term name; the real owned thing is the camera focus target xyz, with focus depth derived as facing-axis distance to that point
-- camera should not own a separate free-standing focus-plane truth that can drift away from focus target xyz and view orientation; the focused plane should be derived from those owned inputs
-- the focus target cell should land near pixel-perfect on the screen type grid, while nearby cells may sway slightly from perspective math
-- cursor logic is not camera ownership; programs may render cursor-like cell-groups downstream, but renderer camera truth stops at focus target and remap semantics
-- renderer may expose camera movement/swing/roll/zoom operations, but keybinding ownership stays with the consuming app
-- visible depth range calculations and similar helpers can live under `tools/camera/` without moving camera design truth out of domain
-- the camera owns two independent pan operations: focus-target pan (`pan_focus_right`/`pan_focus_up`/`pan_focus_depth`, moving the 3D scene under a screen-fixed HUD) and HUD pan (`pan_hud_right`/`pan_hud_up`, moving the screen-locked `Flat2d` layer via `hud_pan_offset`, independent of swing/roll/focus target); consuming apps route input between the two (e.g. by hover), not the camera itself
+- camera behavior is validated inside each child encapsulation plus the
+  projection tests over orientation-specific cases

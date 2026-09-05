@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Camera, CameraProjectionMode, CameraRoll, CameraSwing, CellPoint, ModuleRect, UiColorRole,
+    Camera, CameraProjectionMode, CameraRoll, CameraSwing, CellPoint, ModuleRect,
+    PerspectiveProfile, UiColorRole,
     UiPalette, WorldPoint,
 };
 
@@ -71,6 +72,24 @@ pub struct PersistedCameraUiState {
     pub visible_plane_depth_offset: i32,
     pub zoom: f32,
     pub hud_pan_offset: [i32; 2],
+    #[serde(default = "default_perspective_scale_strength")]
+    pub perspective_scale_strength: f32,
+    #[serde(default = "default_perspective_position_strength")]
+    pub perspective_position_strength: f32,
+    #[serde(default = "default_perspective_near_floor_fraction")]
+    pub perspective_near_floor_fraction: f32,
+}
+
+fn default_perspective_scale_strength() -> f32 {
+    PerspectiveProfile::default().scale_strength
+}
+
+fn default_perspective_position_strength() -> f32 {
+    PerspectiveProfile::default().position_strength
+}
+
+fn default_perspective_near_floor_fraction() -> f32 {
+    PerspectiveProfile::default().near_floor_fraction
 }
 
 impl PersistedCameraUiState {
@@ -89,6 +108,9 @@ impl PersistedCameraUiState {
             visible_plane_depth_offset: camera.visible_plane_depth_offset,
             zoom: camera.zoom,
             hud_pan_offset: [camera.hud_pan_offset.x, camera.hud_pan_offset.y],
+            perspective_scale_strength: camera.perspective.scale_strength,
+            perspective_position_strength: camera.perspective.position_strength,
+            perspective_near_floor_fraction: camera.perspective.near_floor_fraction,
         }
     }
 
@@ -119,6 +141,11 @@ impl PersistedCameraUiState {
             x: self.hud_pan_offset[0],
             y: self.hud_pan_offset[1],
             z: 0,
+        };
+        camera.perspective = PerspectiveProfile {
+            scale_strength: self.perspective_scale_strength,
+            position_strength: self.perspective_position_strength,
+            near_floor_fraction: self.perspective_near_floor_fraction,
         };
     }
 }

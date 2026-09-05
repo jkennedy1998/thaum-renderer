@@ -1,3 +1,5 @@
+#[path = "perspective/perspective.rs"]
+pub mod perspective;
 #[path = "projection/projection.rs"]
 pub mod projection;
 #[path = "roll/roll.rs"]
@@ -10,6 +12,10 @@ pub mod swing;
 pub mod view_orientation;
 
 use crate::{coordinate_space::CellPoint, coordinate_space::WorldPoint, GlobalDirection};
+pub use perspective::{
+    depth_position_spread, depth_scale_factor, eased_signed_depth_units,
+    PerspectiveProfile,
+};
 pub use projection::{
     build_visible_plane_stack_around_focus, derive_visible_plane_stack_from_world_points,
     focus_plane_for_camera, project_flat_2d_world_to_view_plane,
@@ -39,6 +45,9 @@ pub struct Camera {
     pub swing: CameraSwing,
     pub roll: CameraRoll,
     pub projection_mode: CameraProjectionMode,
+    /// User-tunable perspective shaping (scale/position strengths and the
+    /// near-camera floor). Default reproduces the historical look exactly.
+    pub perspective: PerspectiveProfile,
     pub visible_plane_radius: i32,
     pub visible_plane_depth_offset: i32,
     pub zoom: f32,
@@ -57,6 +66,7 @@ impl Default for Camera {
             swing: CameraSwing::default(),
             roll: CameraRoll::default(),
             projection_mode: CameraProjectionMode::Perspective,
+            perspective: PerspectiveProfile::default(),
             visible_plane_radius: 8,
             visible_plane_depth_offset: 0,
             zoom: 1.0,

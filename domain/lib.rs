@@ -75,6 +75,7 @@ pub use camera::{
     remap_surface_units_to_flat_2d_local, unproject_flat_2d_view_plane_to_local,
     unproject_view_plane_to_world, unproject_view_relative_to_world,
     visible_plane_stack_for_camera, Camera, CameraProjectedPoint, CameraProjectionMode, CameraRoll,
+    PerspectiveProfile,
     CameraSwing, CameraViewOrientation, ViewRelativePoint, VisiblePlaneStack,
 };
 pub use cell::Cell;
