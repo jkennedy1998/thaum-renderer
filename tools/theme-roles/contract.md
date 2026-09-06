@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/tools/theme-roles
+# thaum-renderer/tools/theme-roles
 
 ## purpose
 Own the reusable named-slot color-indirection mechanism ("theme") that lets a consumer bind a small set of semantic UI color roles to concrete colors from one single source of truth, so changing one role recolors every UI element that references it.
@@ -25,7 +25,7 @@ Own the reusable named-slot color-indirection mechanism ("theme") that lets a co
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/tools/color/`
+- `thaum-renderer/tools/color/`
 
 ## exposed interfaces
 - theme role state

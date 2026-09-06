@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/camera/roll
+# thaum-renderer/domain/camera/roll
 
 ## purpose
 Own renderer camera roll semantics.
@@ -19,15 +19,15 @@ Own renderer camera roll semantics.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/camera/`
-- `/home/j/Repos/thaum-renderer/domain/camera/view-orientation/`
+- `thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/camera/view-orientation/`
 
 ## exposed interfaces
 - camera roll shape
   - describes how the renderer camera rolls around its current view orientation
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/camera/`
 - future renderer implementation surfaces
 
 ## artifacts

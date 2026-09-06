@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-warble
+# thaum-renderer/domain/cell-warble
 
 ## purpose
 Own the renderer-facing per-cell warble slot language authored on cells and transferred into post effects.
@@ -25,17 +25,17 @@ Own the renderer-facing per-cell warble slot language authored on cells and tran
   - rust cell-warble value shape owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell/`
-- `/home/j/Repos/thaum-renderer/domain/post-effects/`
+- `thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/post-effects/`
 
 ## exposed interfaces
 - cell-warble shape
   - describes the authored per-cell warble signal as a single byte code carried by a cell and later packed into the post-effect bus
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell/`
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
-- `/home/j/Repos/thaum-renderer/domain/post-effects/warble/`
+- `thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/post-effects/warble/`
 - future renderer implementation surfaces
 
 ## artifacts

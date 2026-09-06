@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-shader/custom-shaders
+# thaum-renderer/domain/cell-shader/custom-shaders
 
 ## purpose
 Own the optional user-authored shader seam expected by thaum-renderer outside the renderer core.
@@ -20,14 +20,14 @@ Own the optional user-authored shader seam expected by thaum-renderer outside th
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/cell-shader/`
 
 ## exposed interfaces
 - custom shader shape
   - describes the expected authoring and registration boundary for consumer-provided shaders
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/cell-shader/`
 - future apps consuming thaum-renderer
 
 ## artifacts

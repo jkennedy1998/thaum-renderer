@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/context/statement-truths
+# thaum-renderer/context/statement-truths
 
 ## purpose
 Keep lightweight quoted source truth from J in exact words so renderer design can stay grounded against the questions that produced those answers.
@@ -220,7 +220,7 @@ Keep lightweight quoted source truth from J in exact words so renderer design ca
 ### truth-21
 > you just crashed.  look over the discord. i deletedf two folders (composition and design) because they were unrelated tro the development shape i wanted.
 >
-> go over the last 30 or so discord messages that refine the shape of this development of the /home/j/Repos/thaum-renderer/ repo.
+> go over the last 30 or so discord messages that refine the shape of this development of the thaum-renderer/ repo.
 > its a full rebuild of the renderer oif the ascii system in the thaumworld auto styoryteller (bloated repoi)
 >
 > i want to continue scaffolding this out in fodlers and contract.md files
@@ -366,7 +366,7 @@ Keep lightweight quoted source truth from J in exact words so renderer design ca
 >
 > 8 yep this is in atlas-intake
 >
-> 9 this is a real miss. created folders here. /home/j/Repos/thaum-renderer/domain/post-effects/
+> 9 this is a real miss. created folders here. thaum-renderer/domain/post-effects/
 > self explanitory. these are the post process stack. bloomn and indexed color clamp can be the only two for now. the rest have been started as cell things like cell-warble and cell-blur. 
 >
 > 10 not owned by renderer actually. let programs do their own lighting and rout the light through a data channel, materials have access to those data channels and therefore can be custom lit via custom materials usiong the accessible data.

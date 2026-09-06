@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-graphic/glyph/glyph-color-space
+# thaum-renderer/domain/cell-graphic/glyph/glyph-color-space
 
 ## purpose
 Own the glyph-specific source color-space contract while resolving into the same renderer color/material output shape used by sprites.
@@ -25,16 +25,16 @@ Own the glyph-specific source color-space contract while resolving into the same
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/glyph/`
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
-- `/home/j/Repos/thaum-renderer/domain/cell-materials/`
+- `thaum-renderer/domain/cell-graphic/glyph/`
+- `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-materials/`
 
 ## exposed interfaces
 - glyph color-space shape
   - describes how glyph or mono source pixels map into the shared renderer channel and band resolution seam
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/glyph/`
+- `thaum-renderer/domain/cell-graphic/glyph/`
 - future renderer implementation surfaces
 
 ## artifacts

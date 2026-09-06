@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-shader/built-in-shaders/weight-sin
+# thaum-renderer/domain/cell-shader/built-in-shaders/weight-sin
 
 ## purpose
 Own the standard sin shader that modulates cell weight relative to renderer time and world xyz.
@@ -20,9 +20,9 @@ Own the standard sin shader that modulates cell weight relative to renderer time
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
-- `/home/j/Repos/thaum-renderer/domain/data-lanes/`
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
+- `thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/data-lanes/`
+- `thaum-renderer/domain/coordinate-space/`
 
 ## exposed interfaces
 - weight-sin shader shape

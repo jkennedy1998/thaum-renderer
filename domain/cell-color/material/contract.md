@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-color/material
+# thaum-renderer/domain/cell-color/material
 
 ## purpose
 Own the material-backed color path for the cell-color slot.
@@ -21,16 +21,16 @@ Own the material-backed color path for the cell-color slot.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
-- `/home/j/Repos/thaum-renderer/domain/cell-materials/`
+- `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-materials/`
 
 ## exposed interfaces
 - material color reference
   - describes a cell-color value that resolves through the renderer material format rather than direct flat rgb
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-shader/`
 - future renderer implementation surfaces
 
 ## artifacts

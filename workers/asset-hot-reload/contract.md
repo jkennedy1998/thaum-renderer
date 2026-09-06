@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/workers/asset-hot-reload
+# thaum-renderer/workers/asset-hot-reload
 
 ## purpose
 Own the optional hot-reload watcher seam that listens for asset changes under the consumer-provided renderer asset root and triggers reloadable renderer resources.
@@ -22,8 +22,8 @@ Own the optional hot-reload watcher seam that listens for asset changes under th
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/workers/`
-- `/home/j/Repos/thaum-renderer/orchestration/asset-root/`
+- `thaum-renderer/workers/`
+- `thaum-renderer/orchestration/asset-root/`
 
 ## exposed interfaces
 - asset hot-reload watcher

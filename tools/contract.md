@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/tools
+# thaum-renderer/tools
 
 ## purpose
 Own reusable low-level helper surfaces for thaum-renderer that are not the primary home of renderer-specific design truth.
@@ -25,7 +25,7 @@ Own reusable low-level helper surfaces for thaum-renderer that are not the prima
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/`
+- `thaum-renderer/`
 
 ## exposed interfaces
 - none

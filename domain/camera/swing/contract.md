@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/camera/swing
+# thaum-renderer/domain/camera/swing
 
 ## purpose
 Own renderer camera swing semantics.
@@ -20,15 +20,15 @@ Own renderer camera swing semantics.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/camera/`
-- `/home/j/Repos/thaum-renderer/domain/camera/view-orientation/`
+- `thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/camera/view-orientation/`
 
 ## exposed interfaces
 - camera swing shape
   - describes how the renderer camera swings between principal views and related orientations
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/camera/`
 - future renderer implementation surfaces
 
 ## artifacts

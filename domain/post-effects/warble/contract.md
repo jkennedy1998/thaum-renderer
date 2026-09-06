@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/post-effects/warble
+# thaum-renderer/domain/post-effects/warble
 
 ## purpose
 Own the warble post effect that interprets warble codes from the post-effect bus and turns them into localized bending in screen-space.
@@ -22,15 +22,15 @@ Own the warble post effect that interprets warble codes from the post-effect bus
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/post-effects/`
-- `/home/j/Repos/thaum-renderer/domain/cell-warble/`
+- `thaum-renderer/domain/post-effects/`
+- `thaum-renderer/domain/cell-warble/`
 
 ## exposed interfaces
 - warble post effect
   - describes the screen-space pass that reads warble bus codes and applies localized warping to the composed image
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/post-effects/`
+- `thaum-renderer/domain/post-effects/`
 - future renderer implementation surfaces
 
 ## artifacts

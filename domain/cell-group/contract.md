@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-group
+# thaum-renderer/domain/cell-group
 
 ## purpose
 Own the renderer cell-group shape as the layer-level matrix boundary that arranges cells on the global board or type grid.
@@ -31,8 +31,8 @@ Own the renderer cell-group shape as the layer-level matrix boundary that arrang
   - rust cell-group shape, bounds, and traversal helpers owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell/`
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
+- `thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/coordinate-space/`
 
 ## exposed interfaces
 - cell-group shape
@@ -40,8 +40,8 @@ Own the renderer cell-group shape as the layer-level matrix boundary that arrang
   - expected to carry matrix-oriented placement and clipping truth without taking over renderer composition
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/composition/`
-- `/home/j/Repos/thaum-renderer/`
+- `thaum-renderer/domain/composition/`
+- `thaum-renderer/`
 - future renderer implementation surfaces
 
 ## artifacts

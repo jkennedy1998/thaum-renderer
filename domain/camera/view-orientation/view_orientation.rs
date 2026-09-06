@@ -119,6 +119,12 @@ pub fn unproject_view_relative_to_world(
     }
 }
 
+/// Signed world coordinate of `point` along `direction`'s axis, honoring the
+/// direction sign — the user-facing depth read for a camera focus target.
+pub const fn world_depth_along_direction(point: WorldPoint, direction: GlobalDirection) -> i32 {
+    project_onto_direction(point, direction)
+}
+
 const fn project_onto_direction(point: WorldPoint, direction: GlobalDirection) -> i32 {
     match (direction.axis(), direction.sign()) {
         (WorldAxis::X, AxisSign::Positive) => point.x,

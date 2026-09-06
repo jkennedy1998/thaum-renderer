@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/controls
+# thaum-renderer/domain/controls
 
 ## purpose
 Own the renderer's input capture and remappable action-binding infrastructure, so every consumer gets one clean, fast, remappable input system instead of hand-rolling its own.
@@ -18,8 +18,8 @@ Own the renderer's input capture and remappable action-binding infrastructure, s
 - `domain/modules/` gizmo/drag interaction logic, which consumes this domain rather than owning it
 
 ## children-encapsulations
-- `/home/j/Repos/thaum-renderer/domain/controls/tai/`
-- `/home/j/Repos/thaum-renderer/domain/controls/typing-mode/`
+- `thaum-renderer/domain/controls/tai/`
+- `thaum-renderer/domain/controls/typing-mode/`
 
 ## contents
 - `contract.md`
@@ -32,15 +32,15 @@ Own the renderer's input capture and remappable action-binding infrastructure, s
   - input-focus gate for typing sessions: `TypingMode` + `TypingRoute`, reserved set declared at `begin` by the consuming program
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/`
+- `thaum-renderer/domain/`
 
 ## exposed interfaces
 - controls shape
   - describes renderer-owned raw input events, the action-binding map, and pressure data consumed by programs and by `domain/modules/`
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/modules/`
-- `/home/j/Repos/thaum-renderer/domain/camera/` (movement/swing/roll/zoom operations are triggered by app-bound actions, not owned here)
+- `thaum-renderer/domain/modules/`
+- `thaum-renderer/domain/camera/` (movement/swing/roll/zoom operations are triggered by app-bound actions, not owned here)
 - future renderer implementation surfaces
 - future apps consuming thaum-renderer
 

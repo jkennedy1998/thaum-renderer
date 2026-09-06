@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/post-effects/index-color-clamp
+# thaum-renderer/domain/post-effects/index-color-clamp
 
 ## purpose
 Own the renderer final indexed color clamp post effect over the composed image.
@@ -19,7 +19,7 @@ Own the renderer final indexed color clamp post effect over the composed image.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/post-effects/`
+- `thaum-renderer/domain/post-effects/`
 
 ## exposed interfaces
 - index-color-clamp effect shape

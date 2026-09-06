@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-weight
+# thaum-renderer/domain/cell-weight
 
 ## purpose
 Own the renderer cell-weight slot as the canonical weight input consumed by a cell.
@@ -30,8 +30,8 @@ Own the renderer cell-weight slot as the canonical weight input consumed by a ce
   - expected to normalize how weight is interpreted across supported graphic modes
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell/`
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/cell-shader/`
 - future renderer implementation surfaces
 
 ## artifacts

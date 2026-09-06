@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-materials
+# thaum-renderer/domain/cell-materials
 
 ## purpose
 Own the renderer material format, default test materials, and shared storage shape used by cells and apps of thaum-renderer.
@@ -25,7 +25,7 @@ Own the renderer material format, default test materials, and shared storage sha
   - rust material ids and band shapes owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-color/`
 
 ## exposed interfaces
 - material definition shape
@@ -38,10 +38,10 @@ Own the renderer material format, default test materials, and shared storage sha
   - small discovery helpers for UI surfaces listing available material choices
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
-- `/home/j/Repos/thaum-renderer/domain/cell-color/material/`
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/sprite/`
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/glyph/`
+- `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-color/material/`
+- `thaum-renderer/domain/cell-graphic/sprite/`
+- `thaum-renderer/domain/cell-graphic/glyph/`
 - future renderer implementation surfaces
 - future apps consuming thaum-renderer
 

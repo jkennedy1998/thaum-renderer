@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/tools/camera/visible-depth-range
+# thaum-renderer/tools/camera/visible-depth-range
 
 ## purpose
 Own the helper boundary for calculating visible depth range from camera state against renderer coordinates.
@@ -17,7 +17,7 @@ Own the helper boundary for calculating visible depth range from camera state ag
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/tools/camera/`
+- `thaum-renderer/tools/camera/`
 
 ## exposed interfaces
 - visible depth range calculation

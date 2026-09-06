@@ -18,7 +18,7 @@ impl GizmoKind {
     fn glyph(self) -> char {
         match self {
             GizmoKind::Move => '#',
-            GizmoKind::Close => '✕',
+            GizmoKind::Close => 'X',
             GizmoKind::Resize => '╋',
             GizmoKind::Seamless => 'S',
         }

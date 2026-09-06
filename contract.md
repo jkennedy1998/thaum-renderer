@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer
+# thaum-renderer
 
 ## purpose
 Own the thaum renderer rebuild as its own repo-shaped boundary for the ASCII rendering system, with clean contract-first organization before implementation.
@@ -87,4 +87,4 @@ Own the thaum renderer rebuild as its own repo-shaped boundary for the ASCII ren
 - apps should be able to choose one renderer asset-root location at boot rather than being forced into a repo-wide folder shape
 - hot reload is an optional development seam that should be designed in from the start
 - cell groups and composition are the renderer-facing pass structure; UI and other app concepts should remain outside renderer ownership
-- the canonical manual proof app lives in `/home/j/Repos/thaum-renderer-test-user/`; renderer should not keep a second bootable test exe in-repo
+- the canonical manual proof app lives in `thaum-renderer-test-user/`; renderer should not keep a second bootable test exe in-repo

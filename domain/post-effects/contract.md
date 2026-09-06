@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/post-effects
+# thaum-renderer/domain/post-effects
 
 ## purpose
 Own the renderer post-effects stack that runs on the fully composed image after composition is complete, including the execution of cell-authored texture, warble, and depth-driven focus effects.
@@ -38,9 +38,9 @@ Own the renderer post-effects stack that runs on the fully composed image after 
   - rust debug helpers for validating post-effect bus routing and depth encoding
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/composition/`
-- `/home/j/Repos/thaum-renderer/domain/cell-texture/`
-- `/home/j/Repos/thaum-renderer/domain/cell-warble/`
+- `thaum-renderer/domain/composition/`
+- `thaum-renderer/domain/cell-texture/`
+- `thaum-renderer/domain/cell-warble/`
 
 ## exposed interfaces
 - post-effects stack
@@ -49,7 +49,7 @@ Own the renderer post-effects stack that runs on the fully composed image after 
   - describes the auxiliary per-pixel signal bus consumed by post effects, with `R = texture code`, `G = warble code`, and `B = relative depth code`
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/`
+- `thaum-renderer/`
 - future renderer implementation surfaces
 - future apps consuming thaum-renderer
 

@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/composition/overlap-policy
+# thaum-renderer/domain/composition/overlap-policy
 
 ## purpose
 Own the overlap policy used when composed cell-groups target the same renderer coordinates.
@@ -20,14 +20,14 @@ Own the overlap policy used when composed cell-groups target the same renderer c
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/composition/`
+- `thaum-renderer/domain/composition/`
 
 ## exposed interfaces
 - overlap-policy shape
   - describes how renderer composition resolves collisions when multiple composed cells occupy the same exact xyz coordinate
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/composition/`
+- `thaum-renderer/domain/composition/`
 - future renderer implementation surfaces
 
 ## artifacts

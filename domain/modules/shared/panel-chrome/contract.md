@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/modules/shared/panel-chrome
+# thaum-renderer/domain/modules/shared/panel-chrome
 
 ## purpose
 Own the base ASCII-border/background/title chrome primitive every bordered panel module draws itself with — the renderer's port of the old mono_ui `module_borders.ts` (`draw_module_border`, `BORDER_STYLES`). This is the piece `domain/modules/shared/contract.md` had documented as unbuilt "base chrome primitives."
@@ -24,10 +24,10 @@ Own the base ASCII-border/background/title chrome primitive every bordered panel
   - `PanelBorderStyle`, `PanelChrome`, and their inline tests
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/modules/`
-- `/home/j/Repos/thaum-renderer/domain/modules/shared/ui-palette/`
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/`
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/modules/`
+- `thaum-renderer/domain/modules/shared/ui-palette/`
+- `thaum-renderer/domain/cell-graphic/`
+- `thaum-renderer/domain/cell-color/`
 
 ## exposed interfaces
 - `PanelChrome::new(rect, palette)` — a chrome builder defaulted to the old system's "standard UX" chrome colors (thick border in `dimmest`, background in `background`, title in `medium`)
@@ -37,8 +37,8 @@ Own the base ASCII-border/background/title chrome primitive every bordered panel
 - `PanelChrome::content_size(rect)` — the interior width/height in cells currently available, for a module to make its own content responsive to live resizing rather than assuming a fixed size
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/modules/individuals/color-picker/` (reads `content_inset()`/`content_size()` to lay out and hit-test a resize-responsive swatch grid)
-- `/home/j/Repos/thaum-renderer/domain/modules/shared/module-gizmos/` (a gizmo-enabled module passes `GizmoBar::title_start_x()` into `with_title_start_x` so the title clears the gizmo row)
+- `thaum-renderer/domain/modules/individuals/color-picker/` (reads `content_inset()`/`content_size()` to lay out and hit-test a resize-responsive swatch grid)
+- `thaum-renderer/domain/modules/shared/module-gizmos/` (a gizmo-enabled module passes `GizmoBar::title_start_x()` into `with_title_start_x` so the title clears the gizmo row)
 - future bordered modules in `domain/modules/individuals/` and consuming programs' own `domain/modules/individuals/`
 
 ## artifacts

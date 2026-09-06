@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/modules/shared/ui-palette
+# thaum-renderer/domain/modules/shared/ui-palette
 
 ## purpose
 Own the renderer's shared semantic UI color-role palette, so every module's chrome can draw consistent colors from one settable place instead of hardcoding RGB values.
@@ -21,14 +21,14 @@ Own the renderer's shared semantic UI color-role palette, so every module's chro
   - `UiColorRole`, `UiPalette`, and their default color mapping
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-color/`
 
 ## exposed interfaces
 - `UiPalette::get(role) -> CellColor` / `UiPalette::set(role, color)`
 - `UiColorRole::ALL` — every role, for iterating a full palette
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/modules/individuals/color-picker/`
+- `thaum-renderer/domain/modules/individuals/color-picker/`
 - future `domain/modules/shared/` chrome primitives (floating-panel background, borders, etc.)
 - `thaum-painter/domain/modules/individuals/` and other consuming programs' modules
 

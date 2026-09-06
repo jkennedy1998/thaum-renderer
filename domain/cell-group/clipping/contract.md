@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-group/clipping
+# thaum-renderer/domain/cell-group/clipping
 
 ## purpose
 Own the clipping truth of a cell-group's own contents.
@@ -19,15 +19,15 @@ Own the clipping truth of a cell-group's own contents.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
+- `thaum-renderer/domain/cell-group/`
 
 ## exposed interfaces
 - cell-group clipping shape
   - describes how a group limits its own content before composition across the renderer space
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
-- `/home/j/Repos/thaum-renderer/domain/composition/`
+- `thaum-renderer/domain/cell-group/`
+- `thaum-renderer/domain/composition/`
 - future renderer implementation surfaces
 
 ## artifacts

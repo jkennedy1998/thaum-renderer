@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain
+# thaum-renderer/domain
 
 ## purpose
 Own the renderer-specific design contracts for the atomic cell system, grouped render space, composition flow, global coordinate space, camera semantics, atlas intake, renderer-wide data lanes, post-effects, renderer-consumed cell slots, and the cell-to-post-effect signal language.
@@ -47,6 +47,8 @@ Own the renderer-specific design contracts for the atomic cell system, grouped r
   - default
 - `camera/`
   - default
+- `debug-log/`
+  - process-global leveled debug logging for every host of the renderer (THAUM_DEBUG); hosts pick log locations
 - `controls/`
   - default
 - `modules/`
@@ -59,7 +61,7 @@ Own the renderer-specific design contracts for the atomic cell system, grouped r
   - crate entrypoint that wires rust modules to their colocated encapsulation-owned files
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/`
+- `thaum-renderer/`
 - `domains/contracts/`
 
 ## exposed interfaces

@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/tests
+# thaum-renderer/tests
 
 ## purpose
 Own renderer-local proof tests and smoke checks for thaum-renderer without becoming a second app launcher surface.
@@ -21,8 +21,8 @@ Own renderer-local proof tests and smoke checks for thaum-renderer without becom
   - contract for the renderer-local tests seam
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/`
-- `/home/j/Repos/thaum-renderer-test-user/` as the consumed external manual proof app
+- `thaum-renderer/`
+- `thaum-renderer-test-user/` as the consumed external manual proof app
 
 ## exposed interfaces
 - none
@@ -42,5 +42,5 @@ Own renderer-local proof tests and smoke checks for thaum-renderer without becom
 - none
 
 ## notes
-- the canonical manual proof executable is `/home/j/Repos/thaum-renderer-test-user/target/release/thaum-renderer-test-user`
+- the canonical manual proof executable is `thaum-renderer-test-user/target/release/thaum-renderer-test-user`
 - renderer-local `tests/` should hold proof tests, not a second consumer app

@@ -1,8 +1,8 @@
 use crate::{
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
     GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerButton,
-    ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, RawInput, UiColorRole,
-    UiPalette, WorldPoint,
+    ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, RawInput, ScrollState,
+    UiColorRole, UiPalette, WorldPoint,
 };
 
 /// One listed control: the named action plus presentation metadata. The
@@ -36,6 +36,8 @@ pub struct ControlsPanelModule {
     gizmos: GizmoBar,
     gizmo_state: GizmoState,
     hidden: bool,
+    /// Row-scroll state over the slot list, from the shared scroll seam.
+    scroll: ScrollState,
     rows: Vec<ControlActionRow>,
     waiting_for: Option<crate::ActionName>,
     get_binding_label: Box<dyn Fn(&crate::ActionName) -> String>,
@@ -60,6 +62,7 @@ impl ControlsPanelModule {
             gizmos: GizmoBar::standard(),
             gizmo_state: GizmoState::new(),
             hidden: false,
+            scroll: ScrollState::new(),
             rows,
             waiting_for: None,
             get_binding_label: Box::new(get_binding_label),
@@ -88,51 +91,75 @@ impl ControlsPanelModule {
         self.waiting_for = None;
     }
 
-    /// Visual slot -> what occupies it. Shared by draw and hit-testing so
-    /// what you click is what you see.
-    fn slot_table(&self) -> Vec<PanelSlot> {
+    /// Viewport rows the slot list scrolls within: the content height minus
+    /// the reserved blank row at the content's screen-bottom end.
+    fn capacity(&self) -> usize {
         let (_, content_height) = PanelChrome::content_size(self.rect);
-        let capacity = (content_height - 1).max(0) as usize;
+        (content_height - 1).max(0) as usize
+    }
+
+    /// The full slot list: one category header before each group of action
+    /// rows, unbounded by the viewport. Windowed by the scroll offset for
+    /// both draw and hit-testing so what you click is what you see.
+    fn build_slots(&self) -> Vec<PanelSlot> {
         let mut slots: Vec<PanelSlot> = Vec::new();
         let mut last_category = String::new();
         for (index, row) in self.rows.iter().enumerate() {
-            if slots.len() >= capacity {
-                break;
-            }
             if row.category != last_category {
                 last_category = row.category.clone();
                 slots.push(PanelSlot::Header(row.category.clone()));
-                if slots.len() >= capacity {
-                    break;
-                }
             }
             slots.push(PanelSlot::Row(index));
         }
         slots
     }
 
-    fn row_slot(&self, index: usize) -> Option<(i32, i32)> {
+    /// Largest valid scroll offset over the slot list.
+    fn max_scroll_rows(&self) -> usize {
+        ScrollState::max_offset(self.build_slots().len(), self.capacity())
+    }
+
+    /// The visible window of slots at the current scroll offset. A section
+    /// title never renders detached from its rows: a trailing header whose
+    /// rows sit past the window edge is dropped from the window.
+    fn visible_slots(&self) -> Vec<PanelSlot> {
+        let mut window: Vec<PanelSlot> = self
+            .build_slots()
+            .into_iter()
+            .skip(self.scroll.offset())
+            .take(self.capacity())
+            .collect();
+        while matches!(window.last(), Some(PanelSlot::Header(_))) {
+            window.pop();
+        }
+        window
+    }
+
+    /// Screen y of a visible slot. Flat2d panels draw larger local y higher
+    /// on screen, so slot 0 sits on the content's largest-y row (the
+    /// screen-top of the list) and later slots walk down the screen.
+    fn slot_y(&self, slot: usize) -> Option<i32> {
         let (_, content_height) = PanelChrome::content_size(self.rect);
-        let (content_x, content_y) = PanelChrome::content_origin();
-        let y = content_y + 1 + index as i32;
-        if y >= content_y + content_height {
+        let (_, content_y) = PanelChrome::content_origin();
+        let y = content_y + content_height - 1 - slot as i32;
+        if y <= content_y {
             return None;
         }
-        Some((content_x, y))
+        Some(y)
     }
 
     /// Rect-local hit-test: which listed row sits at this local position.
     fn row_index_at(&self, local_x: i32, local_y: i32) -> Option<usize> {
-        let (_, content_height) = PanelChrome::content_size(self.rect);
         let (content_x, content_y) = PanelChrome::content_origin();
         if local_x < content_x || local_y <= content_y {
             return None;
         }
-        let slot = (local_y - content_y - 1) as usize;
-        if local_y >= content_y + content_height {
+        let (_, content_height) = PanelChrome::content_size(self.rect);
+        let slot = content_y + content_height - 1 - local_y;
+        if slot < 0 {
             return None;
         }
-        match self.slot_table().get(slot) {
+        match self.visible_slots().get(slot as usize) {
             Some(PanelSlot::Row(index)) => Some(*index),
             _ => None,
         }
@@ -216,20 +243,17 @@ impl Module for ControlsPanelModule {
         let vivid = self.palette.get(UiColorRole::Vivid);
         let muted = self.palette.get(UiColorRole::Dimmest);
 
-        let mut last_category = String::new();
-        for (slot, panel_slot) in self.slot_table().into_iter().enumerate() {
-            let Some((_, row_y)) = self.row_slot(slot) else {
+        for (slot, panel_slot) in self.visible_slots().into_iter().enumerate() {
+            let Some(row_y) = self.slot_y(slot) else {
                 break;
             };
             match panel_slot {
                 PanelSlot::Header(category) => {
-                    last_category = category.clone();
                     Self::write_cells(&mut cells, content_x + 1, row_y, &category, bright, max_x);
                     continue;
                 }
                 PanelSlot::Row(index) => {
                     let row = &self.rows[index];
-                    let _ = last_category;
                     let binding = (self.get_binding_label)(&row.action);
                     let conflicts = (self.get_conflicts)(&row.action);
                     let waiting = self
@@ -311,6 +335,12 @@ impl Module for ControlsPanelModule {
         }
     }
 
+    fn on_wheel(&mut self, _x: i32, _y: i32, _delta_x: f32, delta_y: f32) -> bool {
+        // One row per notch through the shared scroll seam; an unmoved
+        // offset (at an edge, or short content) falls through to the host.
+        self.scroll.wheel(delta_y, self.max_scroll_rows())
+    }
+
     fn on_key_capture(&mut self, label: &str) -> bool {
         self.capture_key(label)
     }
@@ -349,7 +379,7 @@ mod tests {
     }
 
     fn rect() -> ModuleRect {
-        ModuleRect { x0: 0, y0: 0, x1: 40, y1: 12 }
+        ModuleRect { x0: 4, y0: 13, x1: 44, y1: 47 }
     }
 
     fn module(
@@ -370,8 +400,8 @@ mod tests {
         ];
         ControlsPanelModule::new(
             "controls_panel_test",
-            rect(),
-            palette(),
+            ModuleRect { x0: 0, y0: 0, x1: 40, y1: 12 },
+            UiPalette::default(),
             rows,
             move |action| {
                 bindings
@@ -416,7 +446,7 @@ mod tests {
         assert!(!panel.capture_key("P"), "no wait, no capture");
         panel.on_pointer_event(ModulePointerEvent::Click {
             x: 2,
-            y: 3,
+            y: 8,
             button: ModulePointerButton::Left,
         });
         assert_eq!(
@@ -443,7 +473,7 @@ mod tests {
         );
         panel.on_pointer_event(ModulePointerEvent::Click {
             x: 2,
-            y: 3,
+            y: 8,
             button: ModulePointerButton::Right,
         });
         assert!(panel.waiting_action().is_none());
@@ -462,12 +492,12 @@ mod tests {
         );
         panel.on_pointer_event(ModulePointerEvent::Click {
             x: 2,
-            y: 3,
+            y: 8,
             button: ModulePointerButton::Left,
         });
         panel.on_pointer_event(ModulePointerEvent::Click {
             x: 2,
-            y: 3,
+            y: 8,
             button: ModulePointerButton::Left,
         });
         assert!(panel.waiting_action().is_none());
@@ -488,11 +518,123 @@ mod tests {
         assert!(text.contains("P"), "binding label rendered");
         panel.on_pointer_event(ModulePointerEvent::Click {
             x: 2,
-            y: 3,
+            y: 8,
             button: ModulePointerButton::Left,
         });
         let text = drawn_text(&panel);
         assert!(text.contains("<PRESS A KEY>"), "capture prompt rendered");
+    }
+
+    #[test]
+    fn section_titles_render_above_their_rows_on_screen() {
+        // Flat2d draws larger local y higher on screen, so a category header
+        // must sit at a LARGER local y than the rows of its section.
+        let set_calls = Rc::new(RefCell::new(Vec::new()));
+        let panel = module(Rc::new(RefCell::new(ActionBindingMap::new())), set_calls);
+        let cells = panel.draw().cells;
+        fn first_glyph_y(cells: &std::collections::BTreeMap<crate::CellPoint, crate::Cell>, prefix: &str) -> Option<i32> {
+            cells
+                .iter()
+                .filter(|(point, cell)| {
+                    point.x == 2
+                        && matches!(cell.graphic, CellGraphic::Glyph(g) if prefix.starts_with(g))
+                })
+                .map(|(point, _)| point.y)
+                .next()
+        }
+        let tools_y = first_glyph_y(&cells, "tools").expect("tools header drawn");
+        let pencil_y = first_glyph_y(&cells, "Select Pencil").expect("first row drawn");
+        assert!(
+            tools_y > pencil_y,
+            "header (local {tools_y}) must be above its row (local {pencil_y}) on screen"
+        );
+    }
+
+    #[test]
+    fn clicking_a_drawn_row_selects_what_is_drawn_there() {
+        let set_calls = Rc::new(RefCell::new(Vec::new()));
+        let mut panel = module(Rc::new(RefCell::new(ActionBindingMap::new())), set_calls);
+        // "Zoom In" is the second row: header slot + row slot + row slot,
+        // drawn from the content's screen-top downward.
+        panel.on_pointer_event(ModulePointerEvent::Click {
+            x: 2,
+            y: 6,
+            button: ModulePointerButton::Left,
+        });
+        assert_eq!(
+            panel.waiting_action().map(|action| action.0.as_str()),
+            Some("painter_zoom_in")
+        );
+    }
+
+    fn scroll_fixture() -> Vec<ControlActionRow> {
+        (0..12)
+            .map(|i| ControlActionRow {
+                action: crate::ActionName::new(&format!("a{i}")),
+                label: format!("Action {i}"),
+                category: if i < 6 { "tools" } else { "camera" }.to_string(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn wheel_scrolls_the_list_through_the_shared_scroll_state() {
+        let set_calls = Rc::new(RefCell::new(Vec::new()));
+        let mut panel = module(Rc::new(RefCell::new(ActionBindingMap::new())), set_calls);
+        // Fixture: 2 headers + 2 rows = 4 slots, capacity 8 -> no scroll.
+        assert!(!panel.on_wheel(2, 8, 0.0, -1.0), "short content never scrolls");
+
+        // A tall list in a short panel must scroll and clamp.
+        let mut panel = ControlsPanelModule::new(
+            "controls_panel_scroll_test",
+            ModuleRect { x0: 0, y0: 0, x1: 40, y1: 12 },
+            UiPalette::default(),
+            scroll_fixture(),
+            |_| "unbound".to_string(),
+            |_| Vec::new(),
+            |_, _| {},
+        );
+        assert_eq!(panel.max_scroll_rows(), 6, "14 slots over 8 window rows");
+        assert!(panel.on_wheel(2, 8, 0.0, -1.0), "wheel down moves the offset");
+        for _ in 0..20 {
+            panel.on_wheel(2, 8, 0.0, -1.0);
+        }
+        let text = drawn_text(&panel);
+        assert!(text.contains("Action 11"), "bottom of the list reachable");
+        assert!(panel.on_wheel(2, 8, 0.0, 1.0), "wheel up walks back");
+    }
+
+    #[test]
+    fn a_trailing_section_title_never_renders_detached() {
+        let mut panel = ControlsPanelModule::new(
+            "controls_panel_orphan_test",
+            ModuleRect { x0: 0, y0: 0, x1: 40, y1: 12 },
+            UiPalette::default(),
+            scroll_fixture(),
+            |_| "unbound".to_string(),
+            |_| Vec::new(),
+            |_, _| {},
+        );
+        // Scroll so the raw window would end exactly on the "camera" header
+        // (offset 5: Action 5, camera header, then the window cuts).
+        for _ in 0..5 {
+            panel.on_wheel(2, 8, 0.0, -1.0);
+        }
+        let text = drawn_text(&panel);
+        let content_lines: Vec<&str> = text
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+        // Wherever the camera header appears, a row must follow beneath it.
+        for (i, line) in content_lines.iter().enumerate() {
+            if line.contains("camera") {
+                assert!(
+                    i + 1 < content_lines.len() && content_lines[i + 1].contains("Action"),
+                    "detached trailing header in {content_lines:?}"
+                );
+            }
+        }
+        assert!(text.contains("camera"), "header still reachable in the window");
     }
 
     fn drawn_text(panel: &ControlsPanelModule) -> String {
@@ -513,3 +655,5 @@ mod tests {
         lines.join("\n")
     }
 }
+
+

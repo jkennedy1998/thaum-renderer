@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/coordinate-space
+# thaum-renderer/domain/coordinate-space
 
 ## purpose
 Own the renderer-global coordinate space used to place, traverse, and shade cell-groups together.
@@ -27,15 +27,15 @@ Own the renderer-global coordinate space used to place, traverse, and shade cell
   - renderer-global cardinal direction contract over world xyz
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/`
+- `thaum-renderer/domain/`
 
 ## exposed interfaces
 - global coordinate space
   - describes the renderer-owned world coordinate system used by cell-groups and camera-facing render logic
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
-- `/home/j/Repos/thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/cell-group/`
+- `thaum-renderer/domain/camera/`
 - future renderer shader execution surfaces
 
 ## artifacts

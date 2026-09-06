@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/camera/screen-world-remap
+# thaum-renderer/domain/camera/screen-world-remap
 
 ## purpose
 Own the camera-facing remap semantics between screen space and world space.
@@ -22,16 +22,16 @@ Own the camera-facing remap semantics between screen space and world space.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/camera/`
-- `/home/j/Repos/thaum-renderer/domain/camera/projection/`
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
+- `thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/camera/projection/`
+- `thaum-renderer/domain/coordinate-space/`
 
 ## exposed interfaces
 - screen-world remap shape
   - describes how camera semantics translate between viewed screen-space and renderer world-space references
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/camera/`
 - future renderer implementation surfaces
 
 ## artifacts

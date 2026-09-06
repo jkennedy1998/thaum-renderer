@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/tools/color
+# thaum-renderer/tools/color
 
 ## purpose
 Own reusable low-level color helpers for fast nearest-color matching and related renderer-local color utility work.
@@ -21,14 +21,14 @@ Own reusable low-level color helpers for fast nearest-color matching and related
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/tools/`
+- `thaum-renderer/tools/`
 
 ## exposed interfaces
 - nearest-color-in-collection
   - describes the helper that takes one input color and one color collection and returns the nearest match
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/sprite/sprite-color-space/`
+- `thaum-renderer/domain/cell-graphic/sprite/sprite-color-space/`
 - future renderer implementation surfaces
 - future post-process or effect surfaces
 

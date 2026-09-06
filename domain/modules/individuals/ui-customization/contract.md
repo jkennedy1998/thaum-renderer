@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/modules/individuals/ui-customization
+# thaum-renderer/domain/modules/individuals/ui-customization
 
 ## purpose
 Own a generic UI-color customization module: one renderer-owned floating panel listing the semantic UI roles and letting a consumer apply its current left-hand or right-hand color directly onto any role with one click.
@@ -23,8 +23,8 @@ Own a generic UI-color customization module: one renderer-owned floating panel l
   - `UiCustomizationModule` and its inline tests
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/modules/`
-- `/home/j/Repos/thaum-renderer/domain/modules/shared/`
+- `thaum-renderer/domain/modules/`
+- `thaum-renderer/domain/modules/shared/`
 
 ## exposed interfaces
 - `UiCustomizationModule::new(id, rect, palette, get_left_rgb, get_right_rgb)`

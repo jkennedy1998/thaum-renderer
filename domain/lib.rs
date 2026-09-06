@@ -1,3 +1,12 @@
+/// Glyph atlas section text for the monothaum atlas v3, compiled in so
+/// dependents (e.g. the painter's graphic picker) can parse glyph groupings
+/// without runtime asset IO and without baking machine-specific paths.
+pub const MONOTHAUM_ATLAS_V3_SECTIONS_TEXT: &str = include_str!(
+    "../orchestration/renderer-assets/cell-sprites/monothaum-atlas-v3/sections.txt"
+);
+
+#[path = "debug-log/debug_log.rs"]
+pub mod debug_log;
 #[path = "atlas-intake/atlas_intake.rs"]
 pub mod atlas_intake;
 #[path = "camera/camera.rs"]
@@ -77,6 +86,7 @@ pub use camera::{
     remap_surface_units_to_flat_2d_local, unproject_flat_2d_view_plane_to_local,
     unproject_view_plane_to_world, unproject_view_relative_to_world,
     visible_plane_stack_for_camera, Camera, CameraProjectedPoint, CameraProjectionMode, CameraRoll,
+    ParallaxProfile,
     PerspectiveProfile,
     CameraSwing, CameraViewOrientation, ViewRelativePoint, VisiblePlaneStack,
 };
@@ -99,7 +109,9 @@ pub use cell_texture::CellTexture;
 pub use cell_warble::CellWarble;
 pub use cell_weight::CellWeight;
 pub use color_block_module::ColorBlockModule;
-pub use camera_perspective_module::CameraPerspectiveModule;
+pub use camera_perspective_module::{
+    CameraDepthLink, CameraLayersLink, CameraPerspectiveModule, MAX_VISIBLE_PLANE_RADIUS,
+};
 pub use color_picker_module::ColorPickerModule;
 pub use controls_panel_module::{ControlActionRow, ControlsPanelModule};
 pub use ui_customization_module::UiCustomizationModule;

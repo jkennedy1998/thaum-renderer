@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/coordinate-space/global-directions
+# thaum-renderer/domain/coordinate-space/global-directions
 
 ## purpose
 Own the renderer-global direction vocabulary that maps cardinal direction language onto the shared world xyz coordinate space.
@@ -21,16 +21,16 @@ Own the renderer-global direction vocabulary that maps cardinal direction langua
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
+- `thaum-renderer/domain/coordinate-space/`
 
 ## exposed interfaces
 - global direction shape
   - describes the stable cardinal direction vocabulary and axis mapping used across renderer world space
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
-- `/home/j/Repos/thaum-renderer/domain/camera/`
-- `/home/j/Repos/thaum-renderer/domain/cell-group/transform/`
+- `thaum-renderer/domain/coordinate-space/`
+- `thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/cell-group/transform/`
 - future renderer implementation surfaces
 
 ## artifacts

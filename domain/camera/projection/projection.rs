@@ -1,6 +1,7 @@
 use crate::{Camera, CellGroupIntakeBehavior, CellPoint, WorldPoint};
 
 use super::perspective::{depth_position_spread, depth_scale_factor};
+use super::parallax::parallax_screen_offset;
 
 use super::view_orientation::{
     camera_view_orientation_for_camera, camera_view_orientation_for_swing,
@@ -136,10 +137,11 @@ pub fn project_rotating_3d_world_to_view_plane(
     let orientation = camera_view_orientation_for_camera(camera.swing, camera.roll);
     let relative = project_world_relative_to_view(orientation, camera.focus_target, world);
     let plane_spread = depth_position_spread(relative.depth, camera.projection_mode, camera.perspective);
+    let parallax = parallax_screen_offset(camera.parallax, relative.depth, camera.projection_mode);
 
     CameraProjectedPoint {
-        u: relative.right as f32 * plane_spread,
-        v: relative.up as f32 * plane_spread,
+        u: relative.right as f32 * plane_spread + parallax[0],
+        v: relative.up as f32 * plane_spread + parallax[1],
         plane: relative.depth,
     }
 }
@@ -191,8 +193,11 @@ pub fn unproject_view_plane_to_world(
     let orientation = camera_view_orientation_for_camera(camera.swing, camera.roll);
     let plane = projected.plane;
     let plane_spread = depth_position_spread(plane, camera.projection_mode, camera.perspective);
-    let right = (projected.u / plane_spread).round() as i32;
-    let up = (projected.v / plane_spread).round() as i32;
+    // Exact inverse of the projection's parallax addition: remove it before
+    // dividing, so world round-trips hold while parallax is live.
+    let parallax = parallax_screen_offset(camera.parallax, plane, camera.projection_mode);
+    let right = ((projected.u - parallax[0]) / plane_spread).round() as i32;
+    let up = ((projected.v - parallax[1]) / plane_spread).round() as i32;
 
     unproject_view_relative_to_world(
         orientation,

@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/controls/tai
+# thaum-renderer/domain/controls/tai
 
 ## purpose
 Own the renderer's tool-assisted input (TAI) infrastructure: the script format and the breath-timed replay runner, so consumers of the renderer can own and run their own TAI tests against their own declared bindings instead of inventing per-app input-replay machinery.
@@ -53,7 +53,7 @@ Own the renderer's tool-assisted input (TAI) infrastructure: the script format a
 3. this runner only changes when the script format genuinely needs a new input shape or expectation kind — never per-consumer-test
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/controls/` (ActionBindingMap, RawInput)
+- `thaum-renderer/domain/controls/` (ActionBindingMap, RawInput)
 - serde + serde_json (workspace deps)
 
 ## exposed interfaces
@@ -61,7 +61,7 @@ Own the renderer's tool-assisted input (TAI) infrastructure: the script format a
   - describes `TaiScript::parse`, `TaiScript::run`, `TaiInput`, `TaiExpectation`, `TaiRunReport` consumed by consuming-program TAI seams
 
 ## interface consumers
-- `/home/j/Repos/thaum-painter/domain/tai/` (painter-owned individuals, registry, and painter bindings)
+- `thaum-painter/domain/tai/` (painter-owned individuals, registry, and painter bindings)
 - `tai.rs` inline tests
 
 ## artifacts

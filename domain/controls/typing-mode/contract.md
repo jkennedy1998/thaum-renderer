@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/controls/typing-mode
+# thaum-renderer/domain/controls/typing-mode
 
 ## purpose
 Own the renderer-level input-focus gate for typing sessions: while one
@@ -32,7 +32,7 @@ reserved inputs stay live, and everything else is suppressed.
   - `TypingMode`, `TypingRoute`, and the routing decision
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/controls/`
+- `thaum-renderer/domain/controls/`
 
 ## exposed interfaces
 ### typing-mode gate
@@ -43,7 +43,7 @@ effects: none (pure focus state; consumers gate their own dispatch)
 via: `TypingMode::begin`, `route`, `is_active`, `reserved`, `end`
 
 ## interface consumers
-- `/home/j/Repos/thaum-painter/orchestration/entrypoint/` (text tool typing
+- `thaum-painter/orchestration/entrypoint/` (text tool typing
   sessions reserve the camera/depth bindings and suppress everything else)
 - future renderer text-entry surfaces (command bar text input, modal fields)
 

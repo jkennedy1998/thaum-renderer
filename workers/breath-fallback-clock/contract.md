@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/workers/breath-fallback-clock
+# thaum-renderer/workers/breath-fallback-clock
 
 ## purpose
 Own the fallback worker that supplies renderer breath timing when an app does not provide breath on boot.
@@ -20,7 +20,7 @@ Own the fallback worker that supplies renderer breath timing when an app does no
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/data-lanes/`
+- `thaum-renderer/domain/data-lanes/`
 
 ## exposed interfaces
 - fallback breath clock

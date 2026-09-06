@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-group/sparse-storage
+# thaum-renderer/domain/cell-group/sparse-storage
 
 ## purpose
 Own the canonical sparse storage contract used by a cell-group to store its cells efficiently across dense and sparse usage patterns.
@@ -20,8 +20,8 @@ Own the canonical sparse storage contract used by a cell-group to store its cell
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
-- `/home/j/Repos/thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/cell-group/`
+- `thaum-renderer/domain/cell/`
 
 ## exposed interfaces
 - sparse storage shape

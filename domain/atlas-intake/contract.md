@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/atlas-intake
+# thaum-renderer/domain/atlas-intake
 
 ## purpose
 Own the renderer-facing atlas intake seam that turns packed atlas assets into sprite-usable graphic sources with explicit atlas consumption behavior.
@@ -26,15 +26,15 @@ Own the renderer-facing atlas intake seam that turns packed atlas assets into sp
   - rust atlas intake shapes and sprite-atlas loading helpers owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-weight/`
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/sprite/`
+- `thaum-renderer/domain/cell-weight/`
+- `thaum-renderer/domain/cell-graphic/sprite/`
 
 ## exposed interfaces
 - atlas-intake shape
   - describes how atlas pngs are interpreted, tiled, and resolved into sprite-usable source graphics for renderer use
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/sprite/`
+- `thaum-renderer/domain/cell-graphic/sprite/`
 - future renderer implementation surfaces
 
 ## artifacts

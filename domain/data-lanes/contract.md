@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/data-lanes
+# thaum-renderer/domain/data-lanes
 
 ## purpose
 Own the renderer-wide generic data-lane seam used by shaders and other renderer parts without forcing app semantics into the renderer.
@@ -32,11 +32,11 @@ Own the renderer-wide generic data-lane seam used by shaders and other renderer 
 ## exposed interfaces
 - data-lanes shape
   - describes the generic externally fed value channels renderer parts may consume without requiring renderer awareness of app-level semantics
-- `/home/j/Repos/thaum-renderer/interfaces/data-pipelines/contract.md`
+- `thaum-renderer/interfaces/data-pipelines/contract.md`
   - routed renderer-fed data-pipeline interface notes for consumers and proof apps
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/cell-shader/`
 - future renderer implementation surfaces
 - future apps consuming thaum-renderer
 

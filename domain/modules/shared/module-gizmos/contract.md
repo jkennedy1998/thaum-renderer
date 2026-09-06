@@ -1,10 +1,10 @@
-# /home/j/Repos/thaum-renderer/domain/modules/shared/module-gizmos
+# thaum-renderer/domain/modules/shared/module-gizmos
 
 ## purpose
 Own the shared move/close/resize/seamless gizmo bar every module can offer in its top-left corner — the renderer's port of the old mono_ui `module_gizmos.ts`. This is the "gizmo behaviors" piece `domain/modules/shared/contract.md` and `domain/modules/contract.md` had documented as unbuilt.
 
 ## owns
-- the `GizmoKind` enum (`Move`, `Close`, `Resize`, `Seamless`) and its glyph (`#`, `✕`, `╋`, `S`)
+- the `GizmoKind` enum (`Move`, `Close`, `Resize`, `Seamless`) and its glyph (`#`, `X`, `╋`, `S`)
 - the `GizmoBar` type: which gizmos a module offers, their fixed top-left layout (one cell in from the left corner, two cells apart), drawing them as `Cell`s, and hit-testing a click against them
 - the `GizmoState` type: per-module move/resize/seamless toggle state, hover state, and the pointer-capture drag session (origin, original rect, live `drag_rect`) that lets a module reposition or resize itself as the pointer moves
 - the `GizmoClickOutcome`/`ResizeEdge` types describing what a click into the gizmo interaction area resolved to
@@ -26,16 +26,16 @@ Own the shared move/close/resize/seamless gizmo bar every module can offer in it
   - `GizmoKind`, `GizmoBar`, `GizmoState`, `GizmoClickOutcome`, `ResizeEdge`, and their inline tests
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/modules/`
-- `/home/j/Repos/thaum-renderer/domain/modules/shared/ui-palette/`
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/`
+- `thaum-renderer/domain/modules/`
+- `thaum-renderer/domain/modules/shared/ui-palette/`
+- `thaum-renderer/domain/cell-graphic/`
 
 ## exposed interfaces
 - `GizmoBar::new(kinds)` / `title_start_x()` / `cells(rect, state, palette)` / `hit_test(rect, x, y)`
 - `GizmoState::new()` / `is_seamless()` / `is_hovered()` / `set_hovered(bool)` / `should_draw_gizmo_bar()` / `wants_pointer_capture()` / `handle_click(bar, rect, x, y) -> Option<GizmoClickOutcome>` / `drag_rect(x, y)` / `end_drag()`
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/modules/individuals/color-picker/`
+- `thaum-renderer/domain/modules/individuals/color-picker/`
 - future gizmo-enabled modules in `domain/modules/individuals/` and consuming programs' own `domain/modules/individuals/`
 
 ## artifacts

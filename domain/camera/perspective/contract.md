@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/camera/perspective
+# thaum-renderer/domain/camera/perspective
 
 ## purpose
 Own the depth-to-screen perspective shaping math: how one depth unit maps to

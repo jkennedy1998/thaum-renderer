@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/camera/view-orientation
+# thaum-renderer/domain/camera/view-orientation
 
 ## purpose
 Own the orientation truth of the renderer camera view.
@@ -23,15 +23,16 @@ Own the orientation truth of the renderer camera view.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/camera/`
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/global-directions/`
+- `thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/coordinate-space/global-directions/`
 
 ## exposed interfaces
 - camera view-orientation shape
   - describes the orientation state used by the renderer camera to interpret the world
+- `world_depth_along_direction(point, direction)` — signed world coordinate of a point along a direction's axis, honoring the direction sign; the depth read behind `Camera::focus_depth`
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/camera/`
 - future renderer implementation surfaces
 
 ## artifacts

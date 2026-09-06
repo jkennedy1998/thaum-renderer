@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/orchestration/asset-root
+# thaum-renderer/orchestration/asset-root
 
 ## purpose
 Own the boot-time asset-root seam that lets a consuming program point thaum-renderer at one chosen renderer-assets location without forcing broader app folder organization.
@@ -23,14 +23,14 @@ Own the boot-time asset-root seam that lets a consuming program point thaum-rend
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/orchestration/`
+- `thaum-renderer/orchestration/`
 
 ## exposed interfaces
 - asset-root shape
   - describes the single boot-provided root path the renderer uses to resolve expected renderer asset folders
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/orchestration/boot/`
+- `thaum-renderer/orchestration/boot/`
 - future renderer implementation surfaces
 - future apps consuming thaum-renderer
 

@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/camera/projection
+# thaum-renderer/domain/camera/projection
 
 ## purpose
 Own camera projection semantics for renderer viewing.
@@ -24,16 +24,16 @@ Own camera projection semantics for renderer viewing.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/camera/`
-- `/home/j/Repos/thaum-renderer/domain/camera/view-orientation/`
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/global-directions/`
+- `thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/camera/view-orientation/`
+- `thaum-renderer/domain/coordinate-space/global-directions/`
 
 ## exposed interfaces
 - camera projection shape
   - describes the projection semantics owned by the renderer camera
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/camera/`
 - future renderer implementation surfaces
 
 ## artifacts

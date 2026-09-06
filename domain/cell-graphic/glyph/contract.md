@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-graphic/glyph
+# thaum-renderer/domain/cell-graphic/glyph
 
 ## purpose
 Own glyph-based cell graphics rendered as thaum mono characters or equivalent mono source graphics.
@@ -24,16 +24,16 @@ Own glyph-based cell graphics rendered as thaum mono characters or equivalent mo
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/`
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
-- `/home/j/Repos/thaum-renderer/domain/cell-materials/`
+- `thaum-renderer/domain/cell-graphic/`
+- `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-materials/`
 
 ## exposed interfaces
 - glyph graphic shape
   - describes a glyph-sized cell graphic rendered through the thaum mono typegrid while staying compatible with shared renderer color and material resolution
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/`
+- `thaum-renderer/domain/cell-graphic/`
 - future renderer implementation surfaces
 
 ## artifacts

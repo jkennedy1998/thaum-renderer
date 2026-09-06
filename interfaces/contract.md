@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/interfaces
+# thaum-renderer/interfaces
 
 ## purpose
 Route repo-level exposed interfaces in one place so consumers can see the intended intake surface without confusing those interfaces with app-owned keybinding policy.
@@ -27,8 +27,8 @@ Route repo-level exposed interfaces in one place so consumers can see the intend
   - routed renderer-fed data interfaces
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/camera/`
-- `/home/j/Repos/thaum-renderer/domain/data-lanes/`
+- `thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/data-lanes/`
 
 ## exposed interfaces
 - `camera/contract.md`
@@ -37,7 +37,7 @@ Route repo-level exposed interfaces in one place so consumers can see the intend
   - renderer data-lane intake routing for consumers and proof apps
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer-test-user/`
+- `thaum-renderer-test-user/`
 - future renderer consumers
 
 ## artifacts

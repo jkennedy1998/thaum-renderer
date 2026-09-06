@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/post-effects/texture
+# thaum-renderer/domain/post-effects/texture
 
 ## purpose
 Own the texture post effect that interprets texture codes from the post-effect bus and turns them into fine surface activity in screen-space.
@@ -22,15 +22,15 @@ Own the texture post effect that interprets texture codes from the post-effect b
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/post-effects/`
-- `/home/j/Repos/thaum-renderer/domain/cell-texture/`
+- `thaum-renderer/domain/post-effects/`
+- `thaum-renderer/domain/cell-texture/`
 
 ## exposed interfaces
 - texture post effect
   - describes the screen-space pass that reads texture bus codes and applies fine texture behavior to the composed image
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/post-effects/`
+- `thaum-renderer/domain/post-effects/`
 - future renderer implementation surfaces
 
 ## artifacts

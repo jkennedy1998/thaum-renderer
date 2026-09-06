@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/interfaces/data-pipelines
+# thaum-renderer/interfaces/data-pipelines
 
 ## purpose
 Route the renderer-fed data intake surface in one place so consumers can see what dynamic values the renderer may accept.
@@ -20,7 +20,7 @@ Route the renderer-fed data intake surface in one place so consumers can see wha
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/data-lanes/`
+- `thaum-renderer/domain/data-lanes/`
 
 ## exposed interfaces
 - time lane `breath`
@@ -31,7 +31,7 @@ Route the renderer-fed data intake surface in one place so consumers can see wha
   - `4 existing generic lanes`
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/cell-shader/`
 - future renderer consumers
 
 ## artifacts

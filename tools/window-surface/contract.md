@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/tools/window-surface
+# thaum-renderer/tools/window-surface
 
 ## purpose
 Own reusable helper seams for creating and managing the real graphics window and GPU presentation surface consumed by thaum-renderer.
@@ -24,7 +24,7 @@ Own reusable helper seams for creating and managing the real graphics window and
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/tools/`
+- `thaum-renderer/tools/`
 
 ## exposed interfaces
 - window-surface helpers

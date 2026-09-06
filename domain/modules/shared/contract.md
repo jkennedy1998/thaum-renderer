@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/modules/shared
+# thaum-renderer/domain/modules/shared
 
 ## purpose
 Own the shared implementation logic that every individual module builds on: gizmo behaviors, base chrome, and any registry/hit-test helpers that grow beyond `domain/modules/module.rs`'s v1 scope.
@@ -30,9 +30,9 @@ Own the shared implementation logic that every individual module builds on: gizm
   - shared contract
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/modules/`
-- `/home/j/Repos/thaum-renderer/domain/controls/`
-- `/home/j/Repos/thaum-renderer/domain/camera/screen-world-remap/`
+- `thaum-renderer/domain/modules/`
+- `thaum-renderer/domain/controls/`
+- `thaum-renderer/domain/camera/screen-world-remap/`
 
 ## exposed interfaces
 - `UiPalette`/`UiColorRole`, described in `ui-palette/contract.md`
@@ -41,7 +41,7 @@ Own the shared implementation logic that every individual module builds on: gizm
 - `ScrollState`, described in `scroll-state/contract.md`
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/modules/individuals/`
+- `thaum-renderer/domain/modules/individuals/`
 - `thaum-painter/domain/modules/individuals/`
 - future game/other-program consumers
 

@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/modules/individuals
+# thaum-renderer/domain/modules/individuals
 
 ## purpose
 Own the concrete modules shipped directly by thaum-renderer, reserved for modules generic enough that every consumer benefits from one shared implementation rather than each program rebuilding its own.
@@ -24,8 +24,8 @@ Own the concrete modules shipped directly by thaum-renderer, reserved for module
   - individuals contract
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/modules/`
-- `/home/j/Repos/thaum-renderer/domain/modules/shared/`
+- `thaum-renderer/domain/modules/`
+- `thaum-renderer/domain/modules/shared/`
 
 ## exposed interfaces
 - `CameraPerspectiveModule`, described in `camera-perspective/contract.md`

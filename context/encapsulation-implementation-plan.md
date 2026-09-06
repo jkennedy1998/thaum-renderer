@@ -8,7 +8,7 @@ Thaum-renderer already has the contract scaffolding. This plan is for implementa
 - `[#]` tested
 
 ## Phase 1 — repo runtime shell
-- [+] add a Cargo workspace at `/home/j/Repos/thaum-renderer/`
+- [+] add a Cargo workspace at `thaum-renderer/`
 - [+] add only the minimum Rust crate/module layout needed to host the renderer runtime and one bootable test consumer
 - [+] keep code layout mapped to the existing repo ownership shape rather than inventing a parallel runtime tree
 - [#] add Linux-first build and run command(s)
@@ -32,7 +32,7 @@ Thaum-renderer already has the contract scaffolding. This plan is for implementa
 
 ## Phase 4 — `tests/` and external consumer proofing
 - [+] keep renderer-local `tests/` for proof checks rather than a second app launcher
-- [+] use `/home/j/Repos/thaum-renderer-test-user/` as the main manual validation surface
+- [+] use `thaum-renderer-test-user/` as the main manual validation surface
 - [+] add one deterministic first scene for visual validation in the external consumer
 - [#] use that consumer to prove real-window bring-up on Linux
 - [#] prove a first deterministic proof primitive can be drawn in a known place
@@ -172,11 +172,11 @@ Thaum-renderer already has the contract scaffolding. This plan is for implementa
   - `orchestration/boot/` launches the window seam through a lean boot config and can project renderer-owned cell/composition scenes into surface quads
   - `domain/` now carries a first explicit runtime slot shape for `cell-weight`, `cell-color`, `cell-materials`, glyph-backed `cell-graphic`, and shader-driven `cell-texture`
   - the first glyph proof path now rasterizes simple binary glyph masks into per-pixel subquads, with transparent background behavior, fixed-amplitude texture shimmer support, and default medium-light material resolution for glyph pixels
-  - `/home/j/Repos/thaum-renderer-test-user/` remains the canonical manual validation launcher and now submits flat-color and grayscale-material glyph proof cells through composition instead of the old ad hoc proof primitive
+  - `thaum-renderer-test-user/` remains the canonical manual validation launcher and now submits flat-color and grayscale-material glyph proof cells through composition instead of the old ad hoc proof primitive
 - tests run:
   - `source ~/.cargo/env && cargo check --workspace`
   - `source ~/.cargo/env && cargo test --workspace`
-  - `source ~/.cargo/env && cd /home/j/Repos/thaum-renderer-test-user && cargo build --release`
+  - `source ~/.cargo/env && cd thaum-renderer-test-user && cargo build --release`
 - dirty/uncommitted follow-up still expected before git:
   - replace the inline proof glyph masks with a fuller glyph-source intake path aligned with thaum mono expectations
   - wire live glyph decode against the staged repo-local asset root

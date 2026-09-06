@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-group/transform
+# thaum-renderer/domain/cell-group/transform
 
 ## purpose
 Own the transform truth of a cell-group over renderer global space.
@@ -22,16 +22,16 @@ Own the transform truth of a cell-group over renderer global space.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
+- `thaum-renderer/domain/cell-group/`
+- `thaum-renderer/domain/coordinate-space/`
 
 ## exposed interfaces
 - cell-group transform shape
   - describes how a cell-group is positioned and oriented in renderer global space
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
-- `/home/j/Repos/thaum-renderer/domain/composition/`
+- `thaum-renderer/domain/cell-group/`
+- `thaum-renderer/domain/composition/`
 - future renderer implementation surfaces
 
 ## artifacts

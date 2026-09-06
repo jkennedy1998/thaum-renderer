@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-texture
+# thaum-renderer/domain/cell-texture
 
 ## purpose
 Own the renderer-facing per-cell texture slot language authored on cells and transferred into post effects.
@@ -25,17 +25,17 @@ Own the renderer-facing per-cell texture slot language authored on cells and tra
   - rust cell-texture value shape owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell/`
-- `/home/j/Repos/thaum-renderer/domain/post-effects/`
+- `thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/post-effects/`
 
 ## exposed interfaces
 - cell-texture shape
   - describes the authored per-cell texture signal as a single byte code carried by a cell and later packed into the post-effect bus
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell/`
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
-- `/home/j/Repos/thaum-renderer/domain/post-effects/texture/`
+- `thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/post-effects/texture/`
 - future renderer implementation surfaces
 
 ## artifacts

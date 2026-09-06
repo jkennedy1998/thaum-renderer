@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/camera
+# thaum-renderer/domain/camera
 
 ## purpose
 Own the renderer's camera: view orientation (swing/roll), projection to the
@@ -7,11 +7,13 @@ applied while projecting.
 
 ## owns
 - the `Camera` state: position, focus target, swing, roll, projection mode,
-  perspective profile, visible-plane radius/offset, zoom, HUD pan offset
+  perspective profile, parallax profile, visible-plane radius/offset, zoom,
+  HUD pan offset
 - projection of world points to view-plane (u, v, plane) coordinates and the
   inverse, for both rotating-3d and flat-2d intake behaviors
 - visible-plane stack derivation around the focus plane
 - depth-to-screen perspective shaping via `perspective/`
+- mouse-driven view parallax via `parallax/`
 - camera swing/roll transitions between orientations
 
 ## does not own
@@ -23,6 +25,8 @@ applied while projecting.
 - UI panels that edit camera settings (renderer modules, opt-in per app)
 
 ## children-encapsulations
+- `parallax/`
+  - mouse parallax toggle/strength and the per-depth screen shift
 - `perspective/`
   - `PerspectiveProfile` knobs and the depth-to-scale/position math
 - `projection/`

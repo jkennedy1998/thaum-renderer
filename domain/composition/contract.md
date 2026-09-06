@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/composition
+# thaum-renderer/domain/composition
 
 ## purpose
 Own the general composition pipeline of how cell-groups are combined over the shared renderer coordinate space.
@@ -27,15 +27,15 @@ Own the general composition pipeline of how cell-groups are combined over the sh
   - rust composition flow and composed-cell reduction helpers owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
+- `thaum-renderer/domain/cell-group/`
+- `thaum-renderer/domain/coordinate-space/`
 
 ## exposed interfaces
 - composition flow
   - describes how cell-groups are placed onto shared space and reduced into one renderer output
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/`
+- `thaum-renderer/`
 - future renderer implementation surfaces
 
 ## artifacts

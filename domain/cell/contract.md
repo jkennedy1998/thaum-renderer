@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell
+# thaum-renderer/domain/cell
 
 ## purpose
 Own the atomic renderer cell shape as the pixel-like unit of thaum renderer.
@@ -24,12 +24,12 @@ Own the atomic renderer cell shape as the pixel-like unit of thaum renderer.
   - rust cell slot shape and default behavior owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-weight/`
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/`
-- `/home/j/Repos/thaum-renderer/domain/cell-texture/`
-- `/home/j/Repos/thaum-renderer/domain/cell-warble/`
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/cell-weight/`
+- `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-graphic/`
+- `thaum-renderer/domain/cell-texture/`
+- `thaum-renderer/domain/cell-warble/`
+- `thaum-renderer/domain/cell-shader/`
 
 ## exposed interfaces
 - cell shape
@@ -37,8 +37,8 @@ Own the atomic renderer cell shape as the pixel-like unit of thaum renderer.
   - expected to carry only its own local cell truth rather than group-level spatial rules
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
-- `/home/j/Repos/thaum-renderer/`
+- `thaum-renderer/domain/cell-group/`
+- `thaum-renderer/`
 - future renderer implementation surfaces
 
 ## artifacts

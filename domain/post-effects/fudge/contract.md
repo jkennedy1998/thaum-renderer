@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/post-effects/fudge
+# thaum-renderer/domain/post-effects/fudge
 
 ## purpose
 Own the renderer's fudge post-effect as the large coherent distortion pass applied to the fully composed image.
@@ -22,15 +22,15 @@ Own the renderer's fudge post-effect as the large coherent distortion pass appli
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/post-effects/`
-- `/home/j/Repos/thaum-renderer/domain/composition/`
+- `thaum-renderer/domain/post-effects/`
+- `thaum-renderer/domain/composition/`
 
 ## exposed interfaces
 - fudge post-effect
   - describes the full-frame distortion pass used for large coherent image drift, smear, or similar screen-space motion language
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/`
+- `thaum-renderer/`
 - future renderer implementation surfaces
 - future apps consuming thaum-renderer
 

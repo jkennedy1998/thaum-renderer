@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-graphic
+# thaum-renderer/domain/cell-graphic
 
 ## purpose
 Own the renderer cell-graphic slot as the canonical graphic input consumed by a cell.
@@ -28,9 +28,9 @@ Own the renderer cell-graphic slot as the canonical graphic input consumed by a 
   - rust cell-graphic slot shapes for glyph and sprite-backed cells owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/atlas-intake/`
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
-- `/home/j/Repos/thaum-renderer/domain/cell-materials/`
+- `thaum-renderer/domain/atlas-intake/`
+- `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-materials/`
 
 ## exposed interfaces
 - cell-graphic slot
@@ -38,8 +38,8 @@ Own the renderer cell-graphic slot as the canonical graphic input consumed by a 
   - expected to keep graphic mode differences behind one stable renderer-facing cell slot and one shared color or material resolution seam
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell/`
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/cell-shader/`
 - future renderer implementation surfaces
 
 ## artifacts

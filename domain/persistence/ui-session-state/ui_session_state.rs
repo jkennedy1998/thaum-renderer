@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Camera, CameraProjectionMode, CameraRoll, CameraSwing, CellPoint, ModuleRect,
-    PerspectiveProfile, UiColorRole,
+    ParallaxProfile, PerspectiveProfile, UiColorRole,
     UiPalette, WorldPoint,
 };
 
@@ -78,6 +78,10 @@ pub struct PersistedCameraUiState {
     pub perspective_position_strength: f32,
     #[serde(default = "default_perspective_near_floor_fraction")]
     pub perspective_near_floor_fraction: f32,
+    #[serde(default)]
+    pub parallax_enabled: bool,
+    #[serde(default = "default_parallax_strength")]
+    pub parallax_strength: f32,
 }
 
 fn default_perspective_scale_strength() -> f32 {
@@ -90,6 +94,10 @@ fn default_perspective_position_strength() -> f32 {
 
 fn default_perspective_near_floor_fraction() -> f32 {
     PerspectiveProfile::default().near_floor_fraction
+}
+
+fn default_parallax_strength() -> f32 {
+    ParallaxProfile::default().strength
 }
 
 impl PersistedCameraUiState {
@@ -111,6 +119,8 @@ impl PersistedCameraUiState {
             perspective_scale_strength: camera.perspective.scale_strength,
             perspective_position_strength: camera.perspective.position_strength,
             perspective_near_floor_fraction: camera.perspective.near_floor_fraction,
+            parallax_enabled: camera.parallax.enabled,
+            parallax_strength: camera.parallax.strength,
         }
     }
 
@@ -146,6 +156,11 @@ impl PersistedCameraUiState {
             scale_strength: self.perspective_scale_strength,
             position_strength: self.perspective_position_strength,
             near_floor_fraction: self.perspective_near_floor_fraction,
+        };
+        camera.parallax = ParallaxProfile {
+            enabled: self.parallax_enabled,
+            strength: self.parallax_strength,
+            offset: [0.0, 0.0],
         };
     }
 }

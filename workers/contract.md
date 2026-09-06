@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/workers
+# thaum-renderer/workers
 
 ## purpose
 Own optional worker-shaped runtime support seams for thaum-renderer when background watching or fallback ticking is needed.
@@ -22,7 +22,7 @@ Own optional worker-shaped runtime support seams for thaum-renderer when backgro
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/`
+- `thaum-renderer/`
 
 ## exposed interfaces
 - none

@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/post-effects/bloom
+# thaum-renderer/domain/post-effects/bloom
 
 ## purpose
 Own the renderer bloom post effect as a full-frame glow-style pass over the composed image.
@@ -19,7 +19,7 @@ Own the renderer bloom post effect as a full-frame glow-style pass over the comp
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/post-effects/`
+- `thaum-renderer/domain/post-effects/`
 
 ## exposed interfaces
 - bloom effect shape

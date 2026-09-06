@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/modules/individuals/color-block
+# thaum-renderer/domain/modules/individuals/color-block
 
 ## purpose
 Own a generic color-block picker: a renderer-owned floating module that exposes a hue-driven field plus slider for choosing one RGB color, with optional indexed-palette banding when a consumer wants branded colors instead of arbitrary continuous RGB.
@@ -17,7 +17,7 @@ Own a generic color-block picker: a renderer-owned floating module that exposes 
 ## does not own
 - painter hand state or left/right assignment semantics
 - which indexed palette a consumer wants to use; the consumer passes that palette in
-- renderer material definitions, owned by `/home/j/Repos/thaum-renderer/domain/cell-materials/`
+- renderer material definitions, owned by `thaum-renderer/domain/cell-materials/`
 
 ## children-encapsulations
 - none
@@ -27,8 +27,8 @@ Own a generic color-block picker: a renderer-owned floating module that exposes 
   - `ColorBlockModule` and HSV picker behavior
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/modules/`
-- `/home/j/Repos/thaum-renderer/domain/modules/shared/`
+- `thaum-renderer/domain/modules/`
+- `thaum-renderer/domain/modules/shared/`
 
 ## exposed interfaces
 - `ColorBlockModule::new(id, rect, palette)`

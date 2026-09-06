@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/composition/pass-order
+# thaum-renderer/domain/composition/pass-order
 
 ## purpose
 Own explicit pass ordering for renderer composition.
@@ -19,14 +19,14 @@ Own explicit pass ordering for renderer composition.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/composition/`
+- `thaum-renderer/domain/composition/`
 
 ## exposed interfaces
 - pass-order shape
   - describes the explicit ordered composition stages used when reducing renderer content
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/composition/`
+- `thaum-renderer/domain/composition/`
 - future renderer implementation surfaces
 
 ## artifacts

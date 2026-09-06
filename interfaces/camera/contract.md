@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/interfaces/camera
+# thaum-renderer/interfaces/camera
 
 ## purpose
 Route the consumer-facing camera-control surface exposed by thaum-renderer without making the renderer itself the owner of keyboard policy.
@@ -22,7 +22,7 @@ Route the consumer-facing camera-control surface exposed by thaum-renderer witho
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/camera/`
 
 ## exposed interfaces
 - camera target forward relative depth `+1`
@@ -43,7 +43,7 @@ Route the consumer-facing camera-control surface exposed by thaum-renderer witho
 - cull nudge outwards depth distance
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer-test-user/`
+- `thaum-renderer-test-user/`
 - future renderer consumers
 
 ## artifacts
@@ -57,7 +57,7 @@ Route the consumer-facing camera-control surface exposed by thaum-renderer witho
 
 ## notes
 - renderer owns the camera state and the callable movement/view operations, not the keys
-- current proof-app mapping in `/home/j/Repos/thaum-renderer-test-user/` is:
+- current proof-app mapping in `thaum-renderer-test-user/` is:
   - camera target forward relative depth `+1`: `E`
   - camera target forward relative depth `-1`: `Q`
   - camera target up relative `+1`: `W`

@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-group/local-coordinate-space
+# thaum-renderer/domain/cell-group/local-coordinate-space
 
 ## purpose
 Own the local coordinate space used inside a cell-group.
@@ -20,15 +20,15 @@ Own the local coordinate space used inside a cell-group.
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
+- `thaum-renderer/domain/cell-group/`
+- `thaum-renderer/domain/coordinate-space/`
 
 ## exposed interfaces
 - local coordinate space shape
   - describes the local spatial frame used by cells within a cell-group before composition into renderer global space
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
+- `thaum-renderer/domain/cell-group/`
 - future renderer implementation surfaces
 
 ## artifacts

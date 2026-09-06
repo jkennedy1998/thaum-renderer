@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-graphic/sprite
+# thaum-renderer/domain/cell-graphic/sprite
 
 ## purpose
 Own sprite-based cell graphics rendered at the same unit size and final resolution shape as glyph graphics.
@@ -23,18 +23,18 @@ Own sprite-based cell graphics rendered at the same unit size and final resoluti
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/`
-- `/home/j/Repos/thaum-renderer/domain/atlas-intake/`
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
-- `/home/j/Repos/thaum-renderer/domain/cell-materials/`
-- `/home/j/Repos/thaum-renderer/domain/cell-weight/`
+- `thaum-renderer/domain/cell-graphic/`
+- `thaum-renderer/domain/atlas-intake/`
+- `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-materials/`
+- `thaum-renderer/domain/cell-weight/`
 
 ## exposed interfaces
 - sprite graphic shape
   - describes a sprite-backed cell graphic that fits the same renderer unit boundary as a glyph and resolves through shared renderer color and weight seams
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/`
+- `thaum-renderer/domain/cell-graphic/`
 - future renderer implementation surfaces
 
 ## artifacts

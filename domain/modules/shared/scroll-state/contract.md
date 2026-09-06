@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/modules/shared/scroll-state
+# thaum-renderer/domain/modules/shared/scroll-state
 
 ## purpose
 Own the shared row-scroll state primitive for scrollable module panels: row offset, max offset, wheel stepping, and edge clamping, plus the pinned-region viewport math that lets a panel hold header/footer blocks still while the middle scrolls.

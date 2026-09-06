@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/modules/individuals/color-picker
+# thaum-renderer/domain/modules/individuals/color-picker
 
 ## purpose
 Own a generic indexed-color picker: every color in one renderer-facing indexed palette drawn as one clickable swatch, selecting one on click. The renderer-owned equivalent of the old mono_ui `color_selector_module.ts`'s indexed swatch grid, minus its painter-specific material/appearance-slot rows.
@@ -27,11 +27,11 @@ Own a generic indexed-color picker: every color in one renderer-facing indexed p
   - `ColorPickerModule` and its `Module` trait implementation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/modules/`
-- `/home/j/Repos/thaum-renderer/domain/modules/shared/ui-palette/`
-- `/home/j/Repos/thaum-renderer/domain/modules/shared/panel-chrome/`
-- `/home/j/Repos/thaum-renderer/domain/modules/shared/module-gizmos/`
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/sprite/sprite-color-space/`
+- `thaum-renderer/domain/modules/`
+- `thaum-renderer/domain/modules/shared/ui-palette/`
+- `thaum-renderer/domain/modules/shared/panel-chrome/`
+- `thaum-renderer/domain/modules/shared/module-gizmos/`
+- `thaum-renderer/domain/cell-graphic/sprite/sprite-color-space/`
 
 ## exposed interfaces
 - `ColorPickerModule::new(id, rect, palette)` — construct a picker over the renderer's default canonical palette with the standard move/close/resize/seamless gizmo bar; `rect` must be at least 16 cells wide by 8 tall to fit the gizmo bar and full "COLORS" title on the same top border row, and to fit every swatch without the list overflowing its own content height at that default width

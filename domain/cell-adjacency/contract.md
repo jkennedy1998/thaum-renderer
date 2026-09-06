@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-adjacency
+# thaum-renderer/domain/cell-adjacency
 
 ## purpose
 Own the rendering-only adjacency shape consumed by shaders and other renderer-facing cell systems.
@@ -23,14 +23,14 @@ Own the rendering-only adjacency shape consumed by shaders and other renderer-fa
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/cell/`
 
 ## exposed interfaces
 - cell adjacency shape
   - describes the lightweight rendering-focused neighboring-cell data made available to renderer consumers like shaders
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/cell-shader/`
 - future renderer implementation surfaces
 
 ## artifacts

@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/modules
+# thaum-renderer/domain/modules
 
 ## purpose
 Own the renderer's interactive UI-panel format: "module" means exactly one thing across the whole ecosystem — one grouped, bounded element meant to convey one piece of information or one interaction surface to the user (a color picker, a floating toolbar, one menu panel).
@@ -29,9 +29,9 @@ Own the renderer's interactive UI-panel format: "module" means exactly one thing
   - rust `Module` shape and registry, owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-group/`
-- `/home/j/Repos/thaum-renderer/domain/camera/screen-world-remap/`
-- `/home/j/Repos/thaum-renderer/domain/controls/`
+- `thaum-renderer/domain/cell-group/`
+- `thaum-renderer/domain/camera/screen-world-remap/`
+- `thaum-renderer/domain/controls/`
 
 ## exposed interfaces
 - module shape

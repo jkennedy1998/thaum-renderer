@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-graphic/sprite/sprite-color-space
+# thaum-renderer/domain/cell-graphic/sprite/sprite-color-space
 
 ## purpose
 Own the renderer sprite color-space contract used to decode sprite pixels into shared renderer color/material resolution inputs.
@@ -27,10 +27,10 @@ Own the renderer sprite color-space contract used to decode sprite pixels into s
   - rust sprite color-space decode and canonical palette helpers owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/sprite/`
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
-- `/home/j/Repos/thaum-renderer/domain/cell-materials/`
-- `/home/j/Repos/thaum-renderer/tools/color/`
+- `thaum-renderer/domain/cell-graphic/sprite/`
+- `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-materials/`
+- `thaum-renderer/tools/color/`
 
 ## exposed interfaces
 - sprite color-space shape
@@ -39,8 +39,8 @@ Own the renderer sprite color-space contract used to decode sprite pixels into s
   - describes the per-sprite declared color collection used for nearest-color matching and decode
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/sprite/`
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-graphic/sprite/`
+- `thaum-renderer/domain/cell-color/`
 - future renderer implementation surfaces
 
 ## artifacts

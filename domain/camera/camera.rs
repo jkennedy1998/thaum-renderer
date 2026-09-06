@@ -1,3 +1,5 @@
+#[path = "parallax/parallax.rs"]
+pub mod parallax;
 #[path = "perspective/perspective.rs"]
 pub mod perspective;
 #[path = "projection/projection.rs"]
@@ -12,6 +14,7 @@ pub mod swing;
 pub mod view_orientation;
 
 use crate::{coordinate_space::CellPoint, coordinate_space::WorldPoint, GlobalDirection};
+pub use parallax::{parallax_screen_offset, ParallaxProfile};
 pub use perspective::{
     depth_position_spread, depth_scale_factor, eased_signed_depth_units,
     PerspectiveProfile,
@@ -34,8 +37,8 @@ pub use swing::CameraSwing;
 pub use view_orientation::{
     active_depth_axis_for_swing, active_depth_direction_for_swing,
     camera_view_orientation_for_camera, camera_view_orientation_for_swing,
-    project_world_relative_to_view, unproject_view_relative_to_world, CameraViewOrientation,
-    ViewRelativePoint,
+    project_world_relative_to_view, unproject_view_relative_to_world,
+    world_depth_along_direction, CameraViewOrientation, ViewRelativePoint,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -48,6 +51,9 @@ pub struct Camera {
     /// User-tunable perspective shaping (scale/position strengths and the
     /// near-camera floor). Default reproduces the historical look exactly.
     pub perspective: PerspectiveProfile,
+    /// User-tunable mouse parallax (toggle + strength; the pointer offset is
+    /// host-fed each frame). Default is disabled so the look is unchanged.
+    pub parallax: ParallaxProfile,
     pub visible_plane_radius: i32,
     pub visible_plane_depth_offset: i32,
     pub zoom: f32,
@@ -67,6 +73,7 @@ impl Default for Camera {
             roll: CameraRoll::default(),
             projection_mode: CameraProjectionMode::Perspective,
             perspective: PerspectiveProfile::default(),
+            parallax: ParallaxProfile::default(),
             visible_plane_radius: 8,
             visible_plane_depth_offset: 0,
             zoom: 1.0,
@@ -162,6 +169,16 @@ impl Camera {
     /// Pans `focus_target` along the active depth axis (into/out of the screen).
     pub fn pan_focus_depth(&mut self, delta: i32) {
         self.step_focus_target(active_depth_direction_for_swing(self.swing), delta);
+    }
+
+    /// Signed depth of the focus target along the active depth axis — the
+    /// user-facing "render depth" the wheel and the perspective panel's
+    /// depth row edit. Follows the swing, exactly like `pan_focus_depth`.
+    pub fn focus_depth(&self) -> i32 {
+        world_depth_along_direction(
+            self.focus_target,
+            active_depth_direction_for_swing(self.swing),
+        )
     }
 
     fn step_focus_target(&mut self, direction: GlobalDirection, delta: i32) {

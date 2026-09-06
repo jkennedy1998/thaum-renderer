@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/orchestration/boot
+# thaum-renderer/orchestration/boot
 
 ## purpose
 Own the minimal boot seam for standing up thaum-renderer usage when a reusable renderer boot handoff is useful.
@@ -25,18 +25,18 @@ Own the minimal boot seam for standing up thaum-renderer usage when a reusable r
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/orchestration/`
-- `/home/j/Repos/thaum-renderer/orchestration/asset-root/`
-- `/home/j/Repos/thaum-renderer/domain/`
-- `/home/j/Repos/thaum-renderer/tools/window-surface/`
-- `/home/j/Repos/thaum-renderer/workers/asset-hot-reload/` when used
+- `thaum-renderer/orchestration/`
+- `thaum-renderer/orchestration/asset-root/`
+- `thaum-renderer/domain/`
+- `thaum-renderer/tools/window-surface/`
+- `thaum-renderer/workers/asset-hot-reload/` when used
 
 ## exposed interfaces
 - boot shape
   - describes the minimum startup seam required to prepare renderer usage
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/orchestration/`
+- `thaum-renderer/orchestration/`
 - future renderer implementation surfaces
 - future apps consuming thaum-renderer
 

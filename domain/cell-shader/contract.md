@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-shader
+# thaum-renderer/domain/cell-shader
 
 ## purpose
 Own the renderer cell-shader slot as the additive per-cell effector channel consumed by a cell.
@@ -39,14 +39,14 @@ Own the renderer cell-shader slot as the additive per-cell effector channel cons
   - rust shader-stack constants and shaded slot resolution helpers owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell/`
-- `/home/j/Repos/thaum-renderer/domain/cell-adjacency/`
-- `/home/j/Repos/thaum-renderer/domain/cell-color/`
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/`
-- `/home/j/Repos/thaum-renderer/domain/cell-texture/`
-- `/home/j/Repos/thaum-renderer/domain/cell-warble/`
-- `/home/j/Repos/thaum-renderer/domain/cell-weight/`
-- `/home/j/Repos/thaum-renderer/domain/data-lanes/`
+- `thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/cell-adjacency/`
+- `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-graphic/`
+- `thaum-renderer/domain/cell-texture/`
+- `thaum-renderer/domain/cell-warble/`
+- `thaum-renderer/domain/cell-weight/`
+- `thaum-renderer/domain/data-lanes/`
 
 ## exposed interfaces
 - cell-shader slot
@@ -55,7 +55,7 @@ Own the renderer cell-shader slot as the additive per-cell effector channel cons
   - describes an explicitly ordered array-like shader sequence, currently expected to map shader ints to shader definitions for fast consumption
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/cell/`
 - future renderer implementation surfaces
 - future apps consuming thaum-renderer
 

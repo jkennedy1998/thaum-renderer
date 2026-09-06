@@ -1,11 +1,11 @@
-use std::cell::RefCell;
+use std::cell::{Cell as StdCell, RefCell};
 use std::rc::Rc;
 
 use crate::{
     Cell, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
     GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerButton,
-    ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, PropertyRows,
-    UiColorRole, UiPalette, WorldPoint,
+    ModulePointerEvent, ModuleRect, PanelChrome, ParallaxProfile, PersistedModuleUiState,
+    PropertyRows, UiColorRole, UiPalette, WorldPoint,
 };
 use crate::PerspectiveProfile;
 
@@ -43,7 +43,114 @@ const FLOOR_KNOB: Knob = Knob {
     max: 0.5,
 };
 
-const KNOB_COUNT: usize = 3;
+/// Strength slider for mouse parallax. Kept small on purpose: parallax is a
+/// slight drift, not a camera pan.
+const PARALLAX_STRENGTH_KNOB: Knob = Knob {
+    label: "str",
+    presets: &[0.0, 0.05, 0.15, 0.25, 0.4, 0.5],
+    wheel_step: 0.01,
+    min: 0.0,
+    max: ParallaxProfile::MAX_STRENGTH,
+};
+
+/// Rows below the perspective knobs: the parallax toggle, then the strength
+/// slider. Both edit the shared [`ParallaxProfile`], not the perspective.
+const PARALLAX_TOGGLE_ROW: usize = 3;
+const PARALLAX_STRENGTH_ROW: usize = 4;
+/// Depth row: the camera's render depth (focus-plane center). Wheel scrolls
+/// the focus depth through the host-owned camera; click re-centers it at 0.
+const DEPTH_ROW: usize = 5;
+/// Bottom row: the camera's rendered-layer count (`visible_plane_radius` —
+/// how many depth planes render on each side of the focus plane). Wheel
+/// steps it through the host-owned camera; click cycles the presets.
+pub const MAX_VISIBLE_PLANE_RADIUS: i32 = 512;
+const LAYERS_ROW: usize = 6;
+const LAYERS_PRESETS: &[i32] = &[
+    0, 1, 2, 4, 8, 12, 16, 24, 32, 64, 128, 256, MAX_VISIBLE_PLANE_RADIUS,
+];
+const ROW_COUNT: usize = 7;
+
+/// Host ↔ panel bridge for the camera's render depth. The host owns the
+/// camera, so the panel never edits it directly: wheel steps accumulate here
+/// and the host drains them into `Camera::pan_focus_depth` once per frame,
+/// then publishes the live focus depth back for the row's display.
+pub struct CameraDepthLink {
+    pending_steps: StdCell<i32>,
+    current: StdCell<i32>,
+}
+
+impl CameraDepthLink {
+    /// Host-side constructor: the depth starts centered at 0.
+    pub fn new() -> Rc<Self> {
+        Rc::new(Self {
+            pending_steps: StdCell::new(0),
+            current: StdCell::new(0),
+        })
+    }
+
+    /// Panel-side wheel input: one signed step per wheel notch, matching the
+    /// canvas depth scroll's per-event step counting.
+    pub fn scroll(&self, steps: i32) {
+        self.pending_steps.set(self.pending_steps.get() + steps);
+    }
+
+    /// Host-side drain: apply the accumulated steps to the camera.
+    pub fn drain_pending(&self) -> i32 {
+        let steps = self.pending_steps.get();
+        self.pending_steps.set(0);
+        steps
+    }
+
+    /// Host-side publish: the live focus depth for the row's display.
+    pub fn set_current(&self, depth: i32) {
+        self.current.set(depth);
+    }
+
+    pub fn current(&self) -> i32 {
+        self.current.get()
+    }
+}
+
+/// Host ↔ panel bridge for the camera's rendered-layer count. Same shape as
+/// [`CameraDepthLink`]: the host owns the camera, so wheel steps accumulate
+/// here, the host drains them into `Camera::visible_plane_radius` (clamped
+/// to `0..=MAX_VISIBLE_PLANE_RADIUS`) once per frame, then publishes the
+/// live radius back for the row's display.
+pub struct CameraLayersLink {
+    pending_steps: StdCell<i32>,
+    current: StdCell<i32>,
+}
+
+impl CameraLayersLink {
+    /// Host-side constructor: the count starts at the camera default (8).
+    pub fn new() -> Rc<Self> {
+        Rc::new(Self {
+            pending_steps: StdCell::new(0),
+            current: StdCell::new(0),
+        })
+    }
+
+    /// Panel-side wheel input: one signed step per wheel notch.
+    pub fn scroll(&self, steps: i32) {
+        self.pending_steps.set(self.pending_steps.get() + steps);
+    }
+
+    /// Host-side drain: apply the accumulated steps to the camera.
+    pub fn drain_pending(&self) -> i32 {
+        let steps = self.pending_steps.get();
+        self.pending_steps.set(0);
+        steps
+    }
+
+    /// Host-side publish: the live `visible_plane_radius` for the row's display.
+    pub fn set_current(&self, radius: i32) {
+        self.current.set(radius);
+    }
+
+    pub fn current(&self) -> i32 {
+        self.current.get()
+    }
+}
 
 fn knob(index: usize) -> &'static Knob {
     match index {
@@ -68,7 +175,6 @@ fn set_knob_value(profile: &mut PerspectiveProfile, index: usize, value: f32) {
         _ => profile.near_floor_fraction = value,
     }
 }
-
 /// Renderer-owned camera perspective panel: edits a shared
 /// [`PerspectiveProfile`] (scale strength, position strength, near-camera
 /// floor) so any app that opts into renderer modules can hand its users
@@ -81,6 +187,9 @@ pub struct CameraPerspectiveModule {
     id: String,
     rect: ModuleRect,
     profile: Rc<RefCell<PerspectiveProfile>>,
+    parallax: Rc<RefCell<ParallaxProfile>>,
+    depth: Rc<CameraDepthLink>,
+    layers: Rc<CameraLayersLink>,
     palette: UiPalette,
     gizmos: GizmoBar,
     gizmo_state: GizmoState,
@@ -88,11 +197,21 @@ pub struct CameraPerspectiveModule {
 }
 
 impl CameraPerspectiveModule {
-    pub fn new(id: impl Into<String>, rect: ModuleRect, profile: Rc<RefCell<PerspectiveProfile>>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        rect: ModuleRect,
+        profile: Rc<RefCell<PerspectiveProfile>>,
+        parallax: Rc<RefCell<ParallaxProfile>>,
+        depth: Rc<CameraDepthLink>,
+        layers: Rc<CameraLayersLink>,
+    ) -> Self {
         Self {
             id: id.into(),
             rect,
             profile,
+            parallax,
+            depth,
+            layers,
             palette: UiPalette::default(),
             gizmos: GizmoBar::standard(),
             gizmo_state: GizmoState::new(),
@@ -100,29 +219,83 @@ impl CameraPerspectiveModule {
         }
     }
 
-    /// The profile this module edits, for hosts to bind into their camera.
+    /// The perspective profile this module edits, for hosts to bind into
+    /// their camera.
     pub fn profile(&self) -> Rc<RefCell<PerspectiveProfile>> {
         self.profile.clone()
+    }
+
+    /// The parallax profile this module edits, for hosts to bind into their
+    /// camera (the host still feeds the pointer offset every frame).
+    pub fn parallax_profile(&self) -> Rc<RefCell<ParallaxProfile>> {
+        self.parallax.clone()
+    }
+
+    /// The depth link this module scrolls, for hosts to drain into their
+    /// camera's focus depth each frame.
+    pub fn depth_link(&self) -> Rc<CameraDepthLink> {
+        self.depth.clone()
+    }
+
+    /// The layers link this module scrolls, for hosts to drain into their
+    /// camera's `visible_plane_radius` each frame.
+    pub fn layers_link(&self) -> Rc<CameraLayersLink> {
+        self.layers.clone()
     }
 
     fn knob_row_y(&self, index: usize) -> i32 {
         PropertyRows::top_row_y(self.rect) - index as i32
     }
 
-    /// Which knob row (if any) is under this screen-space point. Rows stack
-    /// downward from the top content row, one line each, matching the
-    /// property-rows convention (draw output is module-local, events are
+    /// Which knob/parallax row (if any) is under this screen-space point.
+    /// Rows stack downward from the top content row, one line each, matching
+    /// the property-rows convention (draw output is module-local, events are
     /// screen-space like `PropertyRows::hit_test`).
-    fn knob_row_at(&self, x: i32, y: i32) -> Option<usize> {
+    fn row_at(&self, x: i32, y: i32) -> Option<usize> {
         if !self.rect.contains(x, y) {
             return None;
         }
         let local_y = y - self.rect.y0;
-        (0..KNOB_COUNT).find(|&index| self.knob_row_y(index) == local_y)
+        (0..ROW_COUNT).find(|&index| self.knob_row_y(index) == local_y)
     }
 
-    fn apply_wheel(&self, profile: &mut PerspectiveProfile, index: usize, delta_y: f32) {
-        let knob = knob(index);
+    fn apply_wheel(&self, profile: &mut PerspectiveProfile, parallax: &mut ParallaxProfile, index: usize, delta_y: f32) {
+        if index == PARALLAX_TOGGLE_ROW {
+            // Wheel over the toggle flips it, matching the click behavior.
+            parallax.enabled = !parallax.enabled;
+            Self::ensure_usable_strength(parallax);
+            return;
+        }
+        if index == DEPTH_ROW {
+            // One signed step per wheel notch, matching the canvas depth
+            // scroll: wheel up steps toward the viewer, wheel down away.
+            let steps = if delta_y > 0.0 {
+                1
+            } else if delta_y < 0.0 {
+                -1
+            } else {
+                0
+            };
+            self.depth.scroll(steps);
+            return;
+        }
+        if index == LAYERS_ROW {
+            // One rendered layer per wheel notch, clamped host-side.
+            let steps = if delta_y > 0.0 {
+                1
+            } else if delta_y < 0.0 {
+                -1
+            } else {
+                0
+            };
+            self.layers.scroll(steps);
+            return;
+        }
+        let knob = if index == PARALLAX_STRENGTH_ROW {
+            &PARALLAX_STRENGTH_KNOB
+        } else {
+            knob(index)
+        };
         let step = if delta_y > 0.0 {
             knob.wheel_step
         } else if delta_y < 0.0 {
@@ -130,13 +303,54 @@ impl CameraPerspectiveModule {
         } else {
             return;
         };
-        let value = (knob_value(profile, index) + step).clamp(knob.min, knob.max);
-        set_knob_value(profile, index, (value * 100.0).round() / 100.0);
+        let value = if index == PARALLAX_STRENGTH_ROW {
+            parallax.strength + step
+        } else {
+            knob_value(profile, index) + step
+        };
+        let value = (value).clamp(knob.min, knob.max);
+        let rounded = (value * 100.0).round() / 100.0;
+        if index == PARALLAX_STRENGTH_ROW {
+            parallax.strength = rounded;
+        } else {
+            set_knob_value(profile, index, rounded);
+        }
     }
 
-    fn cycle_preset(&self, profile: &mut PerspectiveProfile, index: usize) {
-        let knob = knob(index);
-        let current = knob_value(profile, index);
+    fn cycle_preset(&self, profile: &mut PerspectiveProfile, parallax: &mut ParallaxProfile, index: usize) {
+        if index == PARALLAX_TOGGLE_ROW {
+            parallax.enabled = !parallax.enabled;
+            Self::ensure_usable_strength(parallax);
+            return;
+        }
+        if index == DEPTH_ROW {
+            // Click re-centers the render depth at 0.
+            self.depth.scroll(-self.depth.current());
+            return;
+        }
+        if index == LAYERS_ROW {
+            // Click cycles the rendered-layer presets.
+            let current = self.layers.current();
+            let position = LAYERS_PRESETS
+                .iter()
+                .enumerate()
+                .min_by(|a, b| (*a.1 - current).abs().cmp(&(*b.1 - current).abs()))
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let next = LAYERS_PRESETS[(position + 1) % LAYERS_PRESETS.len()];
+            self.layers.scroll(next - current);
+            return;
+        }
+        let knob = if index == PARALLAX_STRENGTH_ROW {
+            &PARALLAX_STRENGTH_KNOB
+        } else {
+            knob(index)
+        };
+        let current = if index == PARALLAX_STRENGTH_ROW {
+            parallax.strength
+        } else {
+            knob_value(profile, index)
+        };
         let position = knob
             .presets
             .iter()
@@ -148,7 +362,19 @@ impl CameraPerspectiveModule {
             .map(|(i, _)| i)
             .unwrap_or(0);
         let next = knob.presets[(position + 1) % knob.presets.len()];
-        set_knob_value(profile, index, next);
+        if index == PARALLAX_STRENGTH_ROW {
+            parallax.strength = next;
+        } else {
+            set_knob_value(profile, index, next);
+        }
+    }
+
+    /// Enabling parallax through the panel guarantees a non-zero strength so
+    /// the first toggle is immediately visible.
+    fn ensure_usable_strength(parallax: &mut ParallaxProfile) {
+        if parallax.enabled && parallax.strength <= 0.0 {
+            parallax.strength = ParallaxProfile::DEFAULT_STRENGTH;
+        }
     }
 }
 
@@ -183,10 +409,26 @@ impl Module for CameraPerspectiveModule {
         let top_row_y = content_y + (content_height - 1).max(0);
         let value_x = content_x + 9;
         let profile = self.profile.borrow();
+        let parallax = self.parallax.borrow();
 
-        for index in 0..KNOB_COUNT {
+        for index in 0..ROW_COUNT {
             let y = top_row_y - index as i32;
-            for (offset, glyph) in knob(index).label.chars().enumerate() {
+            let (label, value, vivid) = if index == PARALLAX_TOGGLE_ROW {
+                (
+                    "parallax",
+                    if parallax.enabled { "on" } else { "off" }.to_string(),
+                    parallax.enabled,
+                )
+            } else if index == PARALLAX_STRENGTH_ROW {
+                ("str", format!("{:.2}", parallax.strength), parallax.enabled)
+            } else if index == DEPTH_ROW {
+                ("depth", format!("{}", self.depth.current()), true)
+            } else if index == LAYERS_ROW {
+                ("layers", format!("{}", self.layers.current()), true)
+            } else {
+                (knob(index).label, format!("{:.2}", knob_value(&profile, index)), true)
+            };
+            for (offset, glyph) in label.chars().enumerate() {
                 cells.push(Cell {
                     position: CellPoint {
                         x: content_x + offset as i32,
@@ -199,7 +441,6 @@ impl Module for CameraPerspectiveModule {
                     ..Cell::default()
                 });
             }
-            let value = format!("{:.2}", knob_value(&profile, index));
             for (offset, glyph) in value.chars().enumerate() {
                 cells.push(Cell {
                     position: CellPoint {
@@ -208,7 +449,11 @@ impl Module for CameraPerspectiveModule {
                         z: 0,
                     },
                     graphic: CellGraphic::Glyph(glyph),
-                    color: self.palette.get(UiColorRole::Vivid),
+                    color: self.palette.get(if vivid {
+                        UiColorRole::Vivid
+                    } else {
+                        UiColorRole::Medium
+                    }),
                     weight: CellWeight::from_index_clamped(2),
                     ..Cell::default()
                 });
@@ -256,9 +501,10 @@ impl Module for CameraPerspectiveModule {
                     return;
                 }
                 if button == ModulePointerButton::Left {
-                    if let Some(index) = self.knob_row_at(x, y) {
+                    if let Some(index) = self.row_at(x, y) {
                         let mut profile = self.profile.borrow_mut();
-                        self.cycle_preset(&mut profile, index);
+                        let mut parallax = self.parallax.borrow_mut();
+                        self.cycle_preset(&mut profile, &mut parallax, index);
                     }
                 }
             }
@@ -303,12 +549,13 @@ impl Module for CameraPerspectiveModule {
     }
 
     fn on_wheel(&mut self, x: i32, y: i32, _delta_x: f32, delta_y: f32) -> bool {
-        let Some(index) = self.knob_row_at(x, y) else {
-            // Off the knob rows: fall through to viewport camera behavior.
+        let Some(index) = self.row_at(x, y) else {
+            // Off the panel rows: fall through to viewport camera behavior.
             return false;
         };
         let mut profile = self.profile.borrow_mut();
-        self.apply_wheel(&mut profile, index, delta_y);
+        let mut parallax = self.parallax.borrow_mut();
+        self.apply_wheel(&mut profile, &mut parallax, index, delta_y);
         true
     }
 }
@@ -322,18 +569,32 @@ mod tests {
             x0: 10,
             y0: 10,
             x1: 33,
-            y1: 18,
+            // 11 tall: content 8 = 7 rows (scale/position/floor/parallax/
+            // str/depth/layers) plus the reserved bottom hint row.
+            y1: 21,
         }
     }
 
-    fn module() -> (CameraPerspectiveModule, Rc<RefCell<PerspectiveProfile>>) {
+    type ModuleFixture = (CameraPerspectiveModule, Rc<RefCell<PerspectiveProfile>>, Rc<RefCell<ParallaxProfile>>, Rc<CameraDepthLink>, Rc<CameraLayersLink>);
+
+    fn module() -> ModuleFixture {
         make_module()
     }
 
-    fn make_module() -> (CameraPerspectiveModule, Rc<RefCell<PerspectiveProfile>>) {
+    fn make_module() -> ModuleFixture {
         let profile = Rc::new(RefCell::new(PerspectiveProfile::default()));
-        let module = CameraPerspectiveModule::new("camera_perspective", rect(), profile.clone());
-        (module, profile)
+        let parallax = Rc::new(RefCell::new(ParallaxProfile::default()));
+        let depth = CameraDepthLink::new();
+        let layers = CameraLayersLink::new();
+        let module = CameraPerspectiveModule::new(
+            "camera_perspective",
+            rect(),
+            profile.clone(),
+            parallax.clone(),
+            depth.clone(),
+            layers.clone(),
+        );
+        (module, profile, parallax, depth, layers)
     }
 
     fn scale_row_y() -> i32 {
@@ -349,7 +610,7 @@ mod tests {
 
     #[test]
     fn clicking_the_close_gizmo_hides_the_panel_and_recall_revives_it() {
-        let (mut module, _profile) = module();
+        let (mut module, _profile, _parallax, _depth, _layers) = module();
         assert!(!module.is_hidden());
 
         module.on_pointer_event(ModulePointerEvent::Click {
@@ -365,7 +626,7 @@ mod tests {
 
     #[test]
     fn move_gizmo_drag_relocates_the_panel_through_pointer_capture() {
-        let (mut module, _profile) = module();
+        let (mut module, _profile, _parallax, _depth, _layers) = module();
         let before = module.rect();
 
         module.on_pointer_event(ModulePointerEvent::Click {
@@ -392,7 +653,7 @@ mod tests {
 
     #[test]
     fn panel_ui_state_persists_rect_seamless_and_hidden() {
-        let (mut module, _profile) = module();
+        let (mut module, _profile, _parallax, _depth, _layers) = module();
         module.on_pointer_event(ModulePointerEvent::Click {
             x: rect().x0 + 7,
             y: gizmo_row_y(),
@@ -401,7 +662,7 @@ mod tests {
         assert!(module.gizmo_state.is_seamless());
 
         let saved = module.persisted_ui_state().expect("ui state snapshot");
-        let (mut revived, _profile) = make_module();
+        let (mut revived, _profile, _parallax, _depth, _layers) = make_module();
         revived.apply_persisted_ui_state(&saved);
         assert_eq!(revived.rect(), module.rect());
         assert!(revived.gizmo_state.is_seamless());
@@ -412,7 +673,7 @@ mod tests {
         // Regression: a group origin of (0,0) drew the panel at the screen's
         // bottom-left corner while hit-testing stayed at `self.rect`, so the
         // visible panel was dead to input.
-        let (module, _profile) = module();
+        let (module, _profile, _parallax, _depth, _layers) = module();
         let group = module.draw();
         let origin = group.origin;
         assert_eq!((origin.x, origin.y), (rect().x0, rect().y0));
@@ -420,7 +681,7 @@ mod tests {
 
     #[test]
     fn wheel_over_a_knob_row_fine_tunes_that_knob() {
-        let (mut module, profile) = module();
+        let (mut module, profile, _parallax, _depth, _layers) = module();
         let y = scale_row_y();
 
         assert!(module.on_wheel(12, y, 0.0, 1.0));
@@ -435,7 +696,7 @@ mod tests {
 
     #[test]
     fn wheel_nudging_clamps_at_the_knob_range() {
-        let (mut module, profile) = module();
+        let (mut module, profile, _parallax, _depth, _layers) = module();
         let y = scale_row_y();
         for _ in 0..80 {
             module.on_wheel(12, y, 0.0, 1.0);
@@ -449,7 +710,7 @@ mod tests {
 
     #[test]
     fn clicking_a_knob_row_cycles_presets_and_wraps() {
-        let (mut module, profile) = module();
+        let (mut module, profile, _parallax, _depth, _layers) = module();
         let y = scale_row_y();
 
         // Default 0.9 is a preset: the next click lands on 1.2.
@@ -472,14 +733,15 @@ mod tests {
 
     #[test]
     fn wheel_off_the_knob_rows_falls_through_to_the_viewport() {
-        let (mut module, _profile) = module();
+        let (mut module, _profile, _parallax, _depth, _layers) = module();
         assert!(!module.on_wheel(12, rect().y0 + 1, 0.0, 1.0));
+        assert!(!module.on_wheel(12, rect().y0 + 9, 0.0, 1.0));
         assert!(!module.on_wheel(12, rect().y1 - 1, 0.0, 1.0));
     }
 
     #[test]
     fn edits_land_in_the_shared_profile_the_host_binds() {
-        let (mut module, profile) = module();
+        let (mut module, profile, _parallax, _depth, _layers) = module();
         let floor_y = scale_row_y() - 2;
         module.on_wheel(12, floor_y, 0.0, -1.0);
         assert!((profile.borrow().near_floor_fraction - 0.26).abs() < 1e-4);
@@ -488,7 +750,7 @@ mod tests {
 
     #[test]
     fn draw_renders_knob_labels_and_live_values() {
-        let (module, profile) = module();
+        let (module, profile, _parallax, _depth, _layers) = module();
         profile.borrow_mut().scale_strength = 1.25;
         let group = module.draw();
         // Draw output is module-local: compare against the local top row.
@@ -514,5 +776,212 @@ mod tests {
                 position.y == label_row_y && glyph == &expected
             }));
         }
+    }
+
+    fn row_screen_y(index: usize) -> i32 {
+        rect().y0 + PropertyRows::top_row_y(rect()) - index as i32
+    }
+
+    #[test]
+    fn clicking_the_parallax_row_toggles_it_and_seeds_a_usable_strength() {
+        let (mut module, _profile, parallax, _depth, _layers) = module();
+        let y = row_screen_y(PARALLAX_TOGGLE_ROW);
+        let x = rect().x0 + 3;
+
+        module.on_pointer_event(ModulePointerEvent::Click { x, y, button: ModulePointerButton::Left });
+        let state = parallax.borrow();
+        assert!(state.enabled, "click must enable parallax");
+        assert!(state.strength > 0.0, "enabling must seed a usable strength");
+        drop(state);
+
+        module.on_pointer_event(ModulePointerEvent::Click { x, y, button: ModulePointerButton::Left });
+        assert!(!parallax.borrow().enabled, "second click must disable parallax");
+    }
+
+    #[test]
+    fn wheel_over_the_strength_row_fine_tunes_and_clamps() {
+        let (mut module, _profile, parallax, _depth, _layers) = module();
+        let y = row_screen_y(PARALLAX_STRENGTH_ROW);
+
+        assert!(module.on_wheel(12, y, 0.0, 1.0));
+        let strength = parallax.borrow().strength;
+        assert!((strength - 0.16).abs() < 1e-4, "default 0.15 + 0.01, got {strength}");
+
+        for _ in 0..80 {
+            module.on_wheel(12, y, 0.0, 1.0);
+        }
+        assert!((parallax.borrow().strength - ParallaxProfile::MAX_STRENGTH).abs() < 1e-4);
+    }
+
+    #[test]
+    fn clicking_the_strength_row_cycles_presets() {
+        let (mut module, _profile, parallax, _depth, _layers) = module();
+        let y = row_screen_y(PARALLAX_STRENGTH_ROW);
+
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: 12,
+            y,
+            button: ModulePointerButton::Left,
+        });
+        // Default 0.15 is a preset: the next click lands on 0.25.
+        assert!((parallax.borrow().strength - 0.25).abs() < 1e-4);
+    }
+
+    #[test]
+    fn wheel_on_the_toggle_row_flips_parallax_without_touching_perspective() {
+        let (mut module, profile, parallax, _depth, _layers) = module();
+        let y = row_screen_y(PARALLAX_TOGGLE_ROW);
+
+        assert!(module.on_wheel(12, y, 0.0, 1.0));
+        assert!(parallax.borrow().enabled);
+        assert!((profile.borrow().scale_strength - 0.9).abs() < 1e-4);
+    }
+
+    #[test]
+    fn draw_shows_the_parallax_state_and_strength() {
+        let (module, _profile, parallax, _depth, _layers) = module();
+        parallax.borrow_mut().enabled = true;
+        parallax.borrow_mut().strength = 0.2;
+        let group = module.draw();
+        let label_row_y = PropertyRows::top_row_y(rect());
+        let glyphs: Vec<(CellPoint, char)> = group
+            .iter_cells()
+            .filter_map(|cell| match &cell.graphic {
+                CellGraphic::Glyph(glyph) => Some((cell.position, *glyph)),
+                _ => None,
+            })
+            .collect();
+
+        let row_text = |row_y: i32| -> String {
+            let mut chars: Vec<(i32, char)> = glyphs
+                .iter()
+                .filter(|(position, _)| position.y == row_y)
+                .map(|(position, glyph)| (position.x, *glyph))
+                .collect();
+            chars.sort_by_key(|(x, _)| *x);
+            chars.into_iter().map(|(_, glyph)| glyph).collect()
+        };
+        let toggle_row = row_text(label_row_y - PARALLAX_TOGGLE_ROW as i32);
+        assert!(toggle_row.contains("parallax"), "got {toggle_row:?}");
+        assert!(toggle_row.contains("on"), "got {toggle_row:?}");
+        let strength_row = row_text(label_row_y - PARALLAX_STRENGTH_ROW as i32);
+        assert!(strength_row.contains("0.20"), "got {strength_row:?}");
+    }
+
+    #[test]
+    fn panel_edits_land_in_the_shared_parallax_profile_the_host_binds() {
+        let (module, _profile, parallax, _depth, _layers) = module();
+        assert_eq!(module.parallax_profile(), parallax);
+    }
+
+    fn depth_row_screen_y() -> i32 {
+        row_screen_y(DEPTH_ROW)
+    }
+
+    fn layers_row_screen_y() -> i32 {
+        row_screen_y(LAYERS_ROW)
+    }
+
+    #[test]
+    fn wheel_over_the_layers_row_accumulates_host_drained_steps() {
+        let (mut module, _profile, _parallax, _depth, layers) = module();
+        let y = layers_row_screen_y();
+
+        assert!(module.on_wheel(12, y, 0.0, 1.0));
+        assert!(module.on_wheel(12, y, 0.0, 1.0));
+        assert!(module.on_wheel(12, y, 0.0, -1.0));
+        assert_eq!(layers.drain_pending(), 1, "two up, one down = +1 step");
+        assert_eq!(layers.drain_pending(), 0, "drain must empty the queue");
+    }
+
+    #[test]
+    fn clicking_the_layers_row_cycles_presets_through_the_link() {
+        let (mut module, _profile, _parallax, _depth, layers) = module();
+        let y = layers_row_screen_y();
+
+        // Host publishes the live radius (default 8 is a preset): the click
+        // must queue the step delta onto the next preset.
+        layers.set_current(8);
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: 12,
+            y,
+            button: ModulePointerButton::Left,
+        });
+        assert_eq!(layers.drain_pending(), 4, "8 -> 12");
+
+        // And from the top preset it wraps to the smallest one.
+        layers.set_current(MAX_VISIBLE_PLANE_RADIUS);
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: 12,
+            y,
+            button: ModulePointerButton::Left,
+        });
+        assert_eq!(layers.drain_pending(), -MAX_VISIBLE_PLANE_RADIUS, "512 -> 0");
+    }
+
+    #[test]
+    fn draw_shows_the_host_published_layer_count() {
+        let (module, _profile, _parallax, _depth, layers) = module();
+        layers.set_current(12);
+        let group = module.draw();
+        let label_row_y = PropertyRows::top_row_y(rect());
+        let row_text = row_text_at(&group, label_row_y - LAYERS_ROW as i32);
+        assert!(row_text.contains("layers"), "got {row_text:?}");
+        assert!(row_text.contains("12"), "got {row_text:?}");
+    }
+
+    #[test]
+    fn wheel_over_the_depth_row_accumulates_host_drained_steps() {
+        let (mut module, profile, parallax, depth, _layers) = module();
+        let y = depth_row_screen_y();
+
+        assert!(module.on_wheel(12, y, 0.0, 1.0));
+        assert!(module.on_wheel(12, y, 0.0, 1.0));
+        assert!(module.on_wheel(12, y, 0.0, -1.0));
+        assert_eq!(depth.drain_pending(), 1, "two up, one down = +1 step");
+        assert_eq!(depth.drain_pending(), 0, "drain must empty the queue");
+
+        // The perspective/parallax rows are untouched by depth wheels.
+        assert!((profile.borrow().scale_strength - 0.9).abs() < 1e-4);
+        assert!(!parallax.borrow().enabled);
+    }
+
+    #[test]
+    fn clicking_the_depth_row_asks_for_a_recenter_through_the_link() {
+        let (mut module, _profile, _parallax, depth, _layers) = module();
+        let y = depth_row_screen_y();
+
+        // Host publishes a live depth, then the click must undo it.
+        depth.set_current(6);
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: 12,
+            y,
+            button: ModulePointerButton::Left,
+        });
+        assert_eq!(depth.drain_pending(), -6);
+    }
+
+    #[test]
+    fn draw_shows_the_host_published_depth() {
+        let (module, _profile, _parallax, depth, _layers) = module();
+        depth.set_current(-3);
+        let group = module.draw();
+        let label_row_y = PropertyRows::top_row_y(rect());
+        let row_text = row_text_at(&group, label_row_y - DEPTH_ROW as i32);
+        assert!(row_text.contains("depth"), "got {row_text:?}");
+        assert!(row_text.contains("-3"), "got {row_text:?}");
+    }
+
+    fn row_text_at(group: &CellGroup, row_y: i32) -> String {
+        let mut chars: Vec<(i32, char)> = group
+            .iter_cells()
+            .filter(|cell| cell.position.y == row_y)
+            .filter_map(|cell| match &cell.graphic {
+                CellGraphic::Glyph(glyph) => Some((cell.position.x, *glyph)),
+                _ => None,
+            })
+            .collect();
+        chars.sort_by_key(|(x, _)| *x);
+        chars.into_iter().map(|(_, glyph)| glyph).collect()
     }
 }

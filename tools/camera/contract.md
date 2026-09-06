@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/tools/camera
+# thaum-renderer/tools/camera
 
 ## purpose
 Own reusable camera-related helper seams that support the renderer camera without becoming the source of camera design truth.
@@ -19,8 +19,8 @@ Own reusable camera-related helper seams that support the renderer camera withou
 - none
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/camera/`
-- `/home/j/Repos/thaum-renderer/domain/coordinate-space/`
+- `thaum-renderer/domain/camera/`
+- `thaum-renderer/domain/coordinate-space/`
 
 ## exposed interfaces
 - none

@@ -1,4 +1,4 @@
-# /home/j/Repos/thaum-renderer/domain/cell-color
+# thaum-renderer/domain/cell-color
 
 ## purpose
 Own the renderer cell-color slot as the canonical color input consumed by a cell.
@@ -29,17 +29,17 @@ Own the renderer cell-color slot as the canonical color input consumed by a cell
   - rust cell-color slot shapes and resolution-facing helpers owned by this encapsulation
 
 ## dependencies
-- `/home/j/Repos/thaum-renderer/domain/cell-materials/`
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/sprite/sprite-color-space/`
-- `/home/j/Repos/thaum-renderer/domain/cell-graphic/glyph/glyph-color-space/`
+- `thaum-renderer/domain/cell-materials/`
+- `thaum-renderer/domain/cell-graphic/sprite/sprite-color-space/`
+- `thaum-renderer/domain/cell-graphic/glyph/glyph-color-space/`
 
 ## exposed interfaces
 - cell-color slot
   - describes the color slot consumed by a cell whether it resolves from direct flat input or material-driven channel and band resolution
 
 ## interface consumers
-- `/home/j/Repos/thaum-renderer/domain/cell/`
-- `/home/j/Repos/thaum-renderer/domain/cell-shader/`
+- `thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/cell-shader/`
 - future renderer implementation surfaces
 
 ## artifacts
