@@ -1,6 +1,6 @@
 use crate::{
-    Cell, CellColor, CellGraphic, CellPoint, CellWeight, ModuleRect, PanelBorderEdge, PanelChrome,
-    UiColorRole, UiPalette,
+    Cell, CellColor, CellGraphic, CellPoint, CellWeight, Hotspot, ModuleRect, PanelBorderEdge,
+    PanelChrome, UiColorRole, UiPalette,
 };
 
 /// One gizmo button a module can offer in its top-left gizmo bar. Ported
@@ -21,6 +21,26 @@ impl GizmoKind {
             GizmoKind::Close => 'X',
             GizmoKind::Resize => '╋',
             GizmoKind::Seamless => 'S',
+        }
+    }
+
+    /// Tooltip title: the gizmo's one-word name.
+    fn tooltip_title(self) -> &'static str {
+        match self {
+            GizmoKind::Move => "move",
+            GizmoKind::Close => "close",
+            GizmoKind::Resize => "resize",
+            GizmoKind::Seamless => "seamless",
+        }
+    }
+
+    /// Tooltip description: how to interact with the gizmo.
+    fn tooltip_description(self) -> &'static str {
+        match self {
+            GizmoKind::Move => "drag to reposition this panel",
+            GizmoKind::Close => "closes the module can be re-opened",
+            GizmoKind::Resize => "click, then grab a border edge",
+            GizmoKind::Seamless => "hides the panel chrome, hovering brings it back",
         }
     }
 }
@@ -154,6 +174,27 @@ impl GizmoBar {
             .iter()
             .enumerate()
             .find_map(|(index, kind)| (local_x == Self::glyph_local_x(index)).then_some(*kind))
+    }
+
+    /// Tooltip hotspots for this bar: one single-cell anchor per gizmo
+    /// glyph on the panel's top border row, in absolute screen space. Every
+    /// gizmo-enabled module surfaces these through `Module::hotspots`, so
+    /// all of them grow tooltips at once.
+    pub fn hotspots(&self, rect: ModuleRect) -> Vec<Hotspot> {
+        let height = rect.y1 - rect.y0;
+        self.kinds
+            .iter()
+            .enumerate()
+            .map(|(index, kind)| {
+                let x = rect.x0 + Self::glyph_local_x(index);
+                let y = rect.y0 + height - 1;
+                Hotspot::new(
+                    ModuleRect { x0: x, y0: y, x1: x, y1: y },
+                    kind.tooltip_title(),
+                    kind.tooltip_description(),
+                )
+            })
+            .collect()
     }
 }
 
@@ -423,6 +464,27 @@ mod tests {
 
     fn rect(x0: i32, y0: i32, x1: i32, y1: i32) -> ModuleRect {
         ModuleRect { x0, y0, x1, y1 }
+    }
+
+    #[test]
+    fn hotspots_anchor_one_cell_per_gizmo_glyph_with_copy() {
+        let bar = GizmoBar::standard();
+        let panel = rect(40, 10, 60, 24);
+        let hotspots = bar.hotspots(panel);
+
+        assert_eq!(hotspots.len(), 4);
+        let height = panel.y1 - panel.y0;
+        for (index, hotspot) in hotspots.iter().enumerate() {
+            let expected_x = panel.x0 + 1 + index as i32 * 2;
+            let expected_y = panel.y0 + height - 1;
+            assert_eq!(hotspot.rect, rect(expected_x, expected_y, expected_x, expected_y));
+            assert!(!hotspot.title.is_empty());
+            assert!(!hotspot.description.is_empty());
+        }
+        assert_eq!(hotspots[0].title, "move");
+        assert_eq!(hotspots[1].title, "close");
+        assert_eq!(hotspots[2].title, "resize");
+        assert_eq!(hotspots[3].title, "seamless");
     }
 
     fn full_bar() -> GizmoBar {

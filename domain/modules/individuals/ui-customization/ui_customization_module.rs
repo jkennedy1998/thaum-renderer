@@ -1,4 +1,5 @@
 use crate::{
+    Hotspot,
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
     GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette,
@@ -84,6 +85,12 @@ impl Module for UiCustomizationModule {
 
     fn rect(&self) -> ModuleRect {
         self.rect
+    }
+
+    /// Tooltip hotspots: the module's gizmo bar, so every gizmo-enabled
+    /// panel grows tooltips from one shared implementation.
+    fn hotspots(&self) -> Vec<Hotspot> {
+        self.gizmos.hotspots(self.rect)
     }
 
     fn draw(&self) -> CellGroup {

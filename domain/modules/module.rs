@@ -1,4 +1,4 @@
-use crate::{CellGroup, CellGroupIntakeBehavior, PersistedModuleUiState, WorldPoint};
+use crate::{CellGroup, CellGroupIntakeBehavior, Hotspot, PersistedModuleUiState, WorldPoint};
 
 /// A screen-space rect in cell units, inclusive on both ends, matching the old
 /// mono_ui `Rect` convention (bottom-left coordinates).
@@ -109,6 +109,14 @@ pub trait Module {
     /// wants renderer-owned persistence support.
     fn persisted_ui_state(&self) -> Option<PersistedModuleUiState> {
         None
+    }
+
+    /// Interactive hotspots (tooltip anchors) this module offers, in
+    /// absolute screen-space rects. The shared tooltip state dwells on
+    /// these and renders the framing card; modules only declare them.
+    /// Empty by default.
+    fn hotspots(&self) -> Vec<Hotspot> {
+        Vec::new()
     }
 
     /// Apply one previously saved user-facing UI/session state blob back to

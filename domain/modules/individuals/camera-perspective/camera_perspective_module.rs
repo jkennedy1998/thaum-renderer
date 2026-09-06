@@ -2,6 +2,7 @@ use std::cell::{Cell as StdCell, RefCell};
 use std::rc::Rc;
 
 use crate::{
+    Hotspot,
     Cell, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
     GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, ParallaxProfile, PersistedModuleUiState,
@@ -385,6 +386,12 @@ impl Module for CameraPerspectiveModule {
 
     fn rect(&self) -> ModuleRect {
         self.rect
+    }
+
+    /// Tooltip hotspots: the module's gizmo bar, so every gizmo-enabled
+    /// panel grows tooltips from one shared implementation.
+    fn hotspots(&self) -> Vec<Hotspot> {
+        self.gizmos.hotspots(self.rect)
     }
 
     fn draw(&self) -> CellGroup {

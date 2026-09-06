@@ -1,6 +1,7 @@
 use thaum_renderer_tools_color::nearest_rgb_in_collection;
 
 use crate::{
+    Hotspot,
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
     GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerEvent, ModuleRect,
     PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette, WorldPoint,
@@ -199,6 +200,12 @@ impl Module for ColorBlockModule {
 
     fn rect(&self) -> ModuleRect {
         self.rect
+    }
+
+    /// Tooltip hotspots: the module's gizmo bar, so every gizmo-enabled
+    /// panel grows tooltips from one shared implementation.
+    fn hotspots(&self) -> Vec<Hotspot> {
+        self.gizmos.hotspots(self.rect)
     }
 
     fn draw(&self) -> CellGroup {

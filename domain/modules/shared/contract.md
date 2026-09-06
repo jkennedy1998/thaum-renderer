@@ -24,6 +24,8 @@ Own the shared implementation logic that every individual module builds on: gizm
   - default
 - `scroll-state/`
   - default
+- `tooltip/`
+  - default
 
 ## contents
 - `contract.md`
@@ -39,6 +41,7 @@ Own the shared implementation logic that every individual module builds on: gizm
 - `PanelChrome`/`PanelBorderStyle`, described in `panel-chrome/contract.md`
 - `GizmoBar`/`GizmoKind`/`GizmoState`, described in `module-gizmos/contract.md`
 - `ScrollState`, described in `scroll-state/contract.md`
+- `Hotspot`/`TooltipState`/`tooltip_card_group`, described in `tooltip/contract.md`
 
 ## interface consumers
 - `thaum-renderer/domain/modules/individuals/`

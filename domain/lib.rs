@@ -63,6 +63,8 @@ pub mod post_effects;
 pub mod property_rows;
 #[path = "modules/shared/scroll-state/scroll_state.rs"]
 pub mod scroll_state;
+#[path = "modules/shared/tooltip/tooltip.rs"]
+pub mod tooltip;
 #[path = "cell-graphic/sprite/sprite-color-space/sprite_color_space.rs"]
 pub mod sprite_color_space;
 #[path = "modules/shared/ui-palette/ui_palette.rs"]
@@ -134,6 +136,7 @@ pub use module::{
 pub use module_gizmos::{GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, ResizeEdge};
 pub use panel_chrome::{PanelBorderEdge, PanelBorderStyle, PanelChrome};
 pub use scroll_state::ScrollState;
+pub use tooltip::{tooltip_card_group, Hotspot, TooltipState, DWELL, TEXT_WRAP_COLUMNS};
 pub use post_effects::{
     apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
     apply_debug_warble_post_effect_to_rgba, clamp_rgba_collection_to_index_palette,

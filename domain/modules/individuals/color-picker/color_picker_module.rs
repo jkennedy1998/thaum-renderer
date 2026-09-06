@@ -1,4 +1,5 @@
 use crate::{
+    Hotspot,
     canonical_sprite_palette, Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior,
     CellPoint, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerEvent,
     ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette, WorldPoint,
@@ -94,6 +95,12 @@ impl Module for ColorPickerModule {
 
     fn rect(&self) -> ModuleRect {
         self.rect
+    }
+
+    /// Tooltip hotspots: the module's gizmo bar, so every gizmo-enabled
+    /// panel grows tooltips from one shared implementation.
+    fn hotspots(&self) -> Vec<Hotspot> {
+        self.gizmos.hotspots(self.rect)
     }
 
     fn draw(&self) -> CellGroup {
