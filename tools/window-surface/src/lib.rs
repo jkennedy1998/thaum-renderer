@@ -20,7 +20,7 @@ use wgpu::{
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{ElementState, Force, MouseButton, MouseScrollDelta, Touch, TouchPhase, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes},
@@ -206,6 +206,11 @@ pub struct WindowSurfaceInput {
     pub just_right_clicked: Option<[f32; 2]>,
     /// Whether the secondary (right) mouse button is currently held down.
     pub right_pointer_down: bool,
+    /// Pen/touch pressure normalized to 0..1 from the last pointer event that
+    /// reported a calibrated force (Windows Ink WM_POINTER pen arrives here as
+    /// `WindowEvent::Touch`). `None` until a pressure-carrying pointer is seen;
+    /// plain mouse input leaves the last value in place.
+    pub pointer_pressure: Option<f32>,
     /// Net horizontal mouse-wheel delta gathered this frame.
     pub wheel_delta_x: f32,
     /// Net vertical mouse-wheel delta gathered this frame.
@@ -277,6 +282,7 @@ struct WindowSurfaceApp {
     pointer_down: bool,
     just_right_clicked: Option<[f32; 2]>,
     right_pointer_down: bool,
+    pointer_pressure: Option<f32>,
     wheel_delta_x: f32,
     wheel_delta_y: f32,
     performance_log: Option<PerformanceLogState>,
@@ -309,6 +315,7 @@ impl WindowSurfaceApp {
             pointer_down: false,
             just_right_clicked: None,
             right_pointer_down: false,
+            pointer_pressure: None,
             wheel_delta_x: 0.0,
             wheel_delta_y: 0.0,
             performance_log,
@@ -321,6 +328,35 @@ impl WindowSurfaceApp {
         Window::default_attributes()
             .with_title(self.config.title.clone())
             .with_inner_size(LogicalSize::new(self.config.width, self.config.height))
+    }
+
+    /// Maps pen/touch pointer events onto the same primary-pointer state the
+    /// mouse path drives. Windows Ink pen input (Huion, XP-Pen, Surface, …)
+    /// arrives from winit on Windows exclusively as `WindowEvent::Touch` —
+    /// winit consumes the WM_POINTER frames and suppresses the synthesized
+    /// legacy mouse messages, so without this arm pen movement tracks but
+    /// pen-down never registers. Pen hover emits `TouchPhase::Moved` with no
+    /// contact, which updates position without pressing.
+    fn apply_pointer_touch(&mut self, touch: Touch) {
+        let position = clip_position_from_physical_cursor(touch.location, self.surface_size);
+        self.cursor_position = Some(position);
+        self.pointer_pressure = match touch.force {
+            Some(Force::Calibrated { force, max_possible_force, .. }) => {
+                let denominator = if max_possible_force > 0.0 { max_possible_force } else { 1.0 };
+                Some(((force / denominator) as f32).clamp(0.0, 1.0))
+            }
+            _ => None,
+        };
+        match touch.phase {
+            TouchPhase::Started => {
+                self.pointer_down = true;
+                self.just_clicked = Some(position);
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => {
+                self.pointer_down = false;
+            }
+            TouchPhase::Moved => {}
+        }
     }
 }
 
@@ -404,6 +440,9 @@ impl ApplicationHandler for WindowSurfaceApp {
             }
             WindowEvent::CursorLeft { .. } => {
                 self.cursor_position = None;
+            }
+            WindowEvent::Touch(touch) => {
+                self.apply_pointer_touch(touch);
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
@@ -497,6 +536,7 @@ impl ApplicationHandler for WindowSurfaceApp {
                     pointer_down: self.pointer_down,
                     just_right_clicked: self.just_right_clicked,
                     right_pointer_down: self.right_pointer_down,
+                    pointer_pressure: self.pointer_pressure,
                     wheel_delta_x: self.wheel_delta_x,
                     wheel_delta_y: self.wheel_delta_y,
                 },
