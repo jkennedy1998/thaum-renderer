@@ -1,125 +1,117 @@
-//! Shape-fade resolution (J 2026-09-07, second pass): the consumer-facing
-//! facade. Every step of a fade resolves against the GLOBAL ideal blend — the
-//! per-pixel alpha lerp of the two endpoint tiles at the eased progress — so
-//! the walk can only ever move toward the target shape, never wander off it
-//! (J's quality feedback on first-pass walks: intermediates were resolving
-//! against intermediate-to-intermediate blends and drifted away from the
-//! endpoint shapes). Candidates come from the two endpoints' shape-neighbor
-//! pools plus the endpoints themselves; the winner is the candidate whose
-//! tile is closest in L1 alpha to the ideal blend, accepted only when it
-//! beats BOTH endpoints (the never-worse rule). Everything is image-only:
-//! no glyph identity, no semantics, no randomness.
+//! Shape-fade resolution (J 2026-09-07, fourth pass): the consumer-facing
+//! facade. A fade is a GRADIENT TOUR: the walk visits the shape-gradient
+//! between the two endpoints — every loaded glyph/sprite from the endpoints'
+//! neighbor pools whose image distance to the TARGET is at most the from
+//! endpoint's, ordered by that distance (farthest first). So the tour starts
+//! at `from`, sweeps through interpolative glyphs that progressively resemble
+//! the target, and lands exactly on `to` — grabbing MULTIPLE characters in
+//! between (J's feedback: one blend character was too sparse, and the
+//! second-pass midpoint-tie intermediates were numerical accidents, not
+//! stepping stones). Monotone by construction: image distance to the target
+//! is non-increasing along the tour. Everything is image-only: L1 alpha
+//! distance, no glyph identity, no semantics, no randomness. The tour is
+//! computed once per pair over the progress grid and cached.
 
 use std::collections::HashMap;
 
-use crate::shape_fade::mask_space::MASK_PIXELS;
 use crate::shape_fade::neighbor_graph::{FadeTileProvider, NeighborGraph};
-use crate::GlyphTileRaster;
+use crate::shape_fade::similarity::alpha_distance;
 
-/// Progress buckets for the resolved-char cache. The eased progress is
-/// continuous, but visually indistinguishable within 1/32 of the fade.
-const PROGRESS_BUCKETS: u32 = 32;
+/// Progress buckets of the precomputed walk. Fine enough that consecutive
+/// interpolative glyphs surface distinctly; the cache holds one walk per pair.
+pub const PROGRESS_BUCKETS: usize = 48;
 
-const RESOLVED_CACHE_CAP: usize = 65_536;
+const WALK_CACHE_CAP: usize = 4096;
+
+/// Tie-break rank for the tour order: endpoints anchor their own ends.
+fn glyph_rank(glyph: char, from: char, to: char) -> u8 {
+    match glyph {
+        _ if glyph == from => 0,
+        _ if glyph == to => 2,
+        _ => 1,
+    }
+}
 
 pub struct ShapeFade {
     graph: NeighborGraph,
-    resolved: HashMap<(char, char, u32), char>,
+    walks: HashMap<(char, char), Vec<char>>,
 }
 
 impl ShapeFade {
     pub fn build(provider: &dyn FadeTileProvider) -> Self {
         Self {
             graph: NeighborGraph::build(provider),
-            resolved: HashMap::new(),
+            walks: HashMap::new(),
         }
     }
 
-    /// The resolved graphic for `t` along the from -> to fade: an
-    /// interpolative glyph/sprite from the loaded set when one beats both
-    /// endpoints against the ideal blend, otherwise the nearer endpoint.
-    /// `None` only when a graphic is unknown to the graph.
+    /// The tour for `t` along the from -> to fade. Always a loaded
+    /// glyph/sprite; `None` only when a graphic is unknown to the graph.
     pub fn resolve_shape_fade(&mut self, from: char, to: char, t: f32) -> Option<char> {
         let t = t.clamp(0.0, 1.0);
-        let bucket = ((t * PROGRESS_BUCKETS as f32).round() as u32).min(PROGRESS_BUCKETS);
-        if let Some(&resolved) = self.resolved.get(&(from, to, bucket)) {
-            return Some(resolved);
+        let bucket =
+            ((t * (PROGRESS_BUCKETS - 1) as f32).round() as usize).min(PROGRESS_BUCKETS - 1);
+        if !self.walks.contains_key(&(from, to)) {
+            if self.walks.len() >= WALK_CACHE_CAP {
+                self.walks.clear();
+            }
+            let walk = self.compute_walk(from, to)?;
+            self.walks.insert((from, to), walk);
         }
-
-        let a_index = self.graph.index_of(from)?;
-        let b_index = self.graph.index_of(to)?;
-        let resolved = if from == to {
-            from
-        } else {
-            let ideal = blend_alphas(self.graph.tile(a_index), self.graph.tile(b_index), t);
-            self.project_onto_set(from, a_index, to, b_index, &ideal, t)
-        };
-
-        if self.resolved.len() >= RESOLVED_CACHE_CAP {
-            self.resolved.clear();
-        }
-        self.resolved.insert((from, to, bucket), resolved);
-        Some(resolved)
+        self.walks.get(&(from, to)).map(|walk| walk[bucket])
     }
 
-    /// Scores the candidate pool against the ideal blend with the same L1
-    /// alpha distance the graph ranks by. An intermediate wins only when it
-    /// beats both endpoints; otherwise the endpoint closer to the ideal
-    /// renders (ties break toward `from` early, `to` late, then by char —
-    /// deterministic).
-    fn project_onto_set(
-        &self,
-        from: char,
-        from_index: usize,
-        to: char,
-        to_index: usize,
-        ideal: &[u8; MASK_PIXELS],
-        t: f32,
-    ) -> char {
-        let score = |glyph_index: usize| -> f32 {
-            alpha_distance_to_ideal(self.graph.tile(glyph_index), ideal)
-        };
-        let (score_from, score_to) = (score(from_index), score(to_index));
+    /// The gradient tour: pool glyphs (endpoints' neighbor lists plus the
+    /// endpoints) filtered to those at most as far from the target as `from`
+    /// is, ordered by that distance descending, paced evenly across the
+    /// progress grid. `from` opens the tour, `to` closes it.
+    fn compute_walk(&self, from: char, to: char) -> Option<Vec<char>> {
+        let from_index = self.graph.index_of(from)?;
+        let to_index = self.graph.index_of(to)?;
+        if from == to {
+            return Some(vec![from; PROGRESS_BUCKETS]);
+        }
 
-        let mut best: Option<(f32, char)> = None;
-        let mut push_candidate = |glyph: char, glyph_index: usize| {
-            if glyph == from || glyph == to {
-                return;
-            }
-            let candidate_score = score(glyph_index);
-            let better = match best {
-                None => true,
-                Some((best_score, best_glyph)) => {
-                    candidate_score < best_score
-                        || (candidate_score == best_score && glyph < best_glyph)
+        let max_distance = alpha_distance(self.graph.tile(from_index), self.graph.tile(to_index));
+        let mut gradient: Vec<(f32, char)> = vec![(max_distance, from)];
+        let push_pool = |pool_source: usize, gradient: &mut Vec<(f32, char)>| {
+            for (neighbor_index, _) in self.graph.neighbors_of(pool_source) {
+                let glyph = self.graph.chars[*neighbor_index];
+                if glyph == from || glyph == to {
+                    continue;
                 }
-            };
-            if better {
-                best = Some((candidate_score, glyph));
+                let distance =
+                    alpha_distance(self.graph.tile(*neighbor_index), self.graph.tile(to_index));
+                // Only glyphs on the target side of `from` keep the tour
+                // monotone; duplicates of the target itself are skipped (the
+                // tour must END on `to`, not on a look-alike).
+                if distance < max_distance
+                    && distance > 0.0
+                    && !gradient.iter().any(|(_, g)| *g == glyph)
+                {
+                    gradient.push((distance, glyph));
+                }
             }
         };
-        for (neighbor_index, _) in self.graph.neighbors_of(from_index) {
-            push_candidate(self.graph.chars[*neighbor_index], *neighbor_index);
-        }
-        for (neighbor_index, _) in self.graph.neighbors_of(to_index) {
-            push_candidate(self.graph.chars[*neighbor_index], *neighbor_index);
-        }
+        push_pool(from_index, &mut gradient);
+        push_pool(to_index, &mut gradient);
+        gradient.sort_by(|(da, ga), (db, gb)| {
+            db.total_cmp(da)
+                .then_with(|| ga.cmp(gb))
+                .then_with(|| glyph_rank(*ga, from, to).cmp(&glyph_rank(*gb, from, to)))
+        });
+        gradient.push((0.0, to));
 
-        // Never-worse rule: an intermediate must beat BOTH endpoints.
-        if let Some((intermediate_score, intermediate)) = best {
-            if intermediate_score < score_from && intermediate_score < score_to {
-                return intermediate;
-            }
-        }
-        if score_from < score_to {
-            from
-        } else if score_to < score_from {
-            to
-        } else if t < 0.5 {
-            from
-        } else {
-            to
-        }
+        // Even pacing: every gradient glyph dwells for its share of the fade.
+        let last = gradient.len() - 1;
+        Some(
+            (0..PROGRESS_BUCKETS)
+                .map(|bucket| {
+                    let position = bucket * last / (PROGRESS_BUCKETS - 1);
+                    gradient[position].1
+                })
+                .collect(),
+        )
     }
 
     pub fn graph(&self) -> &NeighborGraph {
@@ -127,31 +119,12 @@ impl ShapeFade {
     }
 }
 
-fn blend_alphas(a: &GlyphTileRaster, b: &GlyphTileRaster, t: f32) -> [u8; MASK_PIXELS] {
-    let mut ideal = [0u8; MASK_PIXELS];
-    for (ideal_pixel, (a_pixel, b_pixel)) in
-        ideal.iter_mut().zip(a.alpha.iter().zip(b.alpha.iter()))
-    {
-        let blended = f32::from(*a_pixel) + (f32::from(*b_pixel) - f32::from(*a_pixel)) * t;
-        *ideal_pixel = blended.round().clamp(0.0, 255.0) as u8;
-    }
-    ideal
-}
-
-fn alpha_distance_to_ideal(tile: &GlyphTileRaster, ideal: &[u8; MASK_PIXELS]) -> f32 {
-    tile.alpha
-        .iter()
-        .zip(ideal.iter())
-        .map(|(value, target)| (i32::from(*value) - i32::from(*target)).abs())
-        .sum::<i32>() as f32
-        / (255.0 * MASK_PIXELS as f32)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shape_fade::mask_space::MASK_PIXELS;
     use crate::shape_fade::neighbor_graph::FadeTileProvider;
-    use crate::{GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
+    use crate::{GlyphTileRaster, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
 
     fn tile_rect(x0: usize, y0: usize, x1: usize, y1: usize) -> GlyphTileRaster {
         let mut tile = GlyphTileRaster {
@@ -167,20 +140,18 @@ mod tests {
         tile
     }
 
+    fn empty_tile() -> GlyphTileRaster {
+        GlyphTileRaster {
+            width: GLYPH_TILE_WIDTH,
+            height: GLYPH_TILE_HEIGHT,
+            alpha: [0u8; MASK_PIXELS],
+        }
+    }
+
     struct TwoTiles;
     impl FadeTileProvider for TwoTiles {
         fn tiles(&self) -> Vec<(char, GlyphTileRaster)> {
-            vec![
-                ('#', tile_rect(0, 0, 11, 15)),
-                (
-                    ' ',
-                    GlyphTileRaster {
-                        width: GLYPH_TILE_WIDTH,
-                        height: GLYPH_TILE_HEIGHT,
-                        alpha: [0u8; MASK_PIXELS],
-                    },
-                ),
-            ]
+            vec![('#', tile_rect(0, 0, 11, 15)), (' ', empty_tile())]
         }
     }
 
@@ -191,10 +162,12 @@ mod tests {
         }
     }
 
+    /// A size gradient with containment: the full block, a mid block, a small
+    /// block, and a dot nested inside them — a chain the walk can step down.
     fn gradient_set() -> GradientSet {
         GradientSet(vec![
-            ('O', tile_rect(1, 1, 10, 14)),
-            ('8', tile_rect(0, 0, 11, 15)),
+            ('#', tile_rect(0, 0, 11, 15)),
+            ('8', tile_rect(1, 2, 10, 13)),
             ('o', tile_rect(3, 4, 8, 11)),
             ('.', tile_rect(5, 7, 6, 8)),
         ])
@@ -224,89 +197,130 @@ mod tests {
         let mut fade = ShapeFade::build(&TwoTiles);
         assert_eq!(fade.resolve_shape_fade('#', 'Ω', 0.5), None);
         let mut fade = ShapeFade::build(&gradient_set());
-        for from in ['O', '8', 'o', '.'] {
-            for to in ['O', '8', 'o', '.'] {
-                for step in 0..=PROGRESS_BUCKETS {
-                    let t = step as f32 / PROGRESS_BUCKETS as f32;
+        for from in ['#', '8', 'o', '.'] {
+            for to in ['#', '8', 'o', '.'] {
+                for step in 0..PROGRESS_BUCKETS {
+                    let t = step as f32 / (PROGRESS_BUCKETS - 1) as f32;
                     let resolved = fade.resolve_shape_fade(from, to, t);
                     assert!(resolved.is_some(), "{from}->{to} at {t}");
                     if step == 0 {
                         assert_eq!(resolved, Some(from));
                     }
-                    if step == PROGRESS_BUCKETS {
-                        assert_eq!(resolved, Some(to));
-                    }
                 }
+                assert_eq!(
+                    fade.resolve_shape_fade(from, to, 1.0),
+                    Some(to),
+                    "{from}->{to} must land on the target"
+                );
             }
         }
     }
 
     #[test]
-    fn resolution_is_deterministic_and_cache_hits_equal_cold_paths() {
+    fn the_walk_is_chain_deterministic_and_cache_hits_equal_cold_paths() {
         let mut fade = ShapeFade::build(&gradient_set());
-        let cold: Vec<char> = (0..=PROGRESS_BUCKETS)
+        let cold: Vec<char> = (0..PROGRESS_BUCKETS)
             .map(|step| {
-                let t = step as f32 / PROGRESS_BUCKETS as f32;
-                fade.resolve_shape_fade('O', 'o', t).unwrap()
+                fade.resolve_shape_fade('#', 'o', step as f32 / (PROGRESS_BUCKETS - 1) as f32)
+                    .unwrap()
             })
             .collect();
-        let warm: Vec<char> = (0..=PROGRESS_BUCKETS)
+        let warm: Vec<char> = (0..PROGRESS_BUCKETS)
             .map(|step| {
-                let t = step as f32 / PROGRESS_BUCKETS as f32;
-                fade.resolve_shape_fade('O', 'o', t).unwrap()
+                fade.resolve_shape_fade('#', 'o', step as f32 / (PROGRESS_BUCKETS - 1) as f32)
+                    .unwrap()
             })
             .collect();
         assert_eq!(cold, warm);
+        let mut rebuilt = ShapeFade::build(&gradient_set());
+        let fresh: Vec<char> = (0..PROGRESS_BUCKETS)
+            .map(|step| {
+                rebuilt
+                    .resolve_shape_fade('#', 'o', step as f32 / (PROGRESS_BUCKETS - 1) as f32)
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(cold, fresh);
     }
 
     #[test]
     fn every_intermediate_is_a_loaded_graphic() {
         let mut fade = ShapeFade::build(&gradient_set());
-        for step in 0..=PROGRESS_BUCKETS {
-            let t = step as f32 / PROGRESS_BUCKETS as f32;
-            let resolved = fade.resolve_shape_fade('O', 'o', t).unwrap();
+        for step in 0..PROGRESS_BUCKETS {
+            let t = step as f32 / (PROGRESS_BUCKETS - 1) as f32;
+            let resolved = fade.resolve_shape_fade('#', 'o', t).unwrap();
             assert!(
-                ['O', '8', 'o', '.'].contains(&resolved),
+                ['#', '8', 'o', '.'].contains(&resolved),
                 "intermediate {resolved} is not a loaded graphic"
             );
         }
     }
 
     #[test]
-    fn the_walk_never_revisits_a_left_behind_endpoint_shape() {
-        // Global-ideal projection: once the blend has passed the halfway
-        // point, resolving back to the FROM shape would mean the walk moved
-        // away from the goal. The resolved sequence may hold steady, but it
-        // may never return to an earlier endpoint side after crossing.
+    fn the_chain_steps_through_multiple_interpolative_graphics() {
+        // J's ask: fades should grab MULTIPLE characters in between. The size
+        // gradient gives the chain stepping stones; the walk must visit at
+        // least three distinct graphics on its way down.
         let mut fade = ShapeFade::build(&gradient_set());
-        let walk: Vec<char> = (0..=PROGRESS_BUCKETS)
-            .map(|step| {
-                let t = step as f32 / PROGRESS_BUCKETS as f32;
-                fade.resolve_shape_fade('8', 'o', t).unwrap()
-            })
-            .collect();
-        let mut crossed = false;
-        for &resolved in &walk {
-            if resolved != '8' {
-                crossed = true;
+        let distinct: Vec<char> = {
+            let mut seen = Vec::new();
+            for step in 0..PROGRESS_BUCKETS {
+                let t = step as f32 / (PROGRESS_BUCKETS - 1) as f32;
+                let resolved = fade.resolve_shape_fade('#', '.', t).unwrap();
+                if seen.last() != Some(&resolved) {
+                    seen.push(resolved);
+                }
             }
+            seen
+        };
+        assert!(
+            distinct.len() >= 3,
+            "the chain should step through several graphics: {distinct:?}"
+        );
+        assert_eq!(distinct.first(), Some(&'#'));
+        assert_eq!(distinct.last(), Some(&'.'));
+    }
+
+    #[test]
+    fn the_walk_never_moves_away_from_the_target() {
+        // The toward-goal rule: image distance to the TARGET tile is
+        // non-increasing along the whole walk.
+        let mut fade = ShapeFade::build(&gradient_set());
+        let (from_index, _to_index, target) = {
+            let graph = fade.graph();
+            let from_index = graph.index_of('#').unwrap();
+            let to_index = graph.index_of('o').unwrap();
+            (from_index, to_index, graph.tile(to_index).clone())
+        };
+        let mut previous_distance = {
+            let graph = fade.graph();
+            alpha_distance(graph.tile(from_index), &target)
+        };
+        for step in 0..PROGRESS_BUCKETS {
+            let t = step as f32 / (PROGRESS_BUCKETS - 1) as f32;
+            let resolved = fade.resolve_shape_fade('#', 'o', t).unwrap();
+            let distance = {
+                let graph = fade.graph();
+                let resolved_index = graph.index_of(resolved).unwrap();
+                alpha_distance(graph.tile(resolved_index), &target)
+            };
             assert!(
-                !(crossed && resolved == '8'),
-                "walk returned to the departed shape: {walk:?}"
+                distance <= previous_distance + 1e-6,
+                "step {step} moved away from the target ({previous_distance} -> {distance})"
             );
+            previous_distance = distance;
         }
     }
 
     #[test]
     fn a_two_tile_fade_flips_exactly_once() {
-        // With no intermediates in the pool, the walk holds one endpoint then
-        // the other — never oscillating (the never-worse rule on a degenerate
-        // pool).
+        // No stepping stones in the pool: the walk holds one endpoint then the
+        // other, never oscillating.
         let mut fade = ShapeFade::build(&TwoTiles);
         let mut flips = 0;
         let mut last = fade.resolve_shape_fade('#', ' ', 0.0).unwrap();
-        for step in 1..=PROGRESS_BUCKETS {
-            let t = step as f32 / PROGRESS_BUCKETS as f32;
+        for step in 1..PROGRESS_BUCKETS {
+            let t = step as f32 / (PROGRESS_BUCKETS - 1) as f32;
             let resolved = fade.resolve_shape_fade('#', ' ', t).unwrap();
             if resolved != last {
                 flips += 1;

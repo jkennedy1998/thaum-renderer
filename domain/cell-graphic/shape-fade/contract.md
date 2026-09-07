@@ -29,7 +29,7 @@ Own shape-space interpolation between cell graphics: treating every 12x16 graphi
 - `mask_space.rs` — tile alpha -> packed `[u64; 3]` binary mask; empty-mask truth
 - `similarity.rs` — Dice metric over packed masks
 - `neighbor_graph.rs` — all-pairs similarity + kNN lists, built from a tile provider at load; rebuild on reload
-- `fade.rs` — `resolve_shape_fade(from, to, t) -> graphic` against the global ideal blend, accept-only-if-closer rule, t-quantized resolved-char cache
+- `fade.rs` — `resolve_shape_fade(from, to, t) -> graphic` walking the per-pair gradient tour, t-quantized walk cache
 - `tests/` — property tests over hand-built masks (no font files needed)
 
 ## dependencies
@@ -60,7 +60,7 @@ via: `build_neighbor_graph`
 
 ## tests
 - (phase 1) mask packing round-trip, metric properties: symmetry, self-similarity, empty-mask (space) dissolve, sprite-over-font mask parity
-- (phase 2) fade resolution: interpolative bridges for shape-neighbor pairs, endpoint fallback when pools hold nothing better, cache hit == cold path, determinism, and the monotone-toward-goal property (a walk never returns to a departed endpoint shape)
+- (phase 2) fade resolution: multi-glyph tours for shape-neighbor pairs, clean two-shape dissolves when pools hold nothing between the endpoints, cache hit == cold path, determinism, and the monotone-toward-goal property (each tour step is strictly closer to the target shape)
 - (phase 3, painter side) injected-resolver blend, default-cutoff parity, end-to-end scrub through intermediates
 
 ## data
