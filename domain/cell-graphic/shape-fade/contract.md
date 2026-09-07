@@ -29,7 +29,7 @@ Own shape-space interpolation between cell graphics: treating every 12x16 graphi
 - `mask_space.rs` — tile alpha -> packed `[u64; 3]` binary mask; empty-mask truth
 - `similarity.rs` — Dice metric over packed masks
 - `neighbor_graph.rs` — all-pairs similarity + kNN lists, built from a tile provider at load; rebuild on reload
-- `fade.rs` — `resolve_shape_fade(from, to, t) -> graphic`, accept-only-if-closer rule, t-quantized LRU cache
+- `fade.rs` — `resolve_shape_fade(from, to, t) -> graphic` against the global ideal blend, accept-only-if-closer rule, t-quantized resolved-char cache
 - `tests/` — property tests over hand-built masks (no font files needed)
 
 ## dependencies
@@ -44,12 +44,6 @@ send: from graphic (CellGraphic), to graphic (CellGraphic), eased progress t in 
 returns: the resolved CellGraphic for that point — walking the pair's fade path, the segment covering t resolves an intermediate graphic when one beats both endpoints against the ideal blend mask, otherwise the nearer segment endpoint
 effects: none at call time (reads derived state; may insert into the bounded caches)
 via: `resolve_shape_fade`
-
-### fade path query
-send: from graphic, to graphic
-returns: the multi-step path of loaded graphics the fade routes through (empty only when a graphic is unknown to the graph), with the direct-edge fallback so every known pair has a path
-effects: none at call time (may insert into the bounded path cache)
-via: `fade_path`
 
 ### shape-neighbor graph build
 send: a tile provider (anything that yields `(graphic identity, GlyphTileRaster)` for the loaded set)
@@ -66,16 +60,17 @@ via: `build_neighbor_graph`
 
 ## tests
 - (phase 1) mask packing round-trip, metric properties: symmetry, self-similarity, empty-mask (space) dissolve, sprite-over-font mask parity
-- (phase 2) fade resolution: plausible bridges for shape-neighbor pairs (O -> # class), endpoint fallback for disjoint pairs, cache hit == cold path, determinism across repeated and reversed queries
+- (phase 2) fade resolution: interpolative bridges for shape-neighbor pairs, endpoint fallback when pools hold nothing better, cache hit == cold path, determinism, and the monotone-toward-goal property (a walk never returns to a departed endpoint shape)
 - (phase 3, painter side) injected-resolver blend, default-cutoff parity, end-to-end scrub through intermediates
 
 ## data
 - none
 
 ## notes
-- the never-worse rule is the contract's core promise: any step this encapsulation cannot bridge well degrades to the segment's nearer endpoint, never to something uglier
-- multi-step routing is what makes ANY-pair fades watchable: shape-disjoint pairs (a dense block to a dot) walk through progressively closer intermediates instead of popping; the hop cap keeps paths from wandering, and the per-hop penalty keeps them from pointlessly multi-hopping when a direct blend is already fine
+- the never-worse rule is the contract's core promise: any step this encapsulation cannot bridge well degrades to the endpoint nearer to the ideal blend, never to something uglier
+- the first pass routed multi-step paths through the graph and resolved each segment against its own endpoints; walks drifted away from the endpoint shapes (J's quality feedback). The second pass scores every candidate against the global endpoint blend, so the walk is monotone toward the goal by construction — the removed path router is documented history, not pending work
 - every intermediate is a real loaded glyph or sprite — the encapsulation projects onto the glyph set, it never invents shapes
+- pairs whose neighbor pools hold nothing closer than the endpoints fade as a clean two-shape dissolve (with the painter's weight fade softening it), which is the honest result for shape-disjoint pairs
 - the graph builds at one canonical weight; per-weight graphs are a future child only if the canonical graph proves too coarse
 - alpha lerp uses the u8 alpha arrays from `GlyphTileRaster` directly; binary masks are for the metric and candidate pruning
 - kept deterministic by contract: no randomness, no wall-clock, no session state, sorted candidate iteration — scrub-back stability and replay identity depend on it

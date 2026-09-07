@@ -1,75 +1,78 @@
-//! Shape-fade similarity metric (J 2026-09-07): the Dice coefficient over two
-//! packed masks — `2|A∩B| / (|A|+|B|)`. Symmetric, one only between identical
-//! shapes, zero between disjoint shapes. The empty mask (space) scores zero
-//! against every non-empty shape, so a fade whose target is space IS the
-//! dissolve; space-to-space is the identity. Shape distance is `1 - dice`,
-//! the edge weight the fade-path walk routes over.
+//! Shape-fade similarity (J 2026-09-07, second pass): the metric is pure L1
+//! alpha distance over the two 12x16 tiles — strictly image-based. No glyph
+//! identity, no character semantics, no name weighting anywhere in the fade;
+//! two graphics are close exactly when their ink sits in the same places.
+//! Normalized to 0..=1: identical tiles cost 0, a tile and its total inverse
+//! (full ink against empty) cost 1.
 
-use crate::shape_fade::mask_space::PackedMask;
+use crate::shape_fade::mask_space::MASK_PIXELS;
+use crate::GlyphTileRaster;
 
-/// Dice similarity in 0..=1. Two empty masks are the same shape (similarity
-/// one); an empty and a non-empty mask share nothing (zero).
-pub fn dice_similarity(a: &PackedMask, b: &PackedMask) -> f32 {
-    let total = a.coverage_count() + b.coverage_count();
-    if total == 0 {
-        return 1.0;
-    }
-    let shared = a.intersection_count(b);
-    (2.0 * shared as f32) / total as f32
-}
-
-/// Shape distance in 0..=1 (`1 - dice`): the edge weight of the fade-path
-/// graph. Identical shapes cost nothing; disjoint shapes cost the maximum.
-pub fn shape_distance(a: &PackedMask, b: &PackedMask) -> f32 {
-    1.0 - dice_similarity(a, b)
+/// L1 alpha distance in 0..=1: the mean absolute per-pixel alpha difference,
+/// normalized by full-scale ink. The distance the neighbor graph ranks by and
+/// the fade resolves against.
+pub fn alpha_distance(a: &GlyphTileRaster, b: &GlyphTileRaster) -> f32 {
+    let total: u64 = a
+        .alpha
+        .iter()
+        .zip(b.alpha.iter())
+        .map(|(x, y)| (i32::from(*x) - i32::from(*y)).unsigned_abs() as u64)
+        .sum();
+    total as f32 / (255.0 * MASK_PIXELS as f32)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
 
-    fn mask_at(indices: &[usize]) -> PackedMask {
-        let mut alpha = [0u8; crate::shape_fade::mask_space::MASK_PIXELS];
+    fn tile_with_coverage(indices: &[usize]) -> GlyphTileRaster {
+        let mut tile = GlyphTileRaster {
+            width: GLYPH_TILE_WIDTH,
+            height: GLYPH_TILE_HEIGHT,
+            alpha: [0u8; MASK_PIXELS],
+        };
         for &index in indices {
-            alpha[index] = 255;
+            tile.alpha[index] = 255;
         }
-        PackedMask::from_alpha(&alpha)
+        tile
     }
 
     #[test]
-    fn identical_masks_score_one() {
-        let mask = mask_at(&[0, 5, 30]);
-        assert_eq!(dice_similarity(&mask, &mask), 1.0);
-        assert_eq!(shape_distance(&mask, &mask), 0.0);
+    fn identical_tiles_cost_nothing() {
+        let tile = tile_with_coverage(&[0, 5, 30]);
+        assert_eq!(alpha_distance(&tile, &tile), 0.0);
     }
 
     #[test]
-    fn disjoint_masks_score_zero() {
-        let a = mask_at(&[0, 1, 2, 3]);
-        let b = mask_at(&[100, 101, 102, 103]);
-        assert_eq!(dice_similarity(&a, &b), 0.0);
-        assert_eq!(shape_distance(&a, &b), 1.0);
-    }
-
-    #[test]
-    fn the_empty_mask_is_the_dissolve_state() {
-        let empty = PackedMask::empty();
-        let shape = mask_at(&[0, 1, 2, 3, 4, 5, 6, 7]);
-        assert_eq!(dice_similarity(&empty, &shape), 0.0);
+    fn full_ink_against_empty_costs_the_maximum() {
+        let full = GlyphTileRaster {
+            width: GLYPH_TILE_WIDTH,
+            height: GLYPH_TILE_HEIGHT,
+            alpha: [255u8; MASK_PIXELS],
+        };
+        let empty = GlyphTileRaster {
+            width: GLYPH_TILE_WIDTH,
+            height: GLYPH_TILE_HEIGHT,
+            alpha: [0u8; MASK_PIXELS],
+        };
+        assert_eq!(alpha_distance(&full, &empty), 1.0);
         assert_eq!(
-            dice_similarity(&empty, &empty),
-            1.0,
+            alpha_distance(&empty, &empty),
+            0.0,
             "space to space is identity"
         );
     }
 
     #[test]
-    fn partial_overlap_scores_between_the_extremes() {
-        let a = mask_at(&[0, 1, 2, 3]);
-        let b = mask_at(&[2, 3, 4, 5]);
-        let similarity = dice_similarity(&a, &b);
-        assert!(similarity > 0.0 && similarity < 1.0, "{similarity}");
-        assert_eq!(similarity, 0.5, "2*2 shared / 8 total");
-        assert!(shape_distance(&a, &b) < shape_distance(&a, &mask_at(&[50, 51, 52, 53])));
+    fn distance_is_symmetric_and_proportional_to_disagreement() {
+        let a = tile_with_coverage(&[0, 1, 2, 3]);
+        let b = tile_with_coverage(&[2, 3, 4, 5]);
+        let distance = alpha_distance(&a, &b);
+        assert_eq!(distance, alpha_distance(&b, &a));
+        // 4 differing pixels at full alpha out of 192.
+        assert_eq!(distance, 4.0 / 192.0);
+        let far = tile_with_coverage(&[50, 51, 52, 53]);
+        assert!(alpha_distance(&a, &far) > distance);
     }
 }

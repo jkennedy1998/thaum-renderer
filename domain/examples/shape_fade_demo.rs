@@ -48,17 +48,7 @@ fn render_tile(tile: &thaum_renderer_domain::GlyphTileRaster) -> Vec<String> {
 }
 
 fn print_fade(fade: &mut ShapeFade, from: char, to: char, steps: usize) {
-    let path = match fade.fade_path(from, to) {
-        Some(path) => path.to_vec(),
-        None => {
-            println!("=== {from} -> {to}: no path (graphic unknown to the graph)");
-            return;
-        }
-    };
-    println!(
-        "=== {from} -> {to}   (path: {})",
-        path.iter().collect::<String>()
-    );
+    println!("=== {from} -> {to}");
 
     let mut frames: Vec<(char, Vec<String>)> = Vec::new();
     for step in 0..=steps {
@@ -169,37 +159,6 @@ fn main() {
         println!("walks visiting 3+ distinct graphics: {}", rich.len());
         for description in rich.iter().take(60) {
             println!("  {description}");
-        }
-        return;
-    }
-
-    if std::env::var("FADE_SCAN").is_ok() {
-        // Scan: which pairs actually route multi-hop, and how long are the walks?
-        let chars = fade.graph().chars.clone();
-        let mut multi: Vec<(usize, String)> = Vec::new();
-        for &from in &chars {
-            for &to in &chars {
-                if let Some(path) = fade.fade_path(from, to) {
-                    if path.len() > 2 {
-                        multi.push((
-                            path.len(),
-                            format!(
-                                "{from} -> {to}   (path: {})",
-                                path.iter().collect::<String>()
-                            ),
-                        ));
-                    }
-                }
-            }
-        }
-        multi.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-        println!(
-            "multi-hop pairs: {} of {}",
-            multi.len(),
-            chars.len() * chars.len()
-        );
-        for (length, description) in multi.iter().take(40) {
-            println!("  hops-{}  {description}", length - 1);
         }
         return;
     }

@@ -1,27 +1,29 @@
-//! Shape-fade resolution (J 2026-09-07): the consumer-facing facade. A fade
-//! between two graphics walks the pair's fade path (see `neighbor_graph`);
-//! the segment covering the eased progress projects onto the loaded glyph set
-//! — the candidate graphics best approximating the ideal per-pixel alpha
-//! blend of the segment's endpoints. The never-worse rule is enforced here:
-//! an intermediate is only used when it beats BOTH segment endpoints against
-//! the ideal blend; otherwise the nearer endpoint renders. Deterministic and
-//! cached (paths per pair, resolved chars per pair + progress bucket).
+//! Shape-fade resolution (J 2026-09-07, second pass): the consumer-facing
+//! facade. Every step of a fade resolves against the GLOBAL ideal blend — the
+//! per-pixel alpha lerp of the two endpoint tiles at the eased progress — so
+//! the walk can only ever move toward the target shape, never wander off it
+//! (J's quality feedback on first-pass walks: intermediates were resolving
+//! against intermediate-to-intermediate blends and drifted away from the
+//! endpoint shapes). Candidates come from the two endpoints' shape-neighbor
+//! pools plus the endpoints themselves; the winner is the candidate whose
+//! tile is closest in L1 alpha to the ideal blend, accepted only when it
+//! beats BOTH endpoints (the never-worse rule). Everything is image-only:
+//! no glyph identity, no semantics, no randomness.
 
 use std::collections::HashMap;
 
 use crate::shape_fade::mask_space::MASK_PIXELS;
 use crate::shape_fade::neighbor_graph::{FadeTileProvider, NeighborGraph};
+use crate::GlyphTileRaster;
 
 /// Progress buckets for the resolved-char cache. The eased progress is
 /// continuous, but visually indistinguishable within 1/32 of the fade.
 const PROGRESS_BUCKETS: u32 = 32;
 
-const PATH_CACHE_CAP: usize = 4096;
 const RESOLVED_CACHE_CAP: usize = 65_536;
 
 pub struct ShapeFade {
     graph: NeighborGraph,
-    paths: HashMap<(char, char), Vec<char>>,
     resolved: HashMap<(char, char, u32), char>,
 }
 
@@ -29,28 +31,14 @@ impl ShapeFade {
     pub fn build(provider: &dyn FadeTileProvider) -> Self {
         Self {
             graph: NeighborGraph::build(provider),
-            paths: HashMap::new(),
             resolved: HashMap::new(),
         }
     }
 
-    /// The pair's fade path (cached). `None` when either graphic is unknown
-    /// to the graph — callers fall back to their own cutoff behavior.
-    pub fn fade_path(&mut self, from: char, to: char) -> Option<&[char]> {
-        if !self.paths.contains_key(&(from, to)) {
-            if self.paths.len() >= PATH_CACHE_CAP {
-                self.paths.clear();
-            }
-            let path = self.graph.fade_path(from, to)?;
-            self.paths.insert((from, to), path);
-        }
-        self.paths.get(&(from, to)).map(|path| path.as_slice())
-    }
-
-    /// The resolved graphic for `t` along the from -> to fade. The result is
-    /// always one of: an interpolative glyph/sprite from the loaded set, or
-    /// one of the two endpoints. `None` only when the pair is unresolvable
-    /// (a graphic unknown to the graph).
+    /// The resolved graphic for `t` along the from -> to fade: an
+    /// interpolative glyph/sprite from the loaded set when one beats both
+    /// endpoints against the ideal blend, otherwise the nearer endpoint.
+    /// `None` only when a graphic is unknown to the graph.
     pub fn resolve_shape_fade(&mut self, from: char, to: char, t: f32) -> Option<char> {
         let t = t.clamp(0.0, 1.0);
         let bucket = ((t * PROGRESS_BUCKETS as f32).round() as u32).min(PROGRESS_BUCKETS);
@@ -58,16 +46,13 @@ impl ShapeFade {
             return Some(resolved);
         }
 
-        let path = self.fade_path(from, to)?.to_vec();
-        let resolved = if path.len() == 1 {
-            path[0]
+        let a_index = self.graph.index_of(from)?;
+        let b_index = self.graph.index_of(to)?;
+        let resolved = if from == to {
+            from
         } else {
-            let scaled = t * (path.len() - 1) as f32;
-            let segment = (scaled.floor() as usize).min(path.len() - 2);
-            let local = scaled - segment as f32;
-            let a = path[segment];
-            let b = path[segment + 1];
-            self.resolve_segment(a, b, local)
+            let ideal = blend_alphas(self.graph.tile(a_index), self.graph.tile(b_index), t);
+            self.project_onto_set(from, a_index, to, b_index, &ideal, t)
         };
 
         if self.resolved.len() >= RESOLVED_CACHE_CAP {
@@ -77,67 +62,63 @@ impl ShapeFade {
         Some(resolved)
     }
 
-    /// One path segment's projection: candidates are the segment endpoints
-    /// plus both endpoints' neighbor lists; the winner is the candidate whose
-    /// tile alpha is closest (L1) to the ideal blend — accepted only when it
-    /// beats both endpoints, else the nearer endpoint renders.
-    fn resolve_segment(&self, a: char, b: char, local: f32) -> char {
-        let (a_index, b_index) = (self.graph.index_of(a), self.graph.index_of(b));
-        let (Some(a_index), Some(b_index)) = (a_index, b_index) else {
-            return if local < 0.5 { a } else { b };
+    /// Scores the candidate pool against the ideal blend with the same L1
+    /// alpha distance the graph ranks by. An intermediate wins only when it
+    /// beats both endpoints; otherwise the endpoint closer to the ideal
+    /// renders (ties break toward `from` early, `to` late, then by char —
+    /// deterministic).
+    fn project_onto_set(
+        &self,
+        from: char,
+        from_index: usize,
+        to: char,
+        to_index: usize,
+        ideal: &[u8; MASK_PIXELS],
+        t: f32,
+    ) -> char {
+        let score = |glyph_index: usize| -> f32 {
+            alpha_distance_to_ideal(self.graph.tile(glyph_index), ideal)
         };
+        let (score_from, score_to) = (score(from_index), score(to_index));
 
-        let alpha_a = self.graph.tile(a_index).alpha;
-        let alpha_b = self.graph.tile(b_index).alpha;
-        let mut ideal = [0u8; MASK_PIXELS];
-        for index in 0..MASK_PIXELS {
-            let blended =
-                alpha_a[index] as f32 + (alpha_b[index] as f32 - alpha_a[index] as f32) * local;
-            ideal[index] = blended.round().clamp(0.0, 255.0) as u8;
-        }
-
-        let mut candidates: Vec<char> = vec![a, b];
-        for endpoint_index in [a_index, b_index] {
-            for (neighbor_index, _) in self.graph.neighbors_of(endpoint_index) {
-                let neighbor = self.graph.chars[*neighbor_index];
-                if neighbor != a && neighbor != b && !candidates.contains(&neighbor) {
-                    candidates.push(neighbor);
-                }
+        let mut best: Option<(f32, char)> = None;
+        let mut push_candidate = |glyph: char, glyph_index: usize| {
+            if glyph == from || glyph == to {
+                return;
             }
-        }
-
-        let score = |glyph: char| -> f32 {
-            match self.graph.index_of(glyph) {
-                Some(index) => {
-                    let alpha = &self.graph.tile(index).alpha;
-                    alpha
-                        .iter()
-                        .zip(ideal.iter())
-                        .map(|(value, target)| ((*value as i32) - (*target as i32)).abs())
-                        .sum::<i32>() as f32
+            let candidate_score = score(glyph_index);
+            let better = match best {
+                None => true,
+                Some((best_score, best_glyph)) => {
+                    candidate_score < best_score
+                        || (candidate_score == best_score && glyph < best_glyph)
                 }
-                None => f32::INFINITY,
+            };
+            if better {
+                best = Some((candidate_score, glyph));
             }
         };
-
-        let (score_a, score_b) = (score(a), score(b));
-        let mut best = (f32::INFINITY, ' ');
-        for &candidate in &candidates {
-            let candidate_score = score(candidate);
-            let wins_tie = candidate_score == best.0 && candidate < best.1;
-            if candidate_score < best.0 || wins_tie {
-                best = (candidate_score, candidate);
-            }
+        for (neighbor_index, _) in self.graph.neighbors_of(from_index) {
+            push_candidate(self.graph.chars[*neighbor_index], *neighbor_index);
+        }
+        for (neighbor_index, _) in self.graph.neighbors_of(to_index) {
+            push_candidate(self.graph.chars[*neighbor_index], *neighbor_index);
         }
 
-        // Never-worse rule: an intermediate must beat BOTH endpoints. Without
-        // a qualifying intermediate the nearer endpoint renders.
-        if best.1 != a && best.1 != b && best.0 < score_a && best.0 < score_b {
-            best.1
-        } else if local < 0.5 {
-            a
+        // Never-worse rule: an intermediate must beat BOTH endpoints.
+        if let Some((intermediate_score, intermediate)) = best {
+            if intermediate_score < score_from && intermediate_score < score_to {
+                return intermediate;
+            }
+        }
+        if score_from < score_to {
+            from
+        } else if score_to < score_from {
+            to
+        } else if t < 0.5 {
+            from
         } else {
-            b
+            to
         }
     }
 
@@ -146,33 +127,60 @@ impl ShapeFade {
     }
 }
 
-/// Bounded-cache contract check helper: the caches clear wholesale on
-/// overflow (deterministic — same query sequence, same clears).
+fn blend_alphas(a: &GlyphTileRaster, b: &GlyphTileRaster, t: f32) -> [u8; MASK_PIXELS] {
+    let mut ideal = [0u8; MASK_PIXELS];
+    for (ideal_pixel, (a_pixel, b_pixel)) in
+        ideal.iter_mut().zip(a.alpha.iter().zip(b.alpha.iter()))
+    {
+        let blended = f32::from(*a_pixel) + (f32::from(*b_pixel) - f32::from(*a_pixel)) * t;
+        *ideal_pixel = blended.round().clamp(0.0, 255.0) as u8;
+    }
+    ideal
+}
+
+fn alpha_distance_to_ideal(tile: &GlyphTileRaster, ideal: &[u8; MASK_PIXELS]) -> f32 {
+    tile.alpha
+        .iter()
+        .zip(ideal.iter())
+        .map(|(value, target)| (i32::from(*value) - i32::from(*target)).abs())
+        .sum::<i32>() as f32
+        / (255.0 * MASK_PIXELS as f32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{GlyphTileRaster, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
+    use crate::shape_fade::neighbor_graph::FadeTileProvider;
+    use crate::{GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
 
-    fn solid_tile() -> GlyphTileRaster {
-        GlyphTileRaster {
-            width: GLYPH_TILE_WIDTH,
-            height: GLYPH_TILE_HEIGHT,
-            alpha: [255u8; MASK_PIXELS],
-        }
-    }
-
-    fn empty_tile() -> GlyphTileRaster {
-        GlyphTileRaster {
+    fn tile_rect(x0: usize, y0: usize, x1: usize, y1: usize) -> GlyphTileRaster {
+        let mut tile = GlyphTileRaster {
             width: GLYPH_TILE_WIDTH,
             height: GLYPH_TILE_HEIGHT,
             alpha: [0u8; MASK_PIXELS],
+        };
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                tile.alpha[y * GLYPH_TILE_WIDTH + x] = 255;
+            }
         }
+        tile
     }
 
     struct TwoTiles;
     impl FadeTileProvider for TwoTiles {
         fn tiles(&self) -> Vec<(char, GlyphTileRaster)> {
-            vec![('#', solid_tile()), (' ', empty_tile())]
+            vec![
+                ('#', tile_rect(0, 0, 11, 15)),
+                (
+                    ' ',
+                    GlyphTileRaster {
+                        width: GLYPH_TILE_WIDTH,
+                        height: GLYPH_TILE_HEIGHT,
+                        alpha: [0u8; MASK_PIXELS],
+                    },
+                ),
+            ]
         }
     }
 
@@ -183,27 +191,13 @@ mod tests {
         }
     }
 
-    fn tile_rect(x0: usize, y0: usize, x1: usize, y1: usize) -> GlyphTileRaster {
-        let mut tile = empty_tile();
-        for y in y0..=y1 {
-            for x in x0..=x1 {
-                tile.alpha[y * GLYPH_TILE_WIDTH + x] = 255;
-            }
-        }
-        tile
-    }
-
-    fn tile_outline(x0: usize, y0: usize, x1: usize, y1: usize) -> GlyphTileRaster {
-        let mut tile = empty_tile();
-        for x in x0..=x1 {
-            tile.alpha[y0 * GLYPH_TILE_WIDTH + x] = 255;
-            tile.alpha[y1 * GLYPH_TILE_WIDTH + x] = 255;
-        }
-        for y in y0..=y1 {
-            tile.alpha[y * GLYPH_TILE_WIDTH + x0] = 255;
-            tile.alpha[y * GLYPH_TILE_WIDTH + x1] = 255;
-        }
-        tile
+    fn gradient_set() -> GradientSet {
+        GradientSet(vec![
+            ('O', tile_rect(1, 1, 10, 14)),
+            ('8', tile_rect(0, 0, 11, 15)),
+            ('o', tile_rect(3, 4, 8, 11)),
+            ('.', tile_rect(5, 7, 6, 8)),
+        ])
     }
 
     #[test]
@@ -220,15 +214,6 @@ mod tests {
     }
 
     #[test]
-    fn fading_to_space_dissolves_through_the_lighter_endpoint_side() {
-        let mut fade = ShapeFade::build(&TwoTiles);
-        // Late in the fade the ideal blend is mostly empty: only space (or a
-        // candidate closer to empty, of which there are none here) qualifies.
-        let late = fade.resolve_shape_fade('#', ' ', 0.9).unwrap();
-        assert_eq!(late, ' ');
-    }
-
-    #[test]
     fn identical_graphics_resolve_to_themselves() {
         let mut fade = ShapeFade::build(&TwoTiles);
         assert_eq!(fade.resolve_shape_fade('#', '#', 0.37), Some('#'));
@@ -238,14 +223,9 @@ mod tests {
     fn unresolved_pairs_return_none_and_known_pairs_always_resolve() {
         let mut fade = ShapeFade::build(&TwoTiles);
         assert_eq!(fade.resolve_shape_fade('#', 'Ω', 0.5), None);
-        let mut fade = ShapeFade::build(&GradientSet(vec![
-            ('O', tile_outline(1, 1, 10, 14)),
-            ('o', tile_outline(4, 5, 8, 11)),
-            ('.', tile_rect(5, 7, 6, 8)),
-            ('#', tile_rect(0, 0, 11, 15)),
-        ]));
-        for from in ['O', 'o', '.', '#'] {
-            for to in ['O', 'o', '.', '#'] {
+        let mut fade = ShapeFade::build(&gradient_set());
+        for from in ['O', '8', 'o', '.'] {
+            for to in ['O', '8', 'o', '.'] {
                 for step in 0..=PROGRESS_BUCKETS {
                     let t = step as f32 / PROGRESS_BUCKETS as f32;
                     let resolved = fade.resolve_shape_fade(from, to, t);
@@ -259,49 +239,69 @@ mod tests {
                 }
             }
         }
-        assert!(fade.graph().all_pairs_have_paths());
     }
 
     #[test]
-    fn resolution_is_deterministic_and_reversal_symmetric_at_extremes() {
-        let mut fade = ShapeFade::build(&GradientSet(vec![
-            ('O', tile_outline(1, 1, 10, 14)),
-            ('o', tile_outline(4, 5, 8, 11)),
-            ('.', tile_rect(5, 7, 6, 8)),
-        ]));
-        let first = fade.resolve_shape_fade('O', '.', 0.5).unwrap();
-        let second = fade.resolve_shape_fade('O', '.', 0.5).unwrap();
-        assert_eq!(first, second, "cache hit must equal cold path");
-        let mut fade = ShapeFade::build(&GradientSet(vec![
-            ('O', tile_outline(1, 1, 10, 14)),
-            ('o', tile_outline(4, 5, 8, 11)),
-            ('.', tile_rect(5, 7, 6, 8)),
-        ]));
-        assert_eq!(fade.resolve_shape_fade('O', '.', 0.0), Some('O'));
-        assert_eq!(fade.resolve_shape_fade('.', 'O', 1.0), Some('O'));
+    fn resolution_is_deterministic_and_cache_hits_equal_cold_paths() {
+        let mut fade = ShapeFade::build(&gradient_set());
+        let cold: Vec<char> = (0..=PROGRESS_BUCKETS)
+            .map(|step| {
+                let t = step as f32 / PROGRESS_BUCKETS as f32;
+                fade.resolve_shape_fade('O', 'o', t).unwrap()
+            })
+            .collect();
+        let warm: Vec<char> = (0..=PROGRESS_BUCKETS)
+            .map(|step| {
+                let t = step as f32 / PROGRESS_BUCKETS as f32;
+                fade.resolve_shape_fade('O', 'o', t).unwrap()
+            })
+            .collect();
+        assert_eq!(cold, warm);
     }
 
     #[test]
-    fn intermediate_graphics_come_from_the_loaded_set() {
-        let mut fade = ShapeFade::build(&GradientSet(vec![
-            ('O', tile_outline(1, 1, 10, 14)),
-            ('o', tile_outline(4, 5, 8, 11)),
-            ('.', tile_rect(5, 7, 6, 8)),
-        ]));
+    fn every_intermediate_is_a_loaded_graphic() {
+        let mut fade = ShapeFade::build(&gradient_set());
         for step in 0..=PROGRESS_BUCKETS {
             let t = step as f32 / PROGRESS_BUCKETS as f32;
-            let resolved = fade.resolve_shape_fade('O', '.', t).unwrap();
+            let resolved = fade.resolve_shape_fade('O', 'o', t).unwrap();
             assert!(
-                ['O', 'o', '.'].contains(&resolved),
+                ['O', '8', 'o', '.'].contains(&resolved),
                 "intermediate {resolved} is not a loaded graphic"
             );
         }
     }
 
     #[test]
-    fn the_never_worse_rule_holds_on_a_two_tile_set() {
-        // With only two tiles there are no intermediates: every t must resolve
-        // to one of the endpoints, and the crossing must be a single flip.
+    fn the_walk_never_revisits_a_left_behind_endpoint_shape() {
+        // Global-ideal projection: once the blend has passed the halfway
+        // point, resolving back to the FROM shape would mean the walk moved
+        // away from the goal. The resolved sequence may hold steady, but it
+        // may never return to an earlier endpoint side after crossing.
+        let mut fade = ShapeFade::build(&gradient_set());
+        let walk: Vec<char> = (0..=PROGRESS_BUCKETS)
+            .map(|step| {
+                let t = step as f32 / PROGRESS_BUCKETS as f32;
+                fade.resolve_shape_fade('8', 'o', t).unwrap()
+            })
+            .collect();
+        let mut crossed = false;
+        for &resolved in &walk {
+            if resolved != '8' {
+                crossed = true;
+            }
+            assert!(
+                !(crossed && resolved == '8'),
+                "walk returned to the departed shape: {walk:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_two_tile_fade_flips_exactly_once() {
+        // With no intermediates in the pool, the walk holds one endpoint then
+        // the other — never oscillating (the never-worse rule on a degenerate
+        // pool).
         let mut fade = ShapeFade::build(&TwoTiles);
         let mut flips = 0;
         let mut last = fade.resolve_shape_fade('#', ' ', 0.0).unwrap();
@@ -313,6 +313,6 @@ mod tests {
                 last = resolved;
             }
         }
-        assert_eq!(flips, 1, "a two-tile fade flips once, never oscillates");
+        assert_eq!(flips, 1);
     }
 }
