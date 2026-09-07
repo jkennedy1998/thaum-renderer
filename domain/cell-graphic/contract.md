@@ -22,6 +22,8 @@ Own the renderer cell-graphic slot as the canonical graphic input consumed by a 
   - default
 - `sprite/`
   - default
+- `shape-fade/`
+  - contract drafted 2026-09-07, implementation pending: shape-space interpolation between graphic tiles (glyph- and sprite-backed), built on the glyph tile rasterization seam
 
 ## contents
 - `cell_graphic.rs`
