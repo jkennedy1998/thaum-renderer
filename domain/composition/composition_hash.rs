@@ -47,10 +47,7 @@ fn hash_graphic(graphic: &crate::CellGraphic, hasher: &mut DefaultHasher) {
     match graphic {
         CellGraphic::None => {}
         CellGraphic::Glyph(glyph) => glyph.hash(hasher),
-        CellGraphic::Sprite(sprite) => sprite
-            .atlas_relative_path()
-            .as_os_str()
-            .hash(hasher),
+        CellGraphic::Sprite(sprite) => sprite.atlas_relative_path().as_os_str().hash(hasher),
     }
 }
 
@@ -76,7 +73,7 @@ fn hash_color(color: &CellColor, hasher: &mut DefaultHasher) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CellGroup, CellGraphic, CellPoint, CellWeight, WorldPoint};
+    use crate::{CellGraphic, CellGroup, CellPoint, CellWeight, WorldPoint};
 
     fn composition_with_cell(cell: Cell) -> Composition {
         let mut group = CellGroup::new(WorldPoint::origin());
@@ -100,7 +97,10 @@ mod tests {
             Composition::ordered(vec![group])
         };
 
-        assert_eq!(composition_content_hash(&build()), composition_content_hash(&build()));
+        assert_eq!(
+            composition_content_hash(&build()),
+            composition_content_hash(&build())
+        );
     }
 
     #[test]
@@ -110,9 +110,15 @@ mod tests {
             ..Cell::default()
         });
         let mut other = base.clone();
-        other.groups[0].cells.get_mut(&CellPoint { x: 1, y: 2, z: 3 }).unwrap().weight =
-            CellWeight::Three;
-        assert_ne!(composition_content_hash(&base), composition_content_hash(&other));
+        other.groups[0]
+            .cells
+            .get_mut(&CellPoint { x: 1, y: 2, z: 3 })
+            .unwrap()
+            .weight = CellWeight::Three;
+        assert_ne!(
+            composition_content_hash(&base),
+            composition_content_hash(&other)
+        );
     }
 
     #[test]
@@ -124,7 +130,10 @@ mod tests {
         let mut other = base.clone();
         other.groups[0].cells.remove(&CellPoint::origin());
 
-        assert_ne!(composition_content_hash(&base), composition_content_hash(&other));
+        assert_ne!(
+            composition_content_hash(&base),
+            composition_content_hash(&other)
+        );
     }
 
     #[test]
@@ -134,10 +143,11 @@ mod tests {
         let mut group_b = CellGroup::new(WorldPoint { x: 9, y: 0, z: 0 });
         group_b.insert(Cell::default());
         let base = Composition::ordered(vec![group_a.clone(), group_b.clone()]);
-        let reordered = base
-            .clone()
-            .with_pass_order(vec![1, 0]);
+        let reordered = base.clone().with_pass_order(vec![1, 0]);
 
-        assert_ne!(composition_content_hash(&base), composition_content_hash(&reordered));
+        assert_ne!(
+            composition_content_hash(&base),
+            composition_content_hash(&reordered)
+        );
     }
 }

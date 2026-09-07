@@ -1,7 +1,6 @@
 use crate::{
-    Hotspot,
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerButton,
+    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette,
     WorldPoint,
 };
@@ -146,7 +145,11 @@ impl Module for UiCustomizationModule {
                 ..Cell::default()
             });
             cells.push(Cell {
-                position: CellPoint { x: x + 2, y: 0, z: 0 },
+                position: CellPoint {
+                    x: x + 2,
+                    y: 0,
+                    z: 0,
+                },
                 graphic: CellGraphic::Glyph('█'),
                 color: rgb_cell(rgb),
                 weight: CellWeight::from_index_clamped(3),
@@ -265,13 +268,8 @@ mod tests {
     #[test]
     fn left_click_applies_the_left_color_to_the_clicked_role() {
         let palette = UiPalette::default();
-        let mut module = UiCustomizationModule::new(
-            "ui",
-            rect(),
-            palette.clone(),
-            || [1, 2, 3],
-            || [4, 5, 6],
-        );
+        let mut module =
+            UiCustomizationModule::new("ui", rect(), palette.clone(), || [1, 2, 3], || [4, 5, 6]);
 
         let background_y = module.rect.y0 + module.row_y(0);
         module.on_pointer_event(ModulePointerEvent::Click {
@@ -286,13 +284,8 @@ mod tests {
     #[test]
     fn right_click_applies_the_right_color_to_the_clicked_role() {
         let palette = UiPalette::default();
-        let mut module = UiCustomizationModule::new(
-            "ui",
-            rect(),
-            palette.clone(),
-            || [1, 2, 3],
-            || [7, 8, 9],
-        );
+        let mut module =
+            UiCustomizationModule::new("ui", rect(), palette.clone(), || [1, 2, 3], || [7, 8, 9]);
 
         let dimmest_y = module.rect.y0 + module.row_y(1);
         module.on_pointer_event(ModulePointerEvent::Click {
@@ -308,13 +301,8 @@ mod tests {
     fn clicking_helper_rows_does_not_change_the_palette() {
         let palette = UiPalette::default();
         let before = palette.get_rgb(UiColorRole::Vivid);
-        let mut module = UiCustomizationModule::new(
-            "ui",
-            rect(),
-            palette.clone(),
-            || [1, 2, 3],
-            || [7, 8, 9],
-        );
+        let mut module =
+            UiCustomizationModule::new("ui", rect(), palette.clone(), || [1, 2, 3], || [7, 8, 9]);
 
         module.on_pointer_event(ModulePointerEvent::Click {
             x: 2,

@@ -1,8 +1,8 @@
 use crate::{
-    Hotspot,
     canonical_sprite_palette, Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior,
-    CellPoint, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerEvent,
-    ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette, WorldPoint,
+    CellPoint, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module,
+    ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette,
+    WorldPoint,
 };
 
 /// `(columns, content_height)`: how many swatches fit across the content

@@ -1,16 +1,15 @@
 /// Glyph atlas section text for the monothaum atlas v3, compiled in so
 /// dependents (e.g. the painter's graphic picker) can parse glyph groupings
 /// without runtime asset IO and without baking machine-specific paths.
-pub const MONOTHAUM_ATLAS_V3_SECTIONS_TEXT: &str = include_str!(
-    "../orchestration/renderer-assets/cell-sprites/monothaum-atlas-v3/sections.txt"
-);
+pub const MONOTHAUM_ATLAS_V3_SECTIONS_TEXT: &str =
+    include_str!("../orchestration/renderer-assets/cell-sprites/monothaum-atlas-v3/sections.txt");
 
-#[path = "debug-log/debug_log.rs"]
-pub mod debug_log;
 #[path = "atlas-intake/atlas_intake.rs"]
 pub mod atlas_intake;
 #[path = "camera/camera.rs"]
 pub mod camera;
+#[path = "modules/individuals/camera-perspective/camera_perspective_module.rs"]
+pub mod camera_perspective_module;
 #[path = "cell/cell.rs"]
 pub mod cell;
 #[path = "cell-color/cell_color.rs"]
@@ -31,14 +30,8 @@ pub mod cell_warble;
 pub mod cell_weight;
 #[path = "modules/individuals/color-block/color_block_module.rs"]
 pub mod color_block_module;
-#[path = "modules/individuals/camera-perspective/camera_perspective_module.rs"]
-pub mod camera_perspective_module;
 #[path = "modules/individuals/color-picker/color_picker_module.rs"]
 pub mod color_picker_module;
-#[path = "modules/individuals/controls-panel/controls_panel_module.rs"]
-pub mod controls_panel_module;
-#[path = "modules/individuals/ui-customization/ui_customization_module.rs"]
-pub mod ui_customization_module;
 #[path = "command-bar/command_bar.rs"]
 pub mod command_bar;
 #[path = "composition/composition.rs"]
@@ -47,10 +40,14 @@ pub mod composition;
 pub mod composition_hash;
 #[path = "controls/controls.rs"]
 pub mod controls;
+#[path = "modules/individuals/controls-panel/controls_panel_module.rs"]
+pub mod controls_panel_module;
 #[path = "coordinate-space/coordinate_space.rs"]
 pub mod coordinate_space;
 #[path = "data-lanes/data_lanes.rs"]
 pub mod data_lanes;
+#[path = "debug-log/debug_log.rs"]
+pub mod debug_log;
 #[path = "modules/module.rs"]
 pub mod module;
 #[path = "modules/shared/module-gizmos/module_gizmos.rs"]
@@ -63,10 +60,14 @@ pub mod post_effects;
 pub mod property_rows;
 #[path = "modules/shared/scroll-state/scroll_state.rs"]
 pub mod scroll_state;
-#[path = "modules/shared/tooltip/tooltip.rs"]
-pub mod tooltip;
+#[path = "cell-graphic/shape-fade/shape_fade.rs"]
+pub mod shape_fade;
 #[path = "cell-graphic/sprite/sprite-color-space/sprite_color_space.rs"]
 pub mod sprite_color_space;
+#[path = "modules/shared/tooltip/tooltip.rs"]
+pub mod tooltip;
+#[path = "modules/individuals/ui-customization/ui_customization_module.rs"]
+pub mod ui_customization_module;
 #[path = "modules/shared/ui-palette/ui_palette.rs"]
 pub mod ui_palette;
 #[path = "persistence/ui-session-state/ui_session_state.rs"]
@@ -88,9 +89,11 @@ pub use camera::{
     remap_surface_units_to_flat_2d_local, unproject_flat_2d_view_plane_to_local,
     unproject_view_plane_to_world, unproject_view_relative_to_world,
     visible_plane_stack_for_camera, Camera, CameraProjectedPoint, CameraProjectionMode, CameraRoll,
-    ParallaxProfile,
-    PerspectiveProfile,
-    CameraSwing, CameraViewOrientation, ViewRelativePoint, VisiblePlaneStack,
+    CameraSwing, CameraViewOrientation, ParallaxProfile, PerspectiveProfile, ViewRelativePoint,
+    VisiblePlaneStack,
+};
+pub use camera_perspective_module::{
+    CameraDepthLink, CameraLayersLink, CameraPerspectiveModule, MAX_VISIBLE_PLANE_RADIUS,
 };
 pub use cell::Cell;
 pub use cell_color::{CellColor, CellColorSlot};
@@ -111,12 +114,7 @@ pub use cell_texture::CellTexture;
 pub use cell_warble::CellWarble;
 pub use cell_weight::CellWeight;
 pub use color_block_module::ColorBlockModule;
-pub use camera_perspective_module::{
-    CameraDepthLink, CameraLayersLink, CameraPerspectiveModule, MAX_VISIBLE_PLANE_RADIUS,
-};
 pub use color_picker_module::ColorPickerModule;
-pub use controls_panel_module::{ControlActionRow, ControlsPanelModule};
-pub use ui_customization_module::UiCustomizationModule;
 pub use command_bar::{
     CommandBar, CommandBarButton, CommandBarClickOutcome, CommandBarLayout,
     PersistedCommandBarState,
@@ -128,6 +126,7 @@ pub use controls::{
     typing_mode::{TypingMode, TypingRoute},
     ActionBindingMap, ActionName, PressureSample, RawInput,
 };
+pub use controls_panel_module::{ControlActionRow, ControlsPanelModule};
 pub use coordinate_space::{AxisSign, CellPoint, GlobalDirection, WorldAxis, WorldPoint};
 pub use data_lanes::DataLanes;
 pub use module::{
@@ -135,8 +134,6 @@ pub use module::{
 };
 pub use module_gizmos::{GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, ResizeEdge};
 pub use panel_chrome::{PanelBorderEdge, PanelBorderStyle, PanelChrome};
-pub use scroll_state::ScrollState;
-pub use tooltip::{tooltip_card_group, Hotspot, TooltipState, DWELL, TEXT_WRAP_COLUMNS};
 pub use post_effects::{
     apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
     apply_debug_warble_post_effect_to_rgba, clamp_rgba_collection_to_index_palette,
@@ -153,10 +150,13 @@ pub use property_rows::{
     NumberFieldEdit, PropertyHit, PropertyMatrixColumn, PropertyMatrixSide, PropertyRow,
     PropertyRows,
 };
+pub use scroll_state::ScrollState;
 pub use sprite_color_space::{
     canonical_sprite_palette, decode_sprite_pixel, decode_sprite_rgba, DecodedSpritePixel,
     SpriteColorChannel,
 };
+pub use tooltip::{tooltip_card_group, Hotspot, TooltipState, DWELL, TEXT_WRAP_COLUMNS};
+pub use ui_customization_module::UiCustomizationModule;
 pub use ui_palette::{UiColorRole, UiPalette};
 pub use ui_session_state::{
     PersistedCameraUiState, PersistedModuleRect, PersistedModuleUiState,

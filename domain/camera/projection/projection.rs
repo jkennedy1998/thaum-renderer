@@ -1,7 +1,7 @@
 use crate::{Camera, CellGroupIntakeBehavior, CellPoint, WorldPoint};
 
-use super::perspective::{depth_position_spread, depth_scale_factor};
 use super::parallax::parallax_screen_offset;
+use super::perspective::{depth_position_spread, depth_scale_factor};
 
 use super::view_orientation::{
     camera_view_orientation_for_camera, camera_view_orientation_for_swing,
@@ -136,7 +136,8 @@ pub fn project_rotating_3d_world_to_view_plane(
 ) -> CameraProjectedPoint {
     let orientation = camera_view_orientation_for_camera(camera.swing, camera.roll);
     let relative = project_world_relative_to_view(orientation, camera.focus_target, world);
-    let plane_spread = depth_position_spread(relative.depth, camera.projection_mode, camera.perspective);
+    let plane_spread =
+        depth_position_spread(relative.depth, camera.projection_mode, camera.perspective);
     let parallax = parallax_screen_offset(camera.parallax, relative.depth, camera.projection_mode);
 
     CameraProjectedPoint {
@@ -345,10 +346,10 @@ mod tests {
         let camera = Camera::default();
         assert!(projected_plane_scale_factor(camera, -3) > 1.0);
         assert!(projected_plane_scale_factor(camera, 3) < 1.0);
-        assert!(projected_plane_scale_factor(camera, -3)
-            > projected_plane_scale_factor(camera, -1));
-        assert!(projected_plane_scale_factor(camera, 3)
-            < projected_plane_scale_factor(camera, 1));
+        assert!(
+            projected_plane_scale_factor(camera, -3) > projected_plane_scale_factor(camera, -1)
+        );
+        assert!(projected_plane_scale_factor(camera, 3) < projected_plane_scale_factor(camera, 1));
     }
 
     #[test]

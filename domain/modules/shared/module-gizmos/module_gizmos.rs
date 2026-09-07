@@ -189,7 +189,12 @@ impl GizmoBar {
                 let x = rect.x0 + Self::glyph_local_x(index);
                 let y = rect.y0 + height - 1;
                 Hotspot::new(
-                    ModuleRect { x0: x, y0: y, x1: x, y1: y },
+                    ModuleRect {
+                        x0: x,
+                        y0: y,
+                        x1: x,
+                        y1: y,
+                    },
                     kind.tooltip_title(),
                     kind.tooltip_description(),
                 )
@@ -477,7 +482,10 @@ mod tests {
         for (index, hotspot) in hotspots.iter().enumerate() {
             let expected_x = panel.x0 + 1 + index as i32 * 2;
             let expected_y = panel.y0 + height - 1;
-            assert_eq!(hotspot.rect, rect(expected_x, expected_y, expected_x, expected_y));
+            assert_eq!(
+                hotspot.rect,
+                rect(expected_x, expected_y, expected_x, expected_y)
+            );
             assert!(!hotspot.title.is_empty());
             assert!(!hotspot.description.is_empty());
         }

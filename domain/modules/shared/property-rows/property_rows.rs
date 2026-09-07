@@ -68,10 +68,7 @@ pub enum PropertyHit {
         column_id: String,
     },
     /// A left click on one [`PropertyRow::NumberRow`] field.
-    Number {
-        row_id: String,
-        field: usize,
-    },
+    Number { row_id: String, field: usize },
 }
 
 /// Each number field renders as a signed 2-char token, then a 1-char gap.
@@ -117,7 +114,10 @@ impl NumberFieldEdit {
     /// The parsed field value clamped to `min..max`, or `None` while the
     /// buffer is empty or not a number yet.
     pub fn commit(&self, min: i32, max: i32) -> Option<i32> {
-        self.buffer.parse::<i32>().ok().map(|value| value.clamp(min, max))
+        self.buffer
+            .parse::<i32>()
+            .ok()
+            .map(|value| value.clamp(min, max))
     }
 }
 
@@ -277,8 +277,7 @@ impl PropertyRows {
                         });
                     }
                     for (index, value) in values.iter().enumerate() {
-                        let start_x =
-                            value_x + index as i32 * (NUMBER_FIELD_WIDTH + 1);
+                        let start_x = value_x + index as i32 * (NUMBER_FIELD_WIDTH + 1);
                         let (text, editing_field) = match editing {
                             Some((field, buffer)) if *field == index => {
                                 (format!("{buffer}_"), true)
@@ -290,8 +289,10 @@ impl PropertyRows {
                         } else {
                             palette.get(UiColorRole::Bright)
                         };
-                        for (offset, glyph) in
-                            text.chars().take((NUMBER_FIELD_WIDTH + 1) as usize).enumerate()
+                        for (offset, glyph) in text
+                            .chars()
+                            .take((NUMBER_FIELD_WIDTH + 1) as usize)
+                            .enumerate()
                         {
                             cells.push(Cell {
                                 position: CellPoint {
@@ -560,9 +561,7 @@ mod tests {
         let mut field_1: Vec<(i32, char)> = cells
             .iter()
             .filter(|cell| cell.position.y == y)
-            .filter(|cell| {
-                cell.position.x >= value_x + 3 && cell.position.x <= value_x + 5
-            })
+            .filter(|cell| cell.position.x >= value_x + 3 && cell.position.x <= value_x + 5)
             .filter_map(|cell| match cell.graphic {
                 CellGraphic::Glyph(g) => Some((cell.position.x, g)),
                 _ => None,
@@ -571,11 +570,7 @@ mod tests {
         field_1.sort();
         assert_eq!(
             field_1,
-            vec![
-                (value_x + 3, '-'),
-                (value_x + 4, '4'),
-                (value_x + 5, '_')
-            ]
+            vec![(value_x + 3, '-'), (value_x + 4, '4'), (value_x + 5, '_')]
         );
     }
 
@@ -596,7 +591,13 @@ mod tests {
             })
         );
         assert_eq!(
-            PropertyRows::hit_test(rect(), &rows, field_2_x, field_y, ModulePointerButton::Right),
+            PropertyRows::hit_test(
+                rect(),
+                &rows,
+                field_2_x,
+                field_y,
+                ModulePointerButton::Right
+            ),
             None
         );
     }

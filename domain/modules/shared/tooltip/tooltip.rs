@@ -34,11 +34,7 @@ pub struct Hotspot {
 }
 
 impl Hotspot {
-    pub fn new(
-        rect: ModuleRect,
-        title: impl Into<String>,
-        description: impl Into<String>,
-    ) -> Self {
+    pub fn new(rect: ModuleRect, title: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
             rect,
             title: title.into(),
@@ -200,32 +196,41 @@ fn layout_card(hotspot: &Hotspot, screen: ModuleRect) -> CardLayout {
     let fits_below = title_h + description_h + 2 < below;
     let fits_above = title_h + description_h + 2 < above;
 
-    let (title_ys, description_ys, card_y0, card_y1) = if fits_preferred || (!fits_below && !fits_above) {
-        (
-            (0..title_h).map(|i| box_rect.y1 + title_h - i).collect::<Vec<_>>(),
-            (0..description_h).map(|i| box_rect.y0 - 1 - i).collect::<Vec<_>>(),
-            box_rect.y0 - description_h - 1,
-            box_rect.y1 + title_h + 1,
-        )
-    } else if fits_below {
-        (
-            (0..title_h).map(|i| box_rect.y0 - 1 - i).collect::<Vec<_>>(),
-            (0..description_h)
-                .map(|i| box_rect.y0 - 1 - title_h - i)
-                .collect::<Vec<_>>(),
-            box_rect.y0 - 1 - title_h - description_h - 1,
-            box_rect.y1 + 1,
-        )
-    } else {
-        (
-            (0..title_h)
-                .map(|i| box_rect.y1 + 1 + description_h + (title_h - 1 - i))
-                .collect::<Vec<_>>(),
-            (0..description_h).map(|i| box_rect.y1 + 1 + i).collect::<Vec<_>>(),
-            box_rect.y0,
-            box_rect.y1 + 1 + description_h + title_h + 1 - 1,
-        )
-    };
+    let (title_ys, description_ys, card_y0, card_y1) =
+        if fits_preferred || (!fits_below && !fits_above) {
+            (
+                (0..title_h)
+                    .map(|i| box_rect.y1 + title_h - i)
+                    .collect::<Vec<_>>(),
+                (0..description_h)
+                    .map(|i| box_rect.y0 - 1 - i)
+                    .collect::<Vec<_>>(),
+                box_rect.y0 - description_h - 1,
+                box_rect.y1 + title_h + 1,
+            )
+        } else if fits_below {
+            (
+                (0..title_h)
+                    .map(|i| box_rect.y0 - 1 - i)
+                    .collect::<Vec<_>>(),
+                (0..description_h)
+                    .map(|i| box_rect.y0 - 1 - title_h - i)
+                    .collect::<Vec<_>>(),
+                box_rect.y0 - 1 - title_h - description_h - 1,
+                box_rect.y1 + 1,
+            )
+        } else {
+            (
+                (0..title_h)
+                    .map(|i| box_rect.y1 + 1 + description_h + (title_h - 1 - i))
+                    .collect::<Vec<_>>(),
+                (0..description_h)
+                    .map(|i| box_rect.y1 + 1 + i)
+                    .collect::<Vec<_>>(),
+                box_rect.y0,
+                box_rect.y1 + 1 + description_h + title_h + 1 - 1,
+            )
+        };
 
     // Center the card on the highlighted object, then clamp into the screen.
     let box_center_x = (box_rect.x0 + box_rect.x1 + 1) / 2;
@@ -262,14 +267,7 @@ fn center_start_x(line_columns: usize, lo: i32, hi: i32) -> i32 {
     lo + ((span - line_columns as i32) / 2).max(0)
 }
 
-fn push_text(
-    cells: &mut Vec<Cell>,
-    line: &str,
-    y: i32,
-    lo: i32,
-    hi: i32,
-    color: crate::CellColor,
-) {
+fn push_text(cells: &mut Vec<Cell>, line: &str, y: i32, lo: i32, hi: i32, color: crate::CellColor) {
     let start = center_start_x(line.chars().count(), lo, hi);
     for (column, glyph) in line.chars().enumerate() {
         cells.push(Cell {
@@ -290,11 +288,7 @@ fn push_text(
 /// corners framing the highlighted object, the title centered above it,
 /// the (wrapped) description centered below. The highlighted cells
 /// themselves are never drawn — the owning module's glyph shows through.
-pub fn tooltip_card_cells(
-    hotspot: &Hotspot,
-    screen: ModuleRect,
-    palette: &UiPalette,
-) -> Vec<Cell> {
+pub fn tooltip_card_cells(hotspot: &Hotspot, screen: ModuleRect, palette: &UiPalette) -> Vec<Cell> {
     let layout = layout_card(hotspot, screen);
     let fill = palette.get(UiColorRole::Dimmest);
     let wall = palette.get(UiColorRole::Dimmest);
@@ -302,24 +296,27 @@ pub fn tooltip_card_cells(
     let description_color = palette.get(UiColorRole::Medium);
 
     let mut cells: Vec<Cell> = Vec::new();
-    let push =
-        |cells: &mut Vec<Cell>, x: i32, y: i32, z: i32, glyph: char, color, weight: i32| {
-            cells.push(Cell {
-                position: CellPoint { x, y, z },
-                graphic: CellGraphic::Glyph(glyph),
-                color,
-                weight: CellWeight::from_index_clamped(weight),
-                ..Cell::default()
-            });
-        };
+    let push = |cells: &mut Vec<Cell>, x: i32, y: i32, z: i32, glyph: char, color, weight: i32| {
+        cells.push(Cell {
+            position: CellPoint { x, y, z },
+            graphic: CellGraphic::Glyph(glyph),
+            color,
+            weight: CellWeight::from_index_clamped(weight),
+            ..Cell::default()
+        });
+    };
 
     // Solid backer at z 0 (weight 3), minus the highlighted cells themselves
     // so the owning module's glyph shows through, minus the four card
     // corners so the rounded corner glyphs read against the screen, and
     // minus the ring cells so the ring glyphs replace the backer instead of
     // stacking over it.
-    let (x0, x1, y0, y1) =
-        (layout.card.x0, layout.card.x1, layout.card.y0, layout.card.y1);
+    let (x0, x1, y0, y1) = (
+        layout.card.x0,
+        layout.card.x1,
+        layout.card.y0,
+        layout.card.y1,
+    );
     let corners = [(x0, y1, '▟'), (x1, y1, '▙'), (x1, y0, '▛'), (x0, y0, '▜')];
     let box_r = layout.box_rect;
     let ring = |x: i32, y: i32| -> Option<char> {
@@ -371,14 +368,31 @@ pub fn tooltip_card_cells(
     // Centered text: title above (larger y), description below.
     let text_lo = layout.card.x0 + 1;
     let text_hi = layout.card.x1 - 1;
-    for (i, line) in wrap_lines(&hotspot.title, TEXT_WRAP_COLUMNS).into_iter().enumerate() {
-        push_text(&mut cells, &line, layout.title_ys[i], text_lo, text_hi, title_color);
+    for (i, line) in wrap_lines(&hotspot.title, TEXT_WRAP_COLUMNS)
+        .into_iter()
+        .enumerate()
+    {
+        push_text(
+            &mut cells,
+            &line,
+            layout.title_ys[i],
+            text_lo,
+            text_hi,
+            title_color,
+        );
     }
     for (i, line) in wrap_lines(&hotspot.description, TEXT_WRAP_COLUMNS)
         .into_iter()
         .enumerate()
     {
-        push_text(&mut cells, &line, layout.description_ys[i], text_lo, text_hi, description_color);
+        push_text(
+            &mut cells,
+            &line,
+            layout.description_ys[i],
+            text_lo,
+            text_hi,
+            description_color,
+        );
     }
 
     cells
@@ -386,11 +400,7 @@ pub fn tooltip_card_cells(
 
 /// The composed overlay group the host pushes last so the card draws on top
 /// of every module. Display-only: nothing here hit-tests or captures.
-pub fn tooltip_card_group(
-    hotspot: &Hotspot,
-    screen: ModuleRect,
-    palette: &UiPalette,
-) -> CellGroup {
+pub fn tooltip_card_group(hotspot: &Hotspot, screen: ModuleRect, palette: &UiPalette) -> CellGroup {
     CellGroup::from_cells(
         WorldPoint { x: 0, y: 0, z: 0 },
         tooltip_card_cells(hotspot, screen, palette),
@@ -408,7 +418,11 @@ mod tests {
     }
 
     fn hotspot_at(x: i32, y: i32) -> Hotspot {
-        Hotspot::new(rect(x, y, x, y), "close", "closes the module can be re-opened")
+        Hotspot::new(
+            rect(x, y, x, y),
+            "close",
+            "closes the module can be re-opened",
+        )
     }
 
     fn screen() -> ModuleRect {
@@ -440,15 +454,24 @@ mod tests {
         let hotspot = hotspot_at(10, 10);
         let other = hotspot_at(20, 20);
 
-        assert_eq!(state.tick(Some(&hotspot), Duration::from_millis(399)).card, None);
-        assert!(state.tick(Some(&hotspot), Duration::from_millis(1)).dirty, "dwell running keeps frames coming");
+        assert_eq!(
+            state.tick(Some(&hotspot), Duration::from_millis(399)).card,
+            None
+        );
+        assert!(
+            state.tick(Some(&hotspot), Duration::from_millis(1)).dirty,
+            "dwell running keeps frames coming"
+        );
         let shown = state.tick(Some(&hotspot), Duration::ZERO);
         assert_eq!(shown.card.as_ref(), Some(&hotspot));
         assert!(!shown.dirty, "stable shown card is not dirty");
 
         // Moving to another hotspot resets the dwell.
         assert_eq!(state.tick(Some(&other), Duration::ZERO).card, None);
-        assert_eq!(state.tick(Some(&other), Duration::from_millis(399)).card, None);
+        assert_eq!(
+            state.tick(Some(&other), Duration::from_millis(399)).card,
+            None
+        );
 
         // Pointer gone clears immediately.
         assert_eq!(state.tick(None, Duration::ZERO).card, None);
@@ -459,10 +482,16 @@ mod tests {
         let hotspot = hotspot_at(50, 30);
         let layout = layout_card(&hotspot, screen());
         for title_y in &layout.title_ys {
-            assert!(*title_y > layout.box_rect.y1, "title above the object on screen");
+            assert!(
+                *title_y > layout.box_rect.y1,
+                "title above the object on screen"
+            );
         }
         for description_y in &layout.description_ys {
-            assert!(*description_y < layout.box_rect.y0, "description below the object on screen");
+            assert!(
+                *description_y < layout.box_rect.y0,
+                "description below the object on screen"
+            );
         }
         assert!(layout.card.contains(hotspot.rect.x0, hotspot.rect.y0));
     }
@@ -509,12 +538,24 @@ mod tests {
 
         // Rounded outer corners land on the card rect's corners.
         let layout = layout_card(&hotspot, screen());
-        assert_eq!(at(layout.card.x0, layout.card.y1), Some(CellGraphic::Glyph('▟')));
-        assert_eq!(at(layout.card.x1, layout.card.y0), Some(CellGraphic::Glyph('▛')));
+        assert_eq!(
+            at(layout.card.x0, layout.card.y1),
+            Some(CellGraphic::Glyph('▟'))
+        );
+        assert_eq!(
+            at(layout.card.x1, layout.card.y0),
+            Some(CellGraphic::Glyph('▛'))
+        );
 
         // Inner walls ring the object.
-        assert_eq!(at(layout.box_rect.x0, layout.box_rect.y1), Some(CellGraphic::Glyph('◩')));
-        assert_eq!(at(layout.box_rect.x1, layout.box_rect.y0), Some(CellGraphic::Glyph('◪')));
+        assert_eq!(
+            at(layout.box_rect.x0, layout.box_rect.y1),
+            Some(CellGraphic::Glyph('◩'))
+        );
+        assert_eq!(
+            at(layout.box_rect.x1, layout.box_rect.y0),
+            Some(CellGraphic::Glyph('◪'))
+        );
 
         // The highlighted cell itself is never drawn — the module shows through.
         assert_eq!(at(hotspot.rect.x0, hotspot.rect.y0), None);
@@ -543,17 +584,18 @@ mod tests {
     fn backer_is_solid_weight_three_blocks() {
         let hotspot = hotspot_at(50, 30);
         let cells = tooltip_card_cells(&hotspot, screen(), &UiPalette::default());
-        let backer: Vec<_> = cells
-            .iter()
-            .filter(|cell| cell.position.z == 0)
-            .collect();
+        let backer: Vec<_> = cells.iter().filter(|cell| cell.position.z == 0).collect();
         assert!(!backer.is_empty());
         for cell in &backer {
             match &cell.graphic {
-                CellGraphic::Glyph('█') | CellGraphic::Glyph('▟')
-                | CellGraphic::Glyph('▙') | CellGraphic::Glyph('▛')
-                | CellGraphic::Glyph('▜') | CellGraphic::Glyph('◩')
-                | CellGraphic::Glyph('◨') | CellGraphic::Glyph('◪')
+                CellGraphic::Glyph('█')
+                | CellGraphic::Glyph('▟')
+                | CellGraphic::Glyph('▙')
+                | CellGraphic::Glyph('▛')
+                | CellGraphic::Glyph('▜')
+                | CellGraphic::Glyph('◩')
+                | CellGraphic::Glyph('◨')
+                | CellGraphic::Glyph('◪')
                 | CellGraphic::Glyph('◧') => {}
                 other => panic!("unexpected z0 cell {other:?}"),
             }
@@ -575,9 +617,15 @@ mod tests {
 
         // Corners and ring are backer-layer cells at z 0 — no stacking, they
         // replace the █ instead of sitting over one.
-        assert_eq!(at(layout.card.x0, layout.card.y1, 0), Some(CellGraphic::Glyph('▟')));
+        assert_eq!(
+            at(layout.card.x0, layout.card.y1, 0),
+            Some(CellGraphic::Glyph('▟'))
+        );
         assert_eq!(at(layout.card.x0, layout.card.y1, TEXT_DEPTH), None);
-        assert_eq!(at(layout.box_rect.x0, layout.box_rect.y1, 0), Some(CellGraphic::Glyph('◩')));
+        assert_eq!(
+            at(layout.box_rect.x0, layout.box_rect.y1, 0),
+            Some(CellGraphic::Glyph('◩'))
+        );
         assert_eq!(at(layout.box_rect.x0, layout.box_rect.y1, TEXT_DEPTH), None);
 
         // Every overlay cell keeps the backer behind it — text/ring never
@@ -588,7 +636,11 @@ mod tests {
             .map(|cell| (cell.position.x, cell.position.y))
             .collect();
         for cell in cells.iter().filter(|cell| cell.position.z == TEXT_DEPTH) {
-            assert!(backer_keys.contains(&(cell.position.x, cell.position.y)), "overlay cell at {:?} has no backer behind it", cell.position);
+            assert!(
+                backer_keys.contains(&(cell.position.x, cell.position.y)),
+                "overlay cell at {:?} has no backer behind it",
+                cell.position
+            );
         }
     }
 }

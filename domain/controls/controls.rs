@@ -122,8 +122,14 @@ mod tests {
         let pan_left = ActionName::new("camera_pan_left");
         map.bind(pan_left.clone(), RawInput::Key("A".to_string()));
 
-        assert_eq!(map.bindings_for(&pan_left), &[RawInput::Key("A".to_string())]);
-        assert_eq!(map.actions_for(RawInput::Key("A".to_string())), vec![&pan_left]);
+        assert_eq!(
+            map.bindings_for(&pan_left),
+            &[RawInput::Key("A".to_string())]
+        );
+        assert_eq!(
+            map.actions_for(RawInput::Key("A".to_string())),
+            vec![&pan_left]
+        );
     }
 
     #[test]

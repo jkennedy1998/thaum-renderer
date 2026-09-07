@@ -96,7 +96,10 @@ impl TaiScript {
             expectations: file
                 .expect
                 .into_iter()
-                .map(|e| TaiExpectation { at: e.at, action: e.action })
+                .map(|e| TaiExpectation {
+                    at: e.at,
+                    action: e.action,
+                })
                 .collect(),
         })
     }
@@ -193,7 +196,10 @@ mod tests {
         assert!(!report.passed());
         assert_eq!(
             report.expectation_misses,
-            vec![TaiExpectation { at: 2, action: "tai_pan_left".to_string() }]
+            vec![TaiExpectation {
+                at: 2,
+                action: "tai_pan_left".to_string()
+            }]
         );
     }
 

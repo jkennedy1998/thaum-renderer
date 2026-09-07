@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Camera, CameraProjectionMode, CameraRoll, CameraSwing, CellPoint, ModuleRect,
-    ParallaxProfile, PerspectiveProfile, UiColorRole,
-    UiPalette, WorldPoint,
+    Camera, CameraProjectionMode, CameraRoll, CameraSwing, CellPoint, ModuleRect, ParallaxProfile,
+    PerspectiveProfile, UiColorRole, UiPalette, WorldPoint,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

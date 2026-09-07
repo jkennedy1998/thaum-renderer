@@ -16,8 +16,7 @@ pub mod view_orientation;
 use crate::{coordinate_space::CellPoint, coordinate_space::WorldPoint, GlobalDirection};
 pub use parallax::{parallax_screen_offset, ParallaxProfile};
 pub use perspective::{
-    depth_position_spread, depth_scale_factor, eased_signed_depth_units,
-    PerspectiveProfile,
+    depth_position_spread, depth_scale_factor, eased_signed_depth_units, PerspectiveProfile,
 };
 pub use projection::{
     build_visible_plane_stack_around_focus, derive_visible_plane_stack_from_world_points,
@@ -37,8 +36,8 @@ pub use swing::CameraSwing;
 pub use view_orientation::{
     active_depth_axis_for_swing, active_depth_direction_for_swing,
     camera_view_orientation_for_camera, camera_view_orientation_for_swing,
-    project_world_relative_to_view, unproject_view_relative_to_world,
-    world_depth_along_direction, CameraViewOrientation, ViewRelativePoint,
+    project_world_relative_to_view, unproject_view_relative_to_world, world_depth_along_direction,
+    CameraViewOrientation, ViewRelativePoint,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]

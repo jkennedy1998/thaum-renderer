@@ -1,14 +1,13 @@
 use std::cell::{Cell as StdCell, RefCell};
 use std::rc::Rc;
 
+use crate::PerspectiveProfile;
 use crate::{
-    Hotspot,
-    Cell, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerButton,
+    Cell, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight, GizmoBar,
+    GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, ParallaxProfile, PersistedModuleUiState,
     PropertyRows, UiColorRole, UiPalette, WorldPoint,
 };
-use crate::PerspectiveProfile;
 
 /// One editable perspective knob: a label, wheel fine-step, clamped range,
 /// and the preset cycle a click walks through.
@@ -67,7 +66,19 @@ const DEPTH_ROW: usize = 5;
 pub const MAX_VISIBLE_PLANE_RADIUS: i32 = 512;
 const LAYERS_ROW: usize = 6;
 const LAYERS_PRESETS: &[i32] = &[
-    0, 1, 2, 4, 8, 12, 16, 24, 32, 64, 128, 256, MAX_VISIBLE_PLANE_RADIUS,
+    0,
+    1,
+    2,
+    4,
+    8,
+    12,
+    16,
+    24,
+    32,
+    64,
+    128,
+    256,
+    MAX_VISIBLE_PLANE_RADIUS,
 ];
 const ROW_COUNT: usize = 7;
 
@@ -260,7 +271,13 @@ impl CameraPerspectiveModule {
         (0..ROW_COUNT).find(|&index| self.knob_row_y(index) == local_y)
     }
 
-    fn apply_wheel(&self, profile: &mut PerspectiveProfile, parallax: &mut ParallaxProfile, index: usize, delta_y: f32) {
+    fn apply_wheel(
+        &self,
+        profile: &mut PerspectiveProfile,
+        parallax: &mut ParallaxProfile,
+        index: usize,
+        delta_y: f32,
+    ) {
         if index == PARALLAX_TOGGLE_ROW {
             // Wheel over the toggle flips it, matching the click behavior.
             parallax.enabled = !parallax.enabled;
@@ -318,7 +335,12 @@ impl CameraPerspectiveModule {
         }
     }
 
-    fn cycle_preset(&self, profile: &mut PerspectiveProfile, parallax: &mut ParallaxProfile, index: usize) {
+    fn cycle_preset(
+        &self,
+        profile: &mut PerspectiveProfile,
+        parallax: &mut ParallaxProfile,
+        index: usize,
+    ) {
         if index == PARALLAX_TOGGLE_ROW {
             parallax.enabled = !parallax.enabled;
             Self::ensure_usable_strength(parallax);
@@ -356,10 +378,7 @@ impl CameraPerspectiveModule {
             .presets
             .iter()
             .enumerate()
-            .min_by(|a, b| {
-                (a.1 - current).abs()
-                    .total_cmp(&(b.1 - current).abs())
-            })
+            .min_by(|a, b| (a.1 - current).abs().total_cmp(&(b.1 - current).abs()))
             .map(|(i, _)| i)
             .unwrap_or(0);
         let next = knob.presets[(position + 1) % knob.presets.len()];
@@ -408,7 +427,10 @@ impl Module for CameraPerspectiveModule {
                 .cells()
         };
         if self.gizmo_state.should_draw_gizmo_bar() {
-            cells.extend(self.gizmos.cells(self.rect, &self.gizmo_state, &self.palette));
+            cells.extend(
+                self.gizmos
+                    .cells(self.rect, &self.gizmo_state, &self.palette),
+            );
         }
 
         let (content_x, content_y) = PanelChrome::content_origin();
@@ -433,7 +455,11 @@ impl Module for CameraPerspectiveModule {
             } else if index == LAYERS_ROW {
                 ("layers", format!("{}", self.layers.current()), true)
             } else {
-                (knob(index).label, format!("{:.2}", knob_value(&profile, index)), true)
+                (
+                    knob(index).label,
+                    format!("{:.2}", knob_value(&profile, index)),
+                    true,
+                )
             };
             for (offset, glyph) in label.chars().enumerate() {
                 cells.push(Cell {
@@ -488,11 +514,11 @@ impl Module for CameraPerspectiveModule {
         // screen's bottom-left corner while hit-testing still listens at
         // `self.rect` — making the panel visibly dead to input.
         let mut group = CellGroup::new(WorldPoint {
-                x: self.rect.x0,
-                y: self.rect.y0,
-                z: 0,
-            })
-            .with_intake_behavior(CellGroupIntakeBehavior::Flat2d);
+            x: self.rect.x0,
+            y: self.rect.y0,
+            z: 0,
+        })
+        .with_intake_behavior(CellGroupIntakeBehavior::Flat2d);
         group.extend(cells);
         group
     }
@@ -582,7 +608,13 @@ mod tests {
         }
     }
 
-    type ModuleFixture = (CameraPerspectiveModule, Rc<RefCell<PerspectiveProfile>>, Rc<RefCell<ParallaxProfile>>, Rc<CameraDepthLink>, Rc<CameraLayersLink>);
+    type ModuleFixture = (
+        CameraPerspectiveModule,
+        Rc<RefCell<PerspectiveProfile>>,
+        Rc<RefCell<ParallaxProfile>>,
+        Rc<CameraDepthLink>,
+        Rc<CameraLayersLink>,
+    );
 
     fn module() -> ModuleFixture {
         make_module()
@@ -641,18 +673,24 @@ mod tests {
             y: gizmo_row_y(),
             button: ModulePointerButton::Left,
         });
-        assert!(module.wants_pointer_capture(), "move drag must hold capture");
+        assert!(
+            module.wants_pointer_capture(),
+            "move drag must hold capture"
+        );
 
         module.on_pointer_event(ModulePointerEvent::Move {
             x: rect().x0 + 4,
             y: gizmo_row_y() + 2,
         });
-        assert_eq!(module.rect(), ModuleRect {
-            x0: before.x0 + 3,
-            y0: before.y0 + 2,
-            x1: before.x1 + 3,
-            y1: before.y1 + 2,
-        });
+        assert_eq!(
+            module.rect(),
+            ModuleRect {
+                x0: before.x0 + 3,
+                y0: before.y0 + 2,
+                x1: before.x1 + 3,
+                y1: before.y1 + 2,
+            }
+        );
 
         module.on_pointer_event(ModulePointerEvent::Up { x: 0, y: 0 });
         assert!(!module.wants_pointer_capture(), "release must end the drag");
@@ -771,17 +809,18 @@ mod tests {
             .collect();
 
         for (row_offset, label) in ["scale", "position", "floor"].iter().enumerate() {
-            assert!(glyphs.iter().any(|(position, glyph)| {
-                position.y == label_row_y - row_offset as i32
-                    && label.starts_with(*glyph)
-            }),
-            "missing {label}");
+            assert!(
+                glyphs.iter().any(|(position, glyph)| {
+                    position.y == label_row_y - row_offset as i32 && label.starts_with(*glyph)
+                }),
+                "missing {label}"
+            );
         }
         // The live value renders, including the edited one.
         for expected in ['1', '.', '2', '5'] {
-            assert!(glyphs.iter().any(|(position, glyph)| {
-                position.y == label_row_y && glyph == &expected
-            }));
+            assert!(glyphs
+                .iter()
+                .any(|(position, glyph)| { position.y == label_row_y && glyph == &expected }));
         }
     }
 
@@ -795,14 +834,25 @@ mod tests {
         let y = row_screen_y(PARALLAX_TOGGLE_ROW);
         let x = rect().x0 + 3;
 
-        module.on_pointer_event(ModulePointerEvent::Click { x, y, button: ModulePointerButton::Left });
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x,
+            y,
+            button: ModulePointerButton::Left,
+        });
         let state = parallax.borrow();
         assert!(state.enabled, "click must enable parallax");
         assert!(state.strength > 0.0, "enabling must seed a usable strength");
         drop(state);
 
-        module.on_pointer_event(ModulePointerEvent::Click { x, y, button: ModulePointerButton::Left });
-        assert!(!parallax.borrow().enabled, "second click must disable parallax");
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x,
+            y,
+            button: ModulePointerButton::Left,
+        });
+        assert!(
+            !parallax.borrow().enabled,
+            "second click must disable parallax"
+        );
     }
 
     #[test]
@@ -812,7 +862,10 @@ mod tests {
 
         assert!(module.on_wheel(12, y, 0.0, 1.0));
         let strength = parallax.borrow().strength;
-        assert!((strength - 0.16).abs() < 1e-4, "default 0.15 + 0.01, got {strength}");
+        assert!(
+            (strength - 0.16).abs() < 1e-4,
+            "default 0.15 + 0.01, got {strength}"
+        );
 
         for _ in 0..80 {
             module.on_wheel(12, y, 0.0, 1.0);
@@ -923,7 +976,11 @@ mod tests {
             y,
             button: ModulePointerButton::Left,
         });
-        assert_eq!(layers.drain_pending(), -MAX_VISIBLE_PLANE_RADIUS, "512 -> 0");
+        assert_eq!(
+            layers.drain_pending(),
+            -MAX_VISIBLE_PLANE_RADIUS,
+            "512 -> 0"
+        );
     }
 
     #[test]

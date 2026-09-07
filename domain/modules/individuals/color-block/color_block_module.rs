@@ -1,10 +1,9 @@
 use thaum_renderer_tools_color::nearest_rgb_in_collection;
 
 use crate::{
-    Hotspot,
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerEvent, ModuleRect,
-    PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette, WorldPoint,
+    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, ModulePointerEvent,
+    ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette, WorldPoint,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

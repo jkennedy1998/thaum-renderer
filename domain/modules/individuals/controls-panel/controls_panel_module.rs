@@ -1,7 +1,6 @@
 use crate::{
-    Hotspot,
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Module, ModulePointerButton,
+    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, RawInput, ScrollState,
     UiColorRole, UiPalette, WorldPoint,
 };
@@ -180,11 +179,7 @@ impl ControlsPanelModule {
                 break;
             }
             cells.push(Cell {
-                position: CellPoint {
-                    x: cell_x,
-                    y,
-                    z: 0,
-                },
+                position: CellPoint { x: cell_x, y, z: 0 },
                 graphic: CellGraphic::Glyph(glyph),
                 color,
                 weight: CellWeight::from_index_clamped(1),
@@ -239,7 +234,10 @@ impl Module for ControlsPanelModule {
                 .cells()
         };
         if self.gizmo_state.should_draw_gizmo_bar() {
-            cells.extend(self.gizmos.cells(self.rect, &self.gizmo_state, &self.palette));
+            cells.extend(
+                self.gizmos
+                    .cells(self.rect, &self.gizmo_state, &self.palette),
+            );
         }
 
         let (content_width, _) = PanelChrome::content_size(self.rect);
@@ -290,7 +288,14 @@ impl Module for ControlsPanelModule {
                     } else {
                         vivid
                     };
-                    Self::write_cells(&mut cells, binding_x, row_y, &binding_text, binding_color, max_x);
+                    Self::write_cells(
+                        &mut cells,
+                        binding_x,
+                        row_y,
+                        &binding_text,
+                        binding_color,
+                        max_x,
+                    );
                 }
             }
         }
@@ -386,7 +391,12 @@ mod tests {
     }
 
     fn rect() -> ModuleRect {
-        ModuleRect { x0: 4, y0: 13, x1: 44, y1: 47 }
+        ModuleRect {
+            x0: 4,
+            y0: 13,
+            x1: 44,
+            y1: 47,
+        }
     }
 
     fn module(
@@ -407,7 +417,12 @@ mod tests {
         ];
         ControlsPanelModule::new(
             "controls_panel_test",
-            ModuleRect { x0: 0, y0: 0, x1: 40, y1: 12 },
+            ModuleRect {
+                x0: 0,
+                y0: 0,
+                x1: 40,
+                y1: 12,
+            },
             UiPalette::default(),
             rows,
             move |action| {
@@ -420,9 +435,7 @@ mod tests {
             },
             |_| Vec::new(),
             move |action, binding| {
-                set_calls
-                    .borrow_mut()
-                    .push((action.0.clone(), binding));
+                set_calls.borrow_mut().push((action.0.clone(), binding));
             },
         )
     }
@@ -430,10 +443,7 @@ mod tests {
     #[test]
     fn clicking_the_move_gizmo_starts_requesting_pointer_capture() {
         let set_calls = Rc::new(RefCell::new(Vec::new()));
-        let mut panel = module(
-            Rc::new(RefCell::new(ActionBindingMap::new())),
-            set_calls,
-        );
+        let mut panel = module(Rc::new(RefCell::new(ActionBindingMap::new())), set_calls);
         panel.on_pointer_event(ModulePointerEvent::Click {
             x: 1,
             y: 11,
@@ -539,7 +549,10 @@ mod tests {
         let set_calls = Rc::new(RefCell::new(Vec::new()));
         let panel = module(Rc::new(RefCell::new(ActionBindingMap::new())), set_calls);
         let cells = panel.draw().cells;
-        fn first_glyph_y(cells: &std::collections::BTreeMap<crate::CellPoint, crate::Cell>, prefix: &str) -> Option<i32> {
+        fn first_glyph_y(
+            cells: &std::collections::BTreeMap<crate::CellPoint, crate::Cell>,
+            prefix: &str,
+        ) -> Option<i32> {
             cells
                 .iter()
                 .filter(|(point, cell)| {
@@ -589,12 +602,20 @@ mod tests {
         let set_calls = Rc::new(RefCell::new(Vec::new()));
         let mut panel = module(Rc::new(RefCell::new(ActionBindingMap::new())), set_calls);
         // Fixture: 2 headers + 2 rows = 4 slots, capacity 8 -> no scroll.
-        assert!(!panel.on_wheel(2, 8, 0.0, -1.0), "short content never scrolls");
+        assert!(
+            !panel.on_wheel(2, 8, 0.0, -1.0),
+            "short content never scrolls"
+        );
 
         // A tall list in a short panel must scroll and clamp.
         let mut panel = ControlsPanelModule::new(
             "controls_panel_scroll_test",
-            ModuleRect { x0: 0, y0: 0, x1: 40, y1: 12 },
+            ModuleRect {
+                x0: 0,
+                y0: 0,
+                x1: 40,
+                y1: 12,
+            },
             UiPalette::default(),
             scroll_fixture(),
             |_| "unbound".to_string(),
@@ -602,7 +623,10 @@ mod tests {
             |_, _| {},
         );
         assert_eq!(panel.max_scroll_rows(), 6, "14 slots over 8 window rows");
-        assert!(panel.on_wheel(2, 8, 0.0, -1.0), "wheel down moves the offset");
+        assert!(
+            panel.on_wheel(2, 8, 0.0, -1.0),
+            "wheel down moves the offset"
+        );
         for _ in 0..20 {
             panel.on_wheel(2, 8, 0.0, -1.0);
         }
@@ -615,7 +639,12 @@ mod tests {
     fn a_trailing_section_title_never_renders_detached() {
         let mut panel = ControlsPanelModule::new(
             "controls_panel_orphan_test",
-            ModuleRect { x0: 0, y0: 0, x1: 40, y1: 12 },
+            ModuleRect {
+                x0: 0,
+                y0: 0,
+                x1: 40,
+                y1: 12,
+            },
             UiPalette::default(),
             scroll_fixture(),
             |_| "unbound".to_string(),
@@ -641,7 +670,10 @@ mod tests {
                 );
             }
         }
-        assert!(text.contains("camera"), "header still reachable in the window");
+        assert!(
+            text.contains("camera"),
+            "header still reachable in the window"
+        );
     }
 
     fn drawn_text(panel: &ControlsPanelModule) -> String {
@@ -662,5 +694,3 @@ mod tests {
         lines.join("\n")
     }
 }
-
-

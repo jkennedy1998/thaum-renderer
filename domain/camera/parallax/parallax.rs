@@ -59,7 +59,10 @@ pub fn parallax_screen_offset(
     match (profile.enabled, projection_mode) {
         (true, CameraProjectionMode::Perspective) => {
             let magnitude = profile.strength * eased_signed_depth_units(depth);
-            [-profile.offset[0] * magnitude, -profile.offset[1] * magnitude]
+            [
+                -profile.offset[0] * magnitude,
+                -profile.offset[1] * magnitude,
+            ]
         }
         _ => [0.0, 0.0],
     }
@@ -79,17 +82,34 @@ mod tests {
 
     #[test]
     fn disabled_or_orthographic_never_shifts() {
-        let disabled = ParallaxProfile { enabled: false, ..enabled_profile() };
-        assert_eq!(parallax_screen_offset(disabled, -4, CameraProjectionMode::Perspective), [0.0, 0.0]);
-        assert_eq!(parallax_screen_offset(
-            enabled_profile(), -4, CameraProjectionMode::Orthographic,
-        ), [0.0, 0.0]);
-        assert_eq!(parallax_screen_offset(ParallaxProfile::default(), 3, CameraProjectionMode::Perspective), [0.0, 0.0]);
+        let disabled = ParallaxProfile {
+            enabled: false,
+            ..enabled_profile()
+        };
+        assert_eq!(
+            parallax_screen_offset(disabled, -4, CameraProjectionMode::Perspective),
+            [0.0, 0.0]
+        );
+        assert_eq!(
+            parallax_screen_offset(enabled_profile(), -4, CameraProjectionMode::Orthographic,),
+            [0.0, 0.0]
+        );
+        assert_eq!(
+            parallax_screen_offset(
+                ParallaxProfile::default(),
+                3,
+                CameraProjectionMode::Perspective
+            ),
+            [0.0, 0.0]
+        );
     }
 
     #[test]
     fn focus_plane_never_moves() {
-        assert_eq!(parallax_screen_offset(enabled_profile(), 0, CameraProjectionMode::Perspective), [0.0, 0.0]);
+        assert_eq!(
+            parallax_screen_offset(enabled_profile(), 0, CameraProjectionMode::Perspective),
+            [0.0, 0.0]
+        );
     }
 
     #[test]
@@ -107,8 +127,14 @@ mod tests {
 
     #[test]
     fn zero_offset_is_a_no_op_even_when_enabled() {
-        let centered = ParallaxProfile { offset: [0.0, 0.0], ..enabled_profile() };
-        assert_eq!(parallax_screen_offset(centered, -6, CameraProjectionMode::Perspective), [0.0, 0.0]);
+        let centered = ParallaxProfile {
+            offset: [0.0, 0.0],
+            ..enabled_profile()
+        };
+        assert_eq!(
+            parallax_screen_offset(centered, -6, CameraProjectionMode::Perspective),
+            [0.0, 0.0]
+        );
     }
 
     #[test]

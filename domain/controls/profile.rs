@@ -119,7 +119,10 @@ mod tests {
             effective.bindings_for(&ActionName::new("a")),
             &[RawInput::Key("A".to_string())]
         );
-        assert_eq!(effective.bindings_for(&ActionName::new("wheel")), &[RawInput::MouseWheelUp]);
+        assert_eq!(
+            effective.bindings_for(&ActionName::new("wheel")),
+            &[RawInput::MouseWheelUp]
+        );
     }
 
     #[test]

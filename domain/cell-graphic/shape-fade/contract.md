@@ -5,10 +5,11 @@ Own shape-space interpolation between cell graphics: treating every 12x16 graphi
 
 ## owns
 - the 12x16 binary mask-space packing derived from graphic tiles (glyph- and sprite-backed alike, with the same sprite-over-font precedence the tile seam uses)
-- the pairwise shape-similarity metric over packed masks (Dice coefficient on popcount intersection; the empty mask — space — has similarity zero to everything, making fade-to-space the dissolve)
+- the pairwise shape-similarity metric over packed masks (Dice coefficient on popcount intersection; the empty mask — space — has similarity zero to every non-empty shape and one to itself, making fade-to-space the dissolve)
 - the per-typeface shape-neighbor graph (all-pairs similarity computed once per tile-set load, kept as per-graphic k-nearest-neighbor lists)
-- shape-fade resolution: given two graphics and an eased progress, the candidate graphics whose masks best approximate the ideal per-pixel alpha blend — accepted only when closer than both endpoints (never-worse-than-cutoff rule)
-- the progress-quantized fade cache bounding per-frame resolution cost
+- multi-step fade paths: ANY graphic can fade with ANY other graphic by routing through interpolative glyphs — a shortest-path walk over the neighbor graph (bounded hop count, small per-hop penalty), with a direct-edge fallback guaranteeing a path exists for every pair even across disconnected shape components
+- shape-fade resolution: walking the fade path, each step resolves the graphic whose mask best approximates the ideal per-pixel alpha blend between its segment endpoints — accepted only when closer than both endpoints (never-worse-than-cutoff rule); intermediates are always real loaded glyphs or sprites, never invented shapes
+- the progress-quantized fade cache bounding per-frame resolution cost (path cache per pair, resolved-char cache per pair+bucket)
 - rebuild-on-load semantics: the graph and caches are derived state of the loaded tile set, rebuilt whenever the typeface/sprite batches load or update, never persisted
 
 ## does not own
@@ -40,9 +41,15 @@ Own shape-space interpolation between cell graphics: treating every 12x16 graphi
 ## exposed interfaces
 ### shape-fade resolver
 send: from graphic (CellGraphic), to graphic (CellGraphic), eased progress t in 0..=1
-returns: the resolved CellGraphic for that point — an intermediate graphic when one beats both endpoints against the ideal blend mask, otherwise the nearer endpoint
-effects: none at call time (reads derived state; may insert into the bounded cache)
+returns: the resolved CellGraphic for that point — walking the pair's fade path, the segment covering t resolves an intermediate graphic when one beats both endpoints against the ideal blend mask, otherwise the nearer segment endpoint
+effects: none at call time (reads derived state; may insert into the bounded caches)
 via: `resolve_shape_fade`
+
+### fade path query
+send: from graphic, to graphic
+returns: the multi-step path of loaded graphics the fade routes through (empty only when a graphic is unknown to the graph), with the direct-edge fallback so every known pair has a path
+effects: none at call time (may insert into the bounded path cache)
+via: `fade_path`
 
 ### shape-neighbor graph build
 send: a tile provider (anything that yields `(graphic identity, GlyphTileRaster)` for the loaded set)
@@ -66,7 +73,10 @@ via: `build_neighbor_graph`
 - none
 
 ## notes
-- the never-worse rule is the contract's core promise: any pair this encapsulation cannot bridge well degrades to the caller's cutoff behavior, never to something uglier
+- the never-worse rule is the contract's core promise: any step this encapsulation cannot bridge well degrades to the segment's nearer endpoint, never to something uglier
+- multi-step routing is what makes ANY-pair fades watchable: shape-disjoint pairs (a dense block to a dot) walk through progressively closer intermediates instead of popping; the hop cap keeps paths from wandering, and the per-hop penalty keeps them from pointlessly multi-hopping when a direct blend is already fine
+- every intermediate is a real loaded glyph or sprite — the encapsulation projects onto the glyph set, it never invents shapes
 - the graph builds at one canonical weight; per-weight graphs are a future child only if the canonical graph proves too coarse
 - alpha lerp uses the u8 alpha arrays from `GlyphTileRaster` directly; binary masks are for the metric and candidate pruning
-- kept deterministic by contract: no randomness, no wall-clock, no session state — scrub-back stability and replay identity depend on it
+- kept deterministic by contract: no randomness, no wall-clock, no session state, sorted candidate iteration — scrub-back stability and replay identity depend on it
+- single-threaded consumer seam by design (the render path); sharing across threads would need an external wrapper

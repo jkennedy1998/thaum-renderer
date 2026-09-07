@@ -55,8 +55,7 @@ pub fn eased_signed_depth_units(depth: i32) -> f32 {
     }
 
     let sign = depth.signum() as f32;
-    let magnitude =
-        ((depth.abs() as f32) + 1.0).powf(PERSPECTIVE_DEPTH_EASE_POWER) - 1.0;
+    let magnitude = ((depth.abs() as f32) + 1.0).powf(PERSPECTIVE_DEPTH_EASE_POWER) - 1.0;
     sign * magnitude
 }
 
@@ -80,10 +79,8 @@ pub fn depth_scale_factor(
 ) -> f32 {
     match projection_mode {
         CameraProjectionMode::Perspective => {
-            let depth_units =
-                eased_signed_depth_units(depth) * profile.scale_strength;
-            PERSPECTIVE_FOCAL_DISTANCE_CELLS
-                / perspective_denominator(depth_units, profile)
+            let depth_units = eased_signed_depth_units(depth) * profile.scale_strength;
+            PERSPECTIVE_FOCAL_DISTANCE_CELLS / perspective_denominator(depth_units, profile)
         }
         CameraProjectionMode::Orthographic => 1.0,
     }
@@ -99,10 +96,8 @@ pub fn depth_position_spread(
 ) -> f32 {
     match projection_mode {
         CameraProjectionMode::Perspective => {
-            let depth_units =
-                eased_signed_depth_units(depth) * profile.position_strength;
-            PERSPECTIVE_FOCAL_DISTANCE_CELLS
-                / perspective_denominator(depth_units, profile)
+            let depth_units = eased_signed_depth_units(depth) * profile.position_strength;
+            PERSPECTIVE_FOCAL_DISTANCE_CELLS / perspective_denominator(depth_units, profile)
         }
         CameraProjectionMode::Orthographic => 1.0,
     }
@@ -121,10 +116,16 @@ mod tests {
         // Historical: eased(5) = 6^0.9 - 1, then 13 / (13 + 0.9 * eased).
         let eased = 6.0f32.powf(0.9) - 1.0;
         let historical = 13.0 / (13.0 + 0.9 * eased);
-        let scale = depth_scale_factor(5, CameraProjectionMode::Perspective,
-            PerspectiveProfile::default());
-        let spread = depth_position_spread(5, CameraProjectionMode::Perspective,
-            PerspectiveProfile::default());
+        let scale = depth_scale_factor(
+            5,
+            CameraProjectionMode::Perspective,
+            PerspectiveProfile::default(),
+        );
+        let spread = depth_position_spread(
+            5,
+            CameraProjectionMode::Perspective,
+            PerspectiveProfile::default(),
+        );
         assert!(approx(scale, historical), "{scale} vs {historical}");
         assert!(approx(spread, historical), "{spread} vs {historical}");
     }
@@ -155,13 +156,11 @@ mod tests {
         };
         for depth in [-4, -1, 1, 7] {
             assert!(approx(
-                depth_scale_factor(depth, CameraProjectionMode::Perspective,
-                    profile),
+                depth_scale_factor(depth, CameraProjectionMode::Perspective, profile),
                 1.0
             ));
             assert!(approx(
-                depth_position_spread(depth, CameraProjectionMode::Perspective,
-                    profile),
+                depth_position_spread(depth, CameraProjectionMode::Perspective, profile),
                 1.0
             ));
         }
@@ -179,8 +178,7 @@ mod tests {
             1.0
         ));
         assert!(approx(
-            depth_position_spread(-3, CameraProjectionMode::Orthographic,
-                profile),
+            depth_position_spread(-3, CameraProjectionMode::Orthographic, profile),
             1.0
         ));
     }
@@ -189,10 +187,8 @@ mod tests {
     fn near_camera_saturates_at_the_floor_fraction() {
         let profile = PerspectiveProfile::default();
         let ceiling = 1.0 / 0.28;
-        let deep = depth_scale_factor(-40, CameraProjectionMode::Perspective,
-            profile);
-        let deeper = depth_scale_factor(-400, CameraProjectionMode::Perspective,
-            profile);
+        let deep = depth_scale_factor(-40, CameraProjectionMode::Perspective, profile);
+        let deeper = depth_scale_factor(-400, CameraProjectionMode::Perspective, profile);
         assert!(approx(deep, ceiling));
         assert!(approx(deeper, ceiling));
     }
@@ -205,11 +201,12 @@ mod tests {
             ..floored
         };
         let depth = -40;
-        let unbounded_scale = depth_scale_factor(depth,
-            CameraProjectionMode::Perspective, unbounded);
+        let unbounded_scale =
+            depth_scale_factor(depth, CameraProjectionMode::Perspective, unbounded);
         assert!(unbounded_scale > 1.0 / 0.28);
-        assert!(unbounded_scale > depth_scale_factor(depth,
-            CameraProjectionMode::Perspective, floored));
+        assert!(
+            unbounded_scale > depth_scale_factor(depth, CameraProjectionMode::Perspective, floored)
+        );
     }
 
     #[test]
@@ -221,15 +218,13 @@ mod tests {
             ..default
         };
         let depth = -3;
-        let default_scale = depth_scale_factor(depth,
-            CameraProjectionMode::Perspective, default);
-        let extreme_scale = depth_scale_factor(depth,
-            CameraProjectionMode::Perspective, extreme);
+        let default_scale = depth_scale_factor(depth, CameraProjectionMode::Perspective, default);
+        let extreme_scale = depth_scale_factor(depth, CameraProjectionMode::Perspective, extreme);
         assert!(extreme_scale > default_scale);
-        let default_spread = depth_position_spread(depth,
-            CameraProjectionMode::Perspective, default);
-        let extreme_spread = depth_position_spread(depth,
-            CameraProjectionMode::Perspective, extreme);
+        let default_spread =
+            depth_position_spread(depth, CameraProjectionMode::Perspective, default);
+        let extreme_spread =
+            depth_position_spread(depth, CameraProjectionMode::Perspective, extreme);
         assert!(extreme_spread > default_spread);
     }
 }
