@@ -15,8 +15,6 @@ pub struct BootSceneCache {
     last: Option<SceneCacheEntry>,
 }
 
-
-
 struct SceneCacheEntry {
     fingerprint: SceneFingerprint,
     scene: SharedWindowSurfaceScene,
@@ -132,7 +130,7 @@ impl BootSceneCache {
 mod tests {
     use super::*;
     use crate::{BootConfig, BootState};
-    use thaum_renderer_domain::{Cell, CellGroup, CellGraphic, CellPoint, Composition, WorldPoint};
+    use thaum_renderer_domain::{Cell, CellGraphic, CellGroup, CellPoint, Composition, WorldPoint};
     use thaum_renderer_window_surface::{SurfaceQuad, SurfaceQuadPostEffectBus};
 
     fn plain_quad() -> SurfaceQuad {
@@ -182,14 +180,20 @@ mod tests {
             height: 100,
         };
 
-        let (first, rebuilt_first) =
-            cache.build_or_reuse(&state, size, || Ok(scene_with_quad_count(1))).unwrap();
-        let (second, rebuilt_second) =
-            cache.build_or_reuse(&state, size, || Ok(scene_with_quad_count(999))).unwrap();
+        let (first, rebuilt_first) = cache
+            .build_or_reuse(&state, size, || Ok(scene_with_quad_count(1)))
+            .unwrap();
+        let (second, rebuilt_second) = cache
+            .build_or_reuse(&state, size, || Ok(scene_with_quad_count(999)))
+            .unwrap();
 
         assert!(rebuilt_first);
         assert!(!rebuilt_second, "identical fingerprint must not rebuild");
-        assert_eq!(second.quads.len(), 1, "cached scene content, not the new build");
+        assert_eq!(
+            second.quads.len(),
+            1,
+            "cached scene content, not the new build"
+        );
         assert_eq!(second.revision, first.revision);
     }
 
@@ -202,7 +206,9 @@ mod tests {
             height: 100,
         };
 
-        let (_, _) = cache.build_or_reuse(&state, size, || Ok(scene_with_quad_count(1))).unwrap();
+        let (_, _) = cache
+            .build_or_reuse(&state, size, || Ok(scene_with_quad_count(1)))
+            .unwrap();
 
         let mut changed_composition = composition_with_one_glyph();
         changed_composition.groups[0]
@@ -211,8 +217,9 @@ mod tests {
             .unwrap()
             .graphic = CellGraphic::Glyph('B');
         let changed_state = boot_state_with_composition(changed_composition);
-        let (scene, rebuilt) =
-            cache.build_or_reuse(&changed_state, size, || Ok(scene_with_quad_count(2))).unwrap();
+        let (scene, rebuilt) = cache
+            .build_or_reuse(&changed_state, size, || Ok(scene_with_quad_count(2)))
+            .unwrap();
 
         assert!(rebuilt);
         assert_eq!(scene.quads.len(), 2);
@@ -226,19 +233,23 @@ mod tests {
             width: 100,
             height: 100,
         };
-        let (first, _) = cache.build_or_reuse(&state, size, || Ok(scene_with_quad_count(1))).unwrap();
+        let (first, _) = cache
+            .build_or_reuse(&state, size, || Ok(scene_with_quad_count(1)))
+            .unwrap();
 
         let mut moved = state.clone();
         moved.camera.position = WorldPoint { x: 1, y: 0, z: 0 };
-        let (second, rebuilt_camera) =
-            cache.build_or_reuse(&moved, size, || Ok(scene_with_quad_count(1))).unwrap();
+        let (second, rebuilt_camera) = cache
+            .build_or_reuse(&moved, size, || Ok(scene_with_quad_count(1)))
+            .unwrap();
         assert!(rebuilt_camera);
         assert_ne!(second.revision, first.revision);
 
         let mut breathed = moved.clone();
         breathed.data_lanes.set_breath(8);
-        let (_, rebuilt_breath) =
-            cache.build_or_reuse(&breathed, size, || Ok(scene_with_quad_count(1))).unwrap();
+        let (_, rebuilt_breath) = cache
+            .build_or_reuse(&breathed, size, || Ok(scene_with_quad_count(1)))
+            .unwrap();
         assert!(rebuilt_breath);
     }
 
@@ -251,13 +262,15 @@ mod tests {
             height: 100,
         };
 
-        let (_, first_rebuilt) =
-            cache.build_or_reuse(&state, size, || Ok(scene_with_quad_count(1))).unwrap();
+        let (_, first_rebuilt) = cache
+            .build_or_reuse(&state, size, || Ok(scene_with_quad_count(1)))
+            .unwrap();
 
         let mut hot = state.clone();
         hot.config.hot_reload = true;
-        let (second, second_rebuilt) =
-            cache.build_or_reuse(&hot, size, || Ok(scene_with_quad_count(3))).unwrap();
+        let (second, second_rebuilt) = cache
+            .build_or_reuse(&hot, size, || Ok(scene_with_quad_count(3)))
+            .unwrap();
 
         assert!(first_rebuilt);
         assert!(second_rebuilt, "hot reload must rebuild every call");

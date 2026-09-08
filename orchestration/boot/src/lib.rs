@@ -13,15 +13,15 @@ use thaum_renderer_domain::{
     project_flat_2d_world_to_view_plane, project_rotating_3d_world_to_view_plane,
     projected_plane_is_visible, projected_plane_scale_factor, resolve_shaded_graphic,
     resolve_shaded_texture, resolve_shaded_warble, resolve_shaded_weight, Camera,
-    CameraProjectedPoint, Cell, CellGroupIntakeBehavior, CellPoint, Composition,
-    DataLanes, GlyphFontSet, IndexColorClampEffect, SpriteAtlasSet, WorldPoint,
-    GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+    CameraProjectedPoint, Cell, CellGroupIntakeBehavior, CellPoint, Composition, DataLanes,
+    GlyphFontSet, IndexColorClampEffect, SpriteAtlasSet, WorldPoint, GLYPH_TILE_HEIGHT,
+    GLYPH_TILE_WIDTH,
 };
+use thaum_renderer_window_surface::GlyphAtlasSceneData;
 pub use thaum_renderer_window_surface::{
     run_window_surface_with_frame_provider, SharedWindowSurfaceScene, SurfaceQuad, SurfaceSize,
     WindowSurfaceConfig, WindowSurfaceFrameContext, WindowSurfaceInput, WindowSurfaceScene,
 };
-use thaum_renderer_window_surface::GlyphAtlasSceneData;
 
 mod effect_quads;
 mod scene_cache;
@@ -176,7 +176,6 @@ pub fn run_renderer_window_with_state_frame_provider(
     let asset_cache = RendererAssetCache::default();
     let mut scene_cache = BootSceneCache::default();
 
-
     run_window_surface_with_frame_provider(window_config, move |frame| {
         let now = Instant::now();
         if frame_state.uses_fallback_breath {
@@ -206,8 +205,12 @@ pub fn build_window_surface_scene_for_surface(
     state: &BootState,
     surface_size: SurfaceSize,
 ) -> Result<WindowSurfaceScene> {
-    build_window_surface_scene_for_surface_with_cache(state, surface_size, &RendererAssetCache::default())
-        .map(|(scene, _)| scene)
+    build_window_surface_scene_for_surface_with_cache(
+        state,
+        surface_size,
+        &RendererAssetCache::default(),
+    )
+    .map(|(scene, _)| scene)
 }
 
 /// Scene build routed through a [`BootSceneCache`]: fingerprint hit returns
@@ -284,7 +287,10 @@ fn build_window_surface_scene_for_surface_with_cache(
         Some(fonts) if composition_contains_visible_glyphs(&state.composition) => {
             build_glyph_atlas(state, cell_clip_size, fonts)
         }
-        _ => (GlyphAtlasSceneData::default(), GlyphAtlasPlacement::default()),
+        _ => (
+            GlyphAtlasSceneData::default(),
+            GlyphAtlasPlacement::default(),
+        ),
     };
     scene.glyph_atlas = glyph_atlas;
 
@@ -634,11 +640,7 @@ fn stage_projected_boot_cells(
                     // Default world-anchored Flat2d: the group origin is a
                     // world anchor, so the content sits at its world position
                     // and drifts naturally with camera pans and swings.
-                    project_flat_2d_world_to_view_plane(
-                        state.camera,
-                        group.origin,
-                        cell.position,
-                    )
+                    project_flat_2d_world_to_view_plane(state.camera, group.origin, cell.position)
                 }
             };
 
@@ -685,7 +687,10 @@ fn stage_projected_boot_cells(
 /// Whether a cell would render a visible graphic this frame: its base
 /// graphic is visible and no shader in its stack hides it (the vivid flash
 /// pair hides its cell during the opposite half of the breath cycle).
-fn staged_cell_renders_this_frame(projected_cell: &ProjectedBootCell, data_lanes: DataLanes) -> bool {
+fn staged_cell_renders_this_frame(
+    projected_cell: &ProjectedBootCell,
+    data_lanes: DataLanes,
+) -> bool {
     projected_cell.cell.graphic.is_visible()
         && resolve_shaded_graphic(
             projected_cell.cell.graphic.clone(),
@@ -776,7 +781,10 @@ fn build_glyph_atlas(
     }
 
     if keys.is_empty() {
-        return (GlyphAtlasSceneData::default(), GlyphAtlasPlacement::default());
+        return (
+            GlyphAtlasSceneData::default(),
+            GlyphAtlasPlacement::default(),
+        );
     }
 
     let columns = ((keys.len() as f64).sqrt().ceil() as usize).max(1);
@@ -788,14 +796,22 @@ fn build_glyph_atlas(
         let alpha = raster
             .alpha
             .iter()
-            .map(|coverage| if *coverage >= GLYPH_BINARY_ALPHA_THRESHOLD { 255u8 } else { 0u8 })
+            .map(|coverage| {
+                if *coverage >= GLYPH_BINARY_ALPHA_THRESHOLD {
+                    255u8
+                } else {
+                    0u8
+                }
+            })
             .collect::<Vec<u8>>();
         tiles.push(thaum_renderer_window_surface::GlyphAtlasTile {
             glyph: glyph as u32,
             weight_index: weight.as_index() as u32,
             alpha: std::sync::Arc::new(alpha),
         });
-        placement.slots.insert((glyph, weight.as_index() as u32), slot);
+        placement
+            .slots
+            .insert((glyph, weight.as_index() as u32), slot);
     }
 
     let atlas = GlyphAtlasSceneData {
@@ -1021,8 +1037,7 @@ mod tests {
     }
 
     #[test]
-    fn stage_projected_boot_cells_flash_pair_yields_to_beneath_cells_instead_of_blank()
-    {
+    fn stage_projected_boot_cells_flash_pair_yields_to_beneath_cells_instead_of_blank() {
         // Document cell, then the two flash halves stacked above it. Each
         // phase must surface the half that renders, and when an overlay half
         // is empty the document cell beneath shows through — no blank state.

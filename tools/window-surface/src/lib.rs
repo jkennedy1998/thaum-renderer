@@ -14,8 +14,7 @@ use thaum_renderer_domain::{
     warble_post_effect_breath_phase, POST_EFFECTS_SHADER,
 };
 use wgpu::{
-    CompositeAlphaMode, CurrentSurfaceTexture, PresentMode, SurfaceColorSpace,
-    TextureFormat,
+    CompositeAlphaMode, CurrentSurfaceTexture, PresentMode, SurfaceColorSpace, TextureFormat,
 };
 use winit::{
     application::ApplicationHandler,
@@ -260,8 +259,7 @@ pub type SharedWindowSurfaceScene = std::sync::Arc<WindowSurfaceScene>;
 
 pub fn run_window_surface_with_frame_provider(
     config: WindowSurfaceConfig,
-    scene_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene>
-        + 'static,
+    scene_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene> + 'static,
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let mut app = WindowSurfaceApp::new(config, Box::new(scene_provider));
@@ -293,7 +291,9 @@ struct WindowSurfaceApp {
 impl WindowSurfaceApp {
     fn new(
         config: WindowSurfaceConfig,
-        scene_provider: Box<dyn FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene>>,
+        scene_provider: Box<
+            dyn FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene>,
+        >,
     ) -> Self {
         let surface_size = SurfaceSize::from(&config);
 
@@ -341,8 +341,16 @@ impl WindowSurfaceApp {
         let position = clip_position_from_physical_cursor(touch.location, self.surface_size);
         self.cursor_position = Some(position);
         self.pointer_pressure = match touch.force {
-            Some(Force::Calibrated { force, max_possible_force, .. }) => {
-                let denominator = if max_possible_force > 0.0 { max_possible_force } else { 1.0 };
+            Some(Force::Calibrated {
+                force,
+                max_possible_force,
+                ..
+            }) => {
+                let denominator = if max_possible_force > 0.0 {
+                    max_possible_force
+                } else {
+                    1.0
+                };
                 Some(((force / denominator) as f32).clamp(0.0, 1.0))
             }
             _ => None,
@@ -698,14 +706,16 @@ impl GpuSurface {
         let needs_rebuild = self
             .quad_draw
             .as_ref()
-            .map(|quad_draw| quad_draw.needs_rebuild(
-                self.surface_config.format,
-                output_surface_size,
-                internal_surface_size,
-                self.upscale_mode,
-                scene.indexed_color_palette.len(),
-                &scene.glyph_atlas,
-            ))
+            .map(|quad_draw| {
+                quad_draw.needs_rebuild(
+                    self.surface_config.format,
+                    output_surface_size,
+                    internal_surface_size,
+                    self.upscale_mode,
+                    scene.indexed_color_palette.len(),
+                    &scene.glyph_atlas,
+                )
+            })
             .unwrap_or(true);
         if needs_rebuild {
             self.quad_draw = QuadDraw::new(
@@ -860,8 +870,8 @@ impl QuadDraw {
             let column = index % columns;
             let row = index / columns;
             for tile_row in 0..tile_height {
-                let destination = (row * tile_height + tile_row) * columns * tile_width
-                    + column * tile_width;
+                let destination =
+                    (row * tile_height + tile_row) * columns * tile_width + column * tile_width;
                 let source = tile_row * tile_width;
                 data[destination..destination + tile_width]
                     .copy_from_slice(&tile.alpha[source..source + tile_width]);
@@ -967,11 +977,7 @@ impl QuadDraw {
         }
         if needed_bytes > 0 {
             let vertices: Vec<_> = scene.quads.iter().flat_map(SurfaceQuad::vertices).collect();
-            queue.write_buffer(
-                &self.vertex_buffer,
-                0,
-                bytemuck::cast_slice(&vertices),
-            );
+            queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
             self.vertex_count = vertices.len() as u32;
         } else {
             self.vertex_count = 0;
@@ -1156,7 +1162,8 @@ impl QuadDraw {
         Self::write_atlas_texels(queue, &atlas_texture, &scene.glyph_atlas);
 
         let quad_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("thaum-renderer-surface-quad-pipeline"),            layout: Some(&quad_pipeline_layout),
+            label: Some("thaum-renderer-surface-quad-pipeline"),
+            layout: Some(&quad_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &quad_shader,
                 entry_point: Some("vs_main"),
@@ -1374,8 +1381,8 @@ impl QuadDraw {
             cache: None,
         });
 
-        let initial_vertex_capacity = (Self::vertex_bytes_for(scene.quads.len()))
-            .max(Self::VERTEX_CAPACITY_MIN_BYTES);
+        let initial_vertex_capacity =
+            (Self::vertex_bytes_for(scene.quads.len())).max(Self::VERTEX_CAPACITY_MIN_BYTES);
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("thaum-renderer-surface-quad-vertices"),
             size: initial_vertex_capacity as u64,

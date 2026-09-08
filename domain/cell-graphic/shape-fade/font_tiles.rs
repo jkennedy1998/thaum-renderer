@@ -7,7 +7,7 @@
 //! IS the dissolve endpoint.
 
 use super::mask_space::PackedMask;
-use super::neighbor_graph::FadeTileProvider;
+use super::neighbor_graph::{FadeTileProvider, WeightedFadeTileProvider};
 use crate::{CellWeight, GlyphFontSet, GlyphTileRaster};
 
 /// The canonical weight the graph builds at (see contract notes: one
@@ -21,16 +21,19 @@ pub struct FontSetTiles<'a> {
 
 impl FadeTileProvider for FontSetTiles<'_> {
     fn tiles(&self) -> Vec<(char, GlyphTileRaster)> {
+        self.tiles_at_weight(FADE_CANONICAL_WEIGHT)
+    }
+}
+
+impl WeightedFadeTileProvider for FontSetTiles<'_> {
+    fn tiles_at_weight(&self, weight: CellWeight) -> Vec<(char, GlyphTileRaster)> {
         self.font_set
             .glyph_chars()
             .into_iter()
-            .map(|glyph| {
-                let tile = self
-                    .font_set
-                    .rasterize_glyph_tile(glyph, FADE_CANONICAL_WEIGHT);
-                (glyph, tile)
+            .map(|glyph| (glyph, self.font_set.rasterize_glyph_tile(glyph, weight)))
+            .filter(|(glyph, tile)| {
+                *glyph == ' ' || PackedMask::from_tile(tile).coverage_count() > 0
             })
-            .filter(|(glyph, tile)| *glyph == ' ' || PackedMask::from_tile(tile).coverage_count() > 0)
             .collect()
     }
 }
@@ -48,11 +51,21 @@ mod tests {
         let Ok(font_set) = GlyphFontSet::load_from_asset_root(&asset_root) else {
             return;
         };
-        let tiles = FontSetTiles { font_set: &font_set }.tiles();
-        assert!(tiles.iter().any(|(glyph, _)| *glyph == ' '));
-        assert!(tiles.iter().any(|(glyph, _)| *glyph == 'O'));
-        assert!(tiles
-            .iter()
-            .all(|(glyph, tile)| *glyph == ' ' || tile.coverage_count() > 0));
+        let provider = FontSetTiles {
+            font_set: &font_set,
+        };
+        for weight in [
+            CellWeight::Zero,
+            CellWeight::One,
+            CellWeight::Two,
+            CellWeight::Three,
+        ] {
+            let tiles = provider.tiles_at_weight(weight);
+            assert!(tiles.iter().any(|(glyph, _)| *glyph == ' '));
+            assert!(tiles.iter().any(|(glyph, _)| *glyph == 'O'));
+            assert!(tiles
+                .iter()
+                .all(|(glyph, tile)| *glyph == ' ' || tile.coverage_count() > 0));
+        }
     }
 }

@@ -676,12 +676,7 @@ pub(crate) fn glyph_cell_to_surface_quad(
         center: cell_center,
         size: cell_clip_size,
         color,
-        local_uv_corners: [
-            [0.0, 1.0],
-            [1.0, 1.0],
-            [1.0, 0.0],
-            [0.0, 0.0],
-        ],
+        local_uv_corners: [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]],
         warble_uv_corners: [
             [world.x as f32 - 0.5, world.y as f32 - 0.5],
             [world.x as f32 + 0.5, world.y as f32 - 0.5],

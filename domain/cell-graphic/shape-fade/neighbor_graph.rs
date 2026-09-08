@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use crate::shape_fade::similarity::alpha_distance;
-use crate::GlyphTileRaster;
+use crate::{CellWeight, GlyphTileRaster};
 
 /// Neighbor list size per graphic. Small enough to keep candidate pools local
 /// in image space, large enough that shape-plausible intermediates appear.
@@ -22,6 +22,13 @@ pub const FADE_NEIGHBOR_COUNT: usize = 8;
 /// precedence); tests build it over hand-made tiles.
 pub trait FadeTileProvider {
     fn tiles(&self) -> Vec<(char, GlyphTileRaster)>;
+}
+
+/// Supplies one tile set for every render weight. Weight-aware shape fades use
+/// the real source, target, and output-weight tiles instead of treating one
+/// canonical glyph weight as every cell's shape.
+pub trait WeightedFadeTileProvider {
+    fn tiles_at_weight(&self, weight: CellWeight) -> Vec<(char, GlyphTileRaster)>;
 }
 
 pub struct NeighborGraph {

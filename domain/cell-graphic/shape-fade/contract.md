@@ -6,9 +6,9 @@ Own shape-space interpolation between cell graphics: treating every 12x16 graphi
 ## owns
 - the 12x16 binary mask-space packing derived from graphic tiles (glyph- and sprite-backed alike, with the same sprite-over-font precedence the tile seam uses)
 - the pairwise shape-similarity metric over packed masks (Dice coefficient on popcount intersection; the empty mask — space — has similarity zero to every non-empty shape and one to itself, making fade-to-space the dissolve)
-- the per-typeface shape-neighbor graph (all-pairs similarity computed once per tile-set load, kept as per-graphic k-nearest-neighbor lists)
+- the per-typeface, per-render-weight shape-neighbor graphs (all-pairs similarity computed once per tile-set load for each of the four actual glyph weights, kept as per-graphic k-nearest-neighbor lists)
 - multi-step fade paths: ANY graphic can fade with ANY other graphic by routing through interpolative glyphs — a shortest-path walk over the neighbor graph (bounded hop count, small per-hop penalty), with a direct-edge fallback guaranteeing a path exists for every pair even across disconnected shape components
-- shape-fade resolution: walking the fade path, each step resolves the graphic whose mask best approximates the ideal per-pixel alpha blend between its segment endpoints — accepted only when closer than both endpoints (never-worse-than-cutoff rule); intermediates are always real loaded glyphs or sprites, never invented shapes
+- weight-aware shape-fade resolution: source and target use their authored render-weight tiles, while every intermediate comes from the current output-weight graph, so an interpolated glyph always has a shape supported by the weight the renderer will draw; intermediates are always real loaded glyphs or sprites, never invented shapes
 - the progress-quantized fade cache bounding per-frame resolution cost (path cache per pair, resolved-char cache per pair+bucket)
 - rebuild-on-load semantics: the graph and caches are derived state of the loaded tile set, rebuilt whenever the typeface/sprite batches load or update, never persisted
 
@@ -29,8 +29,8 @@ Own shape-space interpolation between cell graphics: treating every 12x16 graphi
 - `mask_space.rs` — tile alpha -> packed `[u64; 3]` binary mask; empty-mask truth
 - `similarity.rs` — Dice metric over packed masks
 - `neighbor_graph.rs` — all-pairs similarity + kNN lists, built from a tile provider at load; rebuild on reload
-- `fade.rs` — `resolve_shape_fade(from, to, t) -> graphic` walking the per-pair gradient tour, t-quantized walk cache
-- `font_tiles.rs` — production `FadeTileProvider` over a loaded `GlyphFontSet` at the canonical weight; drops chars that rasterize to empty tiles (space stays — it IS the dissolve endpoint)
+- `fade.rs` — `resolve_weighted_shape_fade(from, from_weight, to, to_weight, output_weight, t) -> graphic` walking the per-weight per-pair gradient tour with a t-quantized walk cache
+- `font_tiles.rs` — production `WeightedFadeTileProvider` over a loaded `GlyphFontSet` across all four render weights; drops chars that rasterize to empty tiles (space stays — it IS the dissolve endpoint)
 - `tests/` — property tests over hand-built masks (no font files needed)
 
 ## dependencies
@@ -41,10 +41,10 @@ Own shape-space interpolation between cell graphics: treating every 12x16 graphi
 
 ## exposed interfaces
 ### shape-fade resolver
-send: from graphic (CellGraphic), to graphic (CellGraphic), eased progress t in 0..=1
-returns: the resolved CellGraphic for that point — walking the pair's fade path, the segment covering t resolves an intermediate graphic when one beats both endpoints against the ideal blend mask, otherwise the nearer segment endpoint
+send: from graphic + authored render weight, to graphic + authored render weight, current output render weight, eased progress t in 0..=1
+returns: the resolved CellGraphic for that point — walking a tour whose source/target use their authored tiles and whose intermediates use the current output-weight tile set
 effects: none at call time (reads derived state; may insert into the bounded caches)
-via: `resolve_shape_fade`
+via: `resolve_weighted_shape_fade`
 
 ### shape-neighbor graph build
 send: a tile provider (anything that yields `(graphic identity, GlyphTileRaster)` for the loaded set)
@@ -72,7 +72,7 @@ via: `build_neighbor_graph`
 - the first pass routed multi-step paths through the graph and resolved each segment against its own endpoints; walks drifted away from the endpoint shapes (J's quality feedback). The second pass scores every candidate against the global endpoint blend, so the walk is monotone toward the goal by construction — the removed path router is documented history, not pending work
 - every intermediate is a real loaded glyph or sprite — the encapsulation projects onto the glyph set, it never invents shapes
 - pairs whose neighbor pools hold nothing closer than the endpoints fade as a clean two-shape dissolve (with the painter's weight fade softening it), which is the honest result for shape-disjoint pairs
-- the graph builds at one canonical weight; per-weight graphs are a future child only if the canonical graph proves too coarse
+- four graphs build at the renderer's four actual weights; cache keys include both endpoint weights and the current output weight so no tour crosses incompatible glyph shapes
 - alpha lerp uses the u8 alpha arrays from `GlyphTileRaster` directly; binary masks are for the metric and candidate pruning
 - kept deterministic by contract: no randomness, no wall-clock, no session state, sorted candidate iteration — scrub-back stability and replay identity depend on it
 - single-threaded consumer seam by design (the render path); sharing across threads would need an external wrapper
