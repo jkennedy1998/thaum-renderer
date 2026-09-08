@@ -30,6 +30,7 @@ Own shape-space interpolation between cell graphics: treating every 12x16 graphi
 - `similarity.rs` — Dice metric over packed masks
 - `neighbor_graph.rs` — all-pairs similarity + kNN lists, built from a tile provider at load; rebuild on reload
 - `fade.rs` — `resolve_shape_fade(from, to, t) -> graphic` walking the per-pair gradient tour, t-quantized walk cache
+- `font_tiles.rs` — production `FadeTileProvider` over a loaded `GlyphFontSet` at the canonical weight; drops chars that rasterize to empty tiles (space stays — it IS the dissolve endpoint)
 - `tests/` — property tests over hand-built masks (no font files needed)
 
 ## dependencies

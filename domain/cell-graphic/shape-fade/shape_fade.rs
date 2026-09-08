@@ -4,6 +4,7 @@
 //! would look bad.
 
 pub mod fade;
+pub mod font_tiles;
 pub mod mask_space;
 pub mod neighbor_graph;
 pub mod similarity;

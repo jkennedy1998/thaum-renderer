@@ -12,6 +12,7 @@
 //! distance, no glyph identity, no semantics, no randomness. The tour is
 //! computed once per pair over the progress grid and cached.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::shape_fade::neighbor_graph::{FadeTileProvider, NeighborGraph};
@@ -34,31 +35,40 @@ fn glyph_rank(glyph: char, from: char, to: char) -> u8 {
 
 pub struct ShapeFade {
     graph: NeighborGraph,
-    walks: HashMap<(char, char), Vec<char>>,
+    /// Walk cache behind a RefCell: resolution takes `&self` so the render
+    /// path can hold a shared reference. Single-threaded consumer seam (see
+    /// the contract notes); the cache clears wholesale on overflow.
+    walks: RefCell<HashMap<(char, char), Vec<char>>>,
 }
 
 impl ShapeFade {
     pub fn build(provider: &dyn FadeTileProvider) -> Self {
         Self {
             graph: NeighborGraph::build(provider),
-            walks: HashMap::new(),
+            walks: RefCell::new(HashMap::new()),
         }
     }
 
     /// The tour for `t` along the from -> to fade. Always a loaded
     /// glyph/sprite; `None` only when a graphic is unknown to the graph.
-    pub fn resolve_shape_fade(&mut self, from: char, to: char, t: f32) -> Option<char> {
+    pub fn resolve_shape_fade(&self, from: char, to: char, t: f32) -> Option<char> {
         let t = t.clamp(0.0, 1.0);
         let bucket =
             ((t * (PROGRESS_BUCKETS - 1) as f32).round() as usize).min(PROGRESS_BUCKETS - 1);
-        if !self.walks.contains_key(&(from, to)) {
-            if self.walks.len() >= WALK_CACHE_CAP {
-                self.walks.clear();
+        {
+            let mut walks = self.walks.borrow_mut();
+            if !walks.contains_key(&(from, to)) {
+                if walks.len() >= WALK_CACHE_CAP {
+                    walks.clear();
+                }
+                let walk = self.compute_walk(from, to)?;
+                walks.insert((from, to), walk);
             }
-            let walk = self.compute_walk(from, to)?;
-            self.walks.insert((from, to), walk);
         }
-        self.walks.get(&(from, to)).map(|walk| walk[bucket])
+        self.walks
+            .borrow()
+            .get(&(from, to))
+            .map(|walk| walk[bucket])
     }
 
     /// The gradient tour: pool glyphs (endpoints' neighbor lists plus the

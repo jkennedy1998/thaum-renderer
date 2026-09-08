@@ -47,7 +47,7 @@ fn render_tile(tile: &thaum_renderer_domain::GlyphTileRaster) -> Vec<String> {
         .collect()
 }
 
-fn print_fade(fade: &mut ShapeFade, from: char, to: char, steps: usize) {
+fn print_fade(fade: &ShapeFade, from: char, to: char, steps: usize) {
     println!("=== {from} -> {to}");
 
     let mut frames: Vec<(char, Vec<String>)> = Vec::new();
@@ -113,7 +113,7 @@ fn main() {
         font_set,
         charset: charset.clone(),
     };
-    let mut fade = ShapeFade::build(&provider);
+    let fade = ShapeFade::build(&provider);
     println!(
         "graph: {} graphics, canonical weight One\n",
         fade.graph().chars.len()

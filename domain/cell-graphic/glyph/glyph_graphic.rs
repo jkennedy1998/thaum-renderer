@@ -87,6 +87,18 @@ impl GlyphFontSet {
         })
     }
 
+    /// Every char this set can contribute a tile for: the ASCII printable
+    /// range (the font-backed charset) plus any sprite-batch glyphs, sorted
+    /// and deduplicated. Tile-provider sweeps (shape-fade graph builds)
+    /// consume this instead of re-deriving a charset.
+    pub fn glyph_chars(&self) -> Vec<char> {
+        let mut chars: Vec<char> = (' '..='~').collect();
+        chars.extend(self.sprite_tiles.keys().map(|(glyph, _)| *glyph));
+        chars.sort();
+        chars.dedup();
+        chars
+    }
+
     pub fn rasterize_glyph_tile(&self, glyph: char, weight: CellWeight) -> GlyphTileRaster {
         if let Some(tile) = self.sprite_tiles.get(&(glyph, weight.as_index())) {
             return tile.clone();
