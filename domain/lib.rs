@@ -54,6 +54,8 @@ pub mod module;
 pub mod module_gizmos;
 #[path = "modules/shared/panel-chrome/panel_chrome.rs"]
 pub mod panel_chrome;
+#[path = "modules/shared/text-entry/text_entry.rs"]
+pub mod text_entry;
 #[path = "post-effects/post_effects.rs"]
 pub mod post_effects;
 #[path = "modules/shared/property-rows/property_rows.rs"]
