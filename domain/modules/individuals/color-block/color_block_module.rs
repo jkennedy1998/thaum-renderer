@@ -2,7 +2,7 @@ use thaum_renderer_tools_color::nearest_rgb_in_collection;
 
 use crate::{
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, ModulePointerEvent,
+    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, title_hotspot, ModulePointerEvent,
     ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette, WorldPoint,
 };
 
@@ -208,6 +208,12 @@ impl Module for ColorBlockModule {
     fn hotspots(&self) -> Vec<Hotspot> {
         let (field_x0, field_x1, field_y0, field_y1, slider_x) = content_layout(self.rect);
         let custom = vec![
+            title_hotspot(
+                self.rect,
+                self.gizmos.title_start_x(),
+                "COLOR BLOCK",
+                "pick any color: the slider sets hue, the field sets saturation and value",
+            ),
             Hotspot::new(
                 ModuleRect {
                     x0: self.rect.x0 + field_x0,

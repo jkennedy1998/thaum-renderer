@@ -212,6 +212,30 @@ impl GizmoBar {
     }
 }
 
+/// One hotspot over a panel's title text on its top border row (the same
+/// row the gizmo glyphs sit on, starting at the bar's `title_start_x`).
+/// The always-visible module name is the natural "what is this panel?"
+/// anchor: hover it to learn what the module does (J 2026-09-10).
+pub fn title_hotspot(
+    rect: ModuleRect,
+    title_start_x: i32,
+    title: &str,
+    description: impl Into<String>,
+) -> Hotspot {
+    let y = rect.y0 + (rect.y1 - rect.y0 - 1);
+    let x0 = rect.x0 + title_start_x;
+    Hotspot::new(
+        ModuleRect {
+            x0,
+            y0: y,
+            x1: x0 + title.chars().count() as i32 - 1,
+            y1: y,
+        },
+        format!("{title} panel"),
+        description,
+    )
+}
+
 const MIN_DRAG_SIZE: i32 = 6;
 
 /// Per-module gizmo interaction state: which toggles are active, whether the

@@ -1,6 +1,6 @@
 use crate::{
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, ModulePointerButton,
+    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, title_hotspot, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette,
     WorldPoint,
 };
@@ -94,7 +94,13 @@ impl Module for UiCustomizationModule {
             let (w, _) = PanelChrome::content_size(self.rect);
             (x, w - 1)
         };
-        let custom = UiColorRole::ALL
+        let mut custom = vec![title_hotspot(
+            self.rect,
+            self.gizmos.title_start_x(),
+            "UI COLORS",
+            "recolor the interface: pick a hand color, then click the role to apply it to",
+        )];
+        custom.extend(UiColorRole::ALL
             .iter()
             .enumerate()
             .map(|(index, role)| {
@@ -109,8 +115,7 @@ impl Module for UiCustomizationModule {
                     role.label(),
                     "click a hand color then this row to recolor that UI role",
                 )
-            })
-            .collect();
+            }));
         self.gizmos.hotspots_with(self.rect, custom)
     }
 

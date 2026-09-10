@@ -134,7 +134,9 @@ pub use data_lanes::DataLanes;
 pub use module::{
     BlankPanelModule, Module, ModulePointerButton, ModulePointerEvent, ModuleRect, ModuleRegistry,
 };
-pub use module_gizmos::{GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, ResizeEdge};
+pub use module_gizmos::{
+    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, ResizeEdge, title_hotspot,
+};
 pub use panel_chrome::{PanelBorderEdge, PanelBorderStyle, PanelChrome};
 pub use post_effects::{
     apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,

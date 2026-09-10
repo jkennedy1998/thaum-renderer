@@ -1,6 +1,6 @@
 use crate::{
     canonical_sprite_palette, Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior,
-    CellPoint, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module,
+    CellPoint, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, title_hotspot,
     ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette,
     WorldPoint,
 };
@@ -103,25 +103,26 @@ impl Module for ColorPickerModule {
     fn hotspots(&self) -> Vec<Hotspot> {
         let (content_x, content_y) = PanelChrome::content_origin();
         let (columns, content_height) = swatch_layout(self.rect);
-        let custom = self
-            .order
-            .iter()
-            .enumerate()
-            .map(|(order_index, &index)| {
-                let (column, row) = swatch_position(order_index, columns, content_height);
-                let x = self.rect.x0 + content_x + column;
-                let y = self.rect.y0 + content_y + row;
-                let rgb = self.indexed_palette[index];
-                Hotspot::new(
-                    ModuleRect { x0: x, y0: y, x1: x, y1: y },
-                    "color swatch",
-                    format!(
-                        "click to use rgb {},{},{}: the swatch moves to the front",
-                        rgb[0], rgb[1], rgb[2]
-                    ),
-                )
-            })
-            .collect();
+        let mut custom = vec![title_hotspot(
+            self.rect,
+            self.gizmos.title_start_x(),
+            "COLORS",
+            "palette swatches: click one to set a hand's color; it moves to the front",
+        )];
+        custom.extend(self.order.iter().enumerate().map(|(order_index, &index)| {
+            let (column, row) = swatch_position(order_index, columns, content_height);
+            let x = self.rect.x0 + content_x + column;
+            let y = self.rect.y0 + content_y + row;
+            let rgb = self.indexed_palette[index];
+            Hotspot::new(
+                ModuleRect { x0: x, y0: y, x1: x, y1: y },
+                "color swatch",
+                format!(
+                    "click to use rgb {},{},{}: the swatch moves to the front",
+                    rgb[0], rgb[1], rgb[2]
+                ),
+            )
+        }));
         self.gizmos.hotspots_with(self.rect, custom)
     }
 
