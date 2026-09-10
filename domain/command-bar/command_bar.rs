@@ -4,13 +4,26 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    ModulePointerButton, ModulePointerEvent, ModuleRect, UiColorRole, UiPalette, WorldPoint,
+    Hotspot, ModulePointerButton, ModulePointerEvent, ModuleRect, UiColorRole, UiPalette,
+    WorldPoint,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandBarButton {
     pub id: String,
     pub label: String,
+    /// Optional idle color. Omitted preserves the command bar's standard
+    /// Medium presentation.
+    pub idle_color_role: Option<UiColorRole>,
+    /// Optional shared-tooltip content for this button. The command bar only
+    /// declares its precise hit rect; dwell and card rendering stay shared.
+    pub tooltip: Option<CommandBarButtonTooltip>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandBarButtonTooltip {
+    pub title: String,
+    pub description: String,
 }
 
 impl CommandBarButton {
@@ -18,7 +31,26 @@ impl CommandBarButton {
         Self {
             id: id.into(),
             label: label.into(),
+            idle_color_role: None,
+            tooltip: None,
         }
+    }
+
+    pub fn with_idle_color_role(mut self, color_role: UiColorRole) -> Self {
+        self.idle_color_role = Some(color_role);
+        self
+    }
+
+    pub fn with_tooltip(
+        mut self,
+        title: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        self.tooltip = Some(CommandBarButtonTooltip {
+            title: title.into(),
+            description: description.into(),
+        });
+        self
     }
 }
 
@@ -128,6 +160,11 @@ impl CommandBar {
         self
     }
 
+    pub fn set_buttons(&mut self, buttons: Vec<CommandBarButton>) {
+        self.buttons = buttons;
+        self.clamp_scroll_offset();
+    }
+
     pub fn set_nested_buttons(
         &mut self,
         button_id: impl Into<String>,
@@ -206,6 +243,30 @@ impl CommandBar {
         self.rect().contains(x, y)
     }
 
+    /// Declares tooltip hotspots for visible buttons that explicitly opted in.
+    /// Their rects share `button_layout` with click handling, so a tooltip
+    /// cannot describe an off-screen or non-clickable button.
+    pub fn hotspots(&self) -> Vec<Hotspot> {
+        let button_y = self.button_row_y();
+        self.button_layout()
+            .into_iter()
+            .filter_map(|entry| {
+                let tooltip = entry.button.tooltip?;
+                let width = entry.button.label.chars().count() as i32;
+                Some(Hotspot::new(
+                    ModuleRect {
+                        x0: entry.x0,
+                        y0: button_y,
+                        x1: entry.x0 + width - 1,
+                        y1: button_y,
+                    },
+                    tooltip.title,
+                    tooltip.description,
+                ))
+            })
+            .collect()
+    }
+
     pub fn draw(&self) -> CellGroup {
         let rect = self.rect();
         let origin = WorldPoint {
@@ -239,7 +300,12 @@ impl CommandBar {
             for entry in self.button_layout() {
                 let is_hovered =
                     self.hovered_button_id.as_deref() == Some(entry.button.id.as_str());
-                let button_color = if is_hovered { control } else { idle };
+                let button_color = if is_hovered {
+                    control
+                } else {
+                    self.palette
+                        .get(entry.button.idle_color_role.unwrap_or(UiColorRole::Medium))
+                };
                 let button_weight = if is_hovered { 2 } else { 1 };
                 for (index, glyph) in entry.button.label.chars().enumerate() {
                     let x = entry.x0 - rect.x0 + index as i32;
@@ -594,5 +660,71 @@ mod tests {
         let group = bar.draw();
         assert_eq!(glyph_at(&group, 3, 4), Some('M'));
         assert_eq!(glyph_at(&group, 3, 0), Some(' '));
+    }
+
+    #[test]
+    fn configured_button_uses_its_idle_palette_role_without_changing_defaults() {
+        let palette = UiPalette::default();
+        let mut bar = CommandBar::new("bar", palette.clone()).with_buttons(vec![
+            CommandBarButton::new("default", "DEFAULT"),
+            CommandBarButton::new("status", "STATUS").with_idle_color_role(UiColorRole::Bright),
+        ]);
+        bar.update_layout([0.05, 0.1], CellPoint::origin());
+        bar.on_pointer_event(ModulePointerEvent::Click {
+            x: 0,
+            y: -8,
+            button: ModulePointerButton::Left,
+        });
+
+        let entries = bar.button_layout();
+        let group = bar.draw();
+        let default_cell = group
+            .cells
+            .get(&CellPoint {
+                x: entries[0].x0 - bar.rect().x0,
+                y: bar.button_row_y() - bar.rect().y0,
+                z: 0,
+            })
+            .unwrap();
+        let status_cell = group
+            .cells
+            .get(&CellPoint {
+                x: entries[1].x0 - bar.rect().x0,
+                y: bar.button_row_y() - bar.rect().y0,
+                z: 0,
+            })
+            .unwrap();
+        assert_eq!(default_cell.color, palette.get(UiColorRole::Medium));
+        assert_eq!(status_cell.color, palette.get(UiColorRole::Bright));
+    }
+
+    #[test]
+    fn hotspots_follow_visible_tooltipped_button_layout() {
+        let mut bar = CommandBar::new("bar", UiPalette::default()).with_buttons(vec![
+            CommandBarButton::new("file", "FILE").with_tooltip("File", "Create or save."),
+            CommandBarButton::new("plain", "PLAIN"),
+        ]);
+        bar.update_layout([0.1, 0.1], CellPoint::origin());
+        assert!(bar.hotspots().is_empty());
+
+        bar.on_pointer_event(ModulePointerEvent::Click {
+            x: 0,
+            y: -8,
+            button: ModulePointerButton::Left,
+        });
+        let entry = bar.button_layout().into_iter().next().unwrap();
+        assert_eq!(
+            bar.hotspots(),
+            vec![Hotspot::new(
+                ModuleRect {
+                    x0: entry.x0,
+                    y0: bar.button_row_y(),
+                    x1: entry.x0 + 3,
+                    y1: bar.button_row_y(),
+                },
+                "File",
+                "Create or save.",
+            )]
+        );
     }
 }

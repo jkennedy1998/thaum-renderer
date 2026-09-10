@@ -4,7 +4,7 @@ use std::rc::Rc;
 use crate::PerspectiveProfile;
 use crate::{
     Cell, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight, GizmoBar,
-    GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, ModulePointerButton,
+    GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, title_hotspot, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, ParallaxProfile, PersistedModuleUiState,
     PropertyRows, UiColorRole, UiPalette, WorldPoint,
 };
@@ -407,10 +407,16 @@ impl Module for CameraPerspectiveModule {
         self.rect
     }
 
-    /// Tooltip hotspots: the module's gizmo bar, so every gizmo-enabled
-    /// panel grows tooltips from one shared implementation.
+    /// Tooltip hotspots: the module's gizmo bar plus a title hotspot naming
+    /// the panel and its camera truth.
     fn hotspots(&self) -> Vec<Hotspot> {
-        self.gizmos.hotspots(self.rect)
+        let custom = vec![title_hotspot(
+            self.rect,
+            self.gizmos.title_start_x(),
+            "perspective module",
+            "adjusts the camera settings per artfile. parallax triggers with mouse movement, scale and position interact with relative layer depth. turn it all down to 0 for orthographic!",
+        )];
+        self.gizmos.hotspots_with(self.rect, custom)
     }
 
     fn draw(&self) -> CellGroup {

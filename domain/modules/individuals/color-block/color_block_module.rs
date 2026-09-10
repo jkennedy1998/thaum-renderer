@@ -211,8 +211,8 @@ impl Module for ColorBlockModule {
             title_hotspot(
                 self.rect,
                 self.gizmos.title_start_x(),
-                "COLOR BLOCK",
-                "pick any color: the slider sets hue, the field sets saturation and value",
+                "color block module",
+                "select a flat color from the color block for the left or right hand. uses the indexed color system. scroll to traverse hue easily.",
             ),
             Hotspot::new(
                 ModuleRect {

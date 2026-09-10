@@ -106,8 +106,8 @@ impl Module for ColorPickerModule {
         let mut custom = vec![title_hotspot(
             self.rect,
             self.gizmos.title_start_x(),
-            "COLORS",
-            "palette swatches: click one to set a hand's color; it moves to the front",
+            "color module",
+            "picks a palette color for your given hand. left click for left hand, right click for right hand.",
         )];
         custom.extend(self.order.iter().enumerate().map(|(order_index, &index)| {
             let (column, row) = swatch_position(order_index, columns, content_height);

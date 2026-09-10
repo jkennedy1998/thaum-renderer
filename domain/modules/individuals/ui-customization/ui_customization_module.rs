@@ -97,8 +97,8 @@ impl Module for UiCustomizationModule {
         let mut custom = vec![title_hotspot(
             self.rect,
             self.gizmos.title_start_x(),
-            "UI COLORS",
-            "recolor the interface: pick a hand color, then click the role to apply it to",
+            "ui color module",
+            "change the colors of the ui to match your own contrast needs. clicks copy the selected color from your left or right hand",
         )];
         custom.extend(UiColorRole::ALL
             .iter()

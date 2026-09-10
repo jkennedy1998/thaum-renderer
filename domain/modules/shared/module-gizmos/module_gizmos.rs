@@ -231,7 +231,7 @@ pub fn title_hotspot(
             x1: x0 + title.chars().count() as i32 - 1,
             y1: y,
         },
-        format!("{title} panel"),
+        title,
         description,
     )
 }

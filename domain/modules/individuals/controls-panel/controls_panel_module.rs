@@ -1,6 +1,6 @@
 use crate::{
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, ModulePointerButton,
+    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, title_hotspot, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, RawInput, ScrollState,
     UiColorRole, UiPalette, WorldPoint,
 };
@@ -198,10 +198,16 @@ impl Module for ControlsPanelModule {
         self.rect
     }
 
-    /// Tooltip hotspots: the module's gizmo bar, so every gizmo-enabled
-    /// panel grows tooltips from one shared implementation.
+    /// Tooltip hotspots: the module's gizmo bar plus a title hotspot naming
+    /// the panel.
     fn hotspots(&self) -> Vec<Hotspot> {
-        self.gizmos.hotspots(self.rect)
+        let custom = vec![title_hotspot(
+            self.rect,
+            self.gizmos.title_start_x(),
+            "controls module",
+            "remap or explore all the keyboard controls",
+        )];
+        self.gizmos.hotspots_with(self.rect, custom)
     }
 
     fn is_hidden(&self) -> bool {
