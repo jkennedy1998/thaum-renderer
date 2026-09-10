@@ -203,8 +203,33 @@ impl Module for ColorBlockModule {
 
     /// Tooltip hotspots: the module's gizmo bar, so every gizmo-enabled
     /// panel grows tooltips from one shared implementation.
+    /// Tooltip hotspots: the module's gizmo bar plus the SV field and hue
+    /// slider, so both editing surfaces explain themselves.
     fn hotspots(&self) -> Vec<Hotspot> {
-        self.gizmos.hotspots(self.rect)
+        let (field_x0, field_x1, field_y0, field_y1, slider_x) = content_layout(self.rect);
+        let custom = vec![
+            Hotspot::new(
+                ModuleRect {
+                    x0: self.rect.x0 + field_x0,
+                    y0: self.rect.y0 + field_y0,
+                    x1: self.rect.x0 + field_x1,
+                    y1: self.rect.y0 + field_y1,
+                },
+                "color field",
+                "click or drag to pick saturation and value; a hand click assigns the color",
+            ),
+            Hotspot::new(
+                ModuleRect {
+                    x0: self.rect.x0 + slider_x,
+                    y0: self.rect.y0 + field_y0,
+                    x1: self.rect.x0 + slider_x,
+                    y1: self.rect.y0 + field_y1,
+                },
+                "hue slider",
+                "click or drag to pick the hue",
+            ),
+        ];
+        self.gizmos.hotspots_with(self.rect, custom)
     }
 
     fn draw(&self) -> CellGroup {

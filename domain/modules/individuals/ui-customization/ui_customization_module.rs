@@ -86,10 +86,32 @@ impl Module for UiCustomizationModule {
         self.rect
     }
 
-    /// Tooltip hotspots: the module's gizmo bar, so every gizmo-enabled
-    /// panel grows tooltips from one shared implementation.
+    /// Tooltip hotspots: the module's gizmo bar plus one hotspot per color
+    /// role row, so hovering a row explains what it recolors.
     fn hotspots(&self) -> Vec<Hotspot> {
-        self.gizmos.hotspots(self.rect)
+        let (content_x, content_width) = {
+            let (x, _) = PanelChrome::content_origin();
+            let (w, _) = PanelChrome::content_size(self.rect);
+            (x, w - 1)
+        };
+        let custom = UiColorRole::ALL
+            .iter()
+            .enumerate()
+            .map(|(index, role)| {
+                let y = self.rect.y0 + self.row_y(index);
+                Hotspot::new(
+                    ModuleRect {
+                        x0: self.rect.x0 + content_x,
+                        y0: y,
+                        x1: self.rect.x0 + content_x + content_width,
+                        y1: y,
+                    },
+                    role.label(),
+                    "click a hand color then this row to recolor that UI role",
+                )
+            })
+            .collect();
+        self.gizmos.hotspots_with(self.rect, custom)
     }
 
     fn draw(&self) -> CellGroup {

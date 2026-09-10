@@ -1,7 +1,7 @@
 # /home/j/Repos/thaum-renderer/domain/modules/shared/tooltip
 
 ## purpose
-Own the shared hover-tooltip seam: hotspot declarations, the 400ms hover-dwell state, and the one shared framing-card renderer, so any module's interactive piece (gizmos now, buttons later) grows a tooltip by declaring copy — never by building its own tooltip UX.
+Own the shared hover-tooltip seam: hotspot declarations, the 400ms hover-dwell state, and the one shared framing-card renderer, so any module or command-bar interactive piece (gizmos and bottom-bar buttons now) grows a tooltip by declaring copy — never by building its own tooltip UX.
 
 ## owns
 - `tooltip.rs`
@@ -14,7 +14,7 @@ Own the shared hover-tooltip seam: hotspot declarations, the 400ms hover-dwell s
   - placement: preferred title-above/description-below; when the card would leave the screen it stacks both text blocks below (anchor near the top edge) or above (near the bottom edge); horizontally centered on the object and clamped into the visible screen rect the host supplies
 
 ## does not own
-- which hotspots exist or their copy — each module declares them via `Module::hotspots()`; `GizmoBar::hotspots` is the first producer
+- which hotspots exist or their copy — each module declares them via `Module::hotspots()` and command bars expose them through `CommandBar::hotspots()`; `GizmoBar::hotspots` and the Painter command bar are producers
 - pointer/keyboard delivery or the frame loop — the host feeds `TooltipState::tick` per frame and pushes the composed group last
 - pointer hit-testing for the card — it is a display-only overlay and must never block the thing it highlights
 - click-initiated long-form help (pop-up tips) — a possible future sibling seam reusing `Hotspot` copy
@@ -41,6 +41,7 @@ Own the shared hover-tooltip seam: hotspot declarations, the 400ms hover-dwell s
 
 ## interface consumers
 - `/home/j/Repos/thaum-renderer/domain/modules/` (the `Module::hotspots()` seam)
+- `/home/j/Repos/thaum-renderer/domain/command-bar/` (visible opted-in button hotspots)
 - `/home/j/Repos/thaum-renderer/domain/modules/shared/module-gizmos/`
 - `thaum-painter/orchestration/entrypoint/` (frame-loop dwell + topmost overlay push)
 
@@ -57,3 +58,4 @@ Own the shared hover-tooltip seam: hotspot declarations, the 400ms hover-dwell s
 
 ## notes
 - design session with J: tooltips replace tutorial screens (contextual help over onboarding tours, per NN/g guidance); the framing-card placement is the deliberate experiment — precedent is the spotlight/coach-mark pattern, hover-triggered is the novel part; covering neighbors while highlighting is by design (attention spotlight, J's education-UX premise).
+- Custom-gizmo coverage sweep (J 2026-09-10): modules surface custom controls as `Hotspot`s through `GizmoBar::hotspots_with(rect, custom)` — gizmo-bar anchors first, then the module's own control hotspots, all rendered by this one shared card implementation. Shared producers: `PropertyRows::hotspots` (property-row panels), color picker/block, ui-customization rows, graphic picker hits, layers/session panel rows, canvas-bounds wheel-mode toggle.

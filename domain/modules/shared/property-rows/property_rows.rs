@@ -1,6 +1,6 @@
 use crate::{
-    Cell, CellGraphic, CellPoint, CellWeight, ModulePointerButton, ModuleRect, PanelChrome,
-    UiColorRole, UiPalette,
+    Cell, CellGraphic, CellPoint, CellWeight, Hotspot, ModulePointerButton, ModuleRect,
+    PanelChrome, UiColorRole, UiPalette,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -435,6 +435,54 @@ impl PropertyRows {
 
         None
     }
+
+    /// Tooltip hotspots for the visible property rows, mirroring `draw`'s
+    /// iteration: one full-row hotspot per row with the row's label as title
+    /// and a kind-appropriate interaction description. Consumed through the
+    /// module's `Module::hotspots` override alongside its gizmo bar.
+    pub fn hotspots(rect: ModuleRect, rows: &[PropertyRow]) -> Vec<Hotspot> {
+        let (content_x, _, _) = Self::content_columns(rect);
+        let (_, content_width) = PanelChrome::content_size(rect);
+        let x1 = rect.x0 + content_x + content_width - 1;
+        let mut hotspots = Vec::new();
+        let mut y = Self::top_row_y(rect);
+
+        for row in rows {
+            if y < PanelChrome::content_inset() {
+                break;
+            }
+            let (title, description) = match row {
+                PropertyRow::Separator => {
+                    y -= Self::row_height(row);
+                    continue;
+                }
+                PropertyRow::Info { label, value } => {
+                    (label.clone(), format!("currently: {value}"))
+                }
+                PropertyRow::Matrix { label, .. } => (
+                    label.clone(),
+                    "click a token to set it: left-click is the left hand, right-click the right".to_string(),
+                ),
+                PropertyRow::NumberRow { label, .. } => (
+                    label.clone(),
+                    "click a field to type a value, scroll a field to nudge it".to_string(),
+                ),
+            };
+            hotspots.push(Hotspot::new(
+                ModuleRect {
+                    x0: rect.x0 + content_x,
+                    y0: rect.y0 + y,
+                    x1,
+                    y1: rect.y0 + y,
+                },
+                title,
+                description,
+            ));
+            y -= Self::row_height(row);
+        }
+
+        hotspots
+    }
 }
 
 #[cfg(test)]
@@ -642,5 +690,31 @@ mod tests {
         edit.push('9');
         assert_eq!(edit.buffer, "-99");
         assert_eq!(edit.commit(-9, 9), Some(-9));
+    }
+
+    #[test]
+    fn hotspots_cover_each_visible_row_with_its_label() {
+        let rows = vec![
+            PropertyRow::Matrix {
+                id: "weight".into(),
+                label: "weight".into(),
+                columns: vec![PropertyMatrixColumn::new("2", "2")],
+                token_width: 2,
+            },
+            PropertyRow::Separator,
+            PropertyRow::Info {
+                label: "tools".into(),
+                value: "pen / pen".into(),
+            },
+        ];
+        let hotspots = PropertyRows::hotspots(rect(), &rows);
+        // Separator generates nothing; the other rows keep draw order.
+        assert_eq!(hotspots.len(), 2);
+        assert_eq!(hotspots[0].title, "weight");
+        assert_eq!(hotspots[1].title, "tools");
+        assert!(hotspots[1].description.contains("pen / pen"));
+        // Hotspot rects are absolute and single content rows tall.
+        assert!(hotspots[0].rect.y0 >= rect().y0);
+        assert_eq!(hotspots[0].rect.y0, hotspots[0].rect.y1);
     }
 }

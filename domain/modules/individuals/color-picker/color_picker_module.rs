@@ -97,10 +97,32 @@ impl Module for ColorPickerModule {
         self.rect
     }
 
-    /// Tooltip hotspots: the module's gizmo bar, so every gizmo-enabled
-    /// panel grows tooltips from one shared implementation.
+    /// Tooltip hotspots: the module's gizmo bar plus one hotspot per drawn
+    /// swatch, so every color explains itself through the shared tooltip
+    /// implementation.
     fn hotspots(&self) -> Vec<Hotspot> {
-        self.gizmos.hotspots(self.rect)
+        let (content_x, content_y) = PanelChrome::content_origin();
+        let (columns, content_height) = swatch_layout(self.rect);
+        let custom = self
+            .order
+            .iter()
+            .enumerate()
+            .map(|(order_index, &index)| {
+                let (column, row) = swatch_position(order_index, columns, content_height);
+                let x = self.rect.x0 + content_x + column;
+                let y = self.rect.y0 + content_y + row;
+                let rgb = self.indexed_palette[index];
+                Hotspot::new(
+                    ModuleRect { x0: x, y0: y, x1: x, y1: y },
+                    "color swatch",
+                    format!(
+                        "click to use rgb {},{},{}: the swatch moves to the front",
+                        rgb[0], rgb[1], rgb[2]
+                    ),
+                )
+            })
+            .collect();
+        self.gizmos.hotspots_with(self.rect, custom)
     }
 
     fn draw(&self) -> CellGroup {

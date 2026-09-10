@@ -181,6 +181,14 @@ impl GizmoBar {
     /// gizmo-enabled module surfaces these through `Module::hotspots`, so
     /// all of them grow tooltips at once.
     pub fn hotspots(&self, rect: ModuleRect) -> Vec<Hotspot> {
+        self.hotspots_with(rect, Vec::new())
+    }
+
+    /// Gizmo-bar hotspots plus a module's own custom-control hotspots: the
+    /// one seam every module's `Module::hotspots` override routes through, so
+    /// custom gizmos grow tooltips from the same shared implementation
+    /// instead of each module re-assembling the list.
+    pub fn hotspots_with(&self, rect: ModuleRect, custom: Vec<Hotspot>) -> Vec<Hotspot> {
         let height = rect.y1 - rect.y0;
         self.kinds
             .iter()
@@ -199,6 +207,7 @@ impl GizmoBar {
                     kind.tooltip_description(),
                 )
             })
+            .chain(custom)
             .collect()
     }
 }
@@ -783,5 +792,22 @@ mod tests {
         let mut state = GizmoState::new();
 
         assert_eq!(state.handle_click(&bar, r, 5, 5), None);
+    }
+
+    #[test]
+    fn hotspots_with_keeps_gizmo_hotspots_first_then_custom() {
+        let bar = GizmoBar::new(vec![GizmoKind::Move]);
+        let r = rect(0, 0, 20, 10);
+        let custom = vec![Hotspot::new(
+            ModuleRect { x0: 3, y0: 3, x1: 3, y1: 3 },
+            "row",
+            "custom control",
+        )];
+        let hotspots = bar.hotspots_with(r, custom);
+        assert_eq!(hotspots.len(), 2);
+        assert_eq!(hotspots[0].title, "move");
+        assert_eq!(hotspots[1].title, "row");
+        // No custom list: identical to hotspots().
+        assert_eq!(bar.hotspots_with(r, Vec::new()), bar.hotspots(r));
     }
 }

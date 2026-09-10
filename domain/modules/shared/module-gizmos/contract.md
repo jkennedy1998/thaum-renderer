@@ -31,7 +31,7 @@ Own the shared move/close/resize/seamless gizmo bar every module can offer in it
 - `thaum-renderer/domain/cell-graphic/`
 
 ## exposed interfaces
-- `GizmoBar::new(kinds)` / `title_start_x()` / `cells(rect, state, palette)` / `hit_test(rect, x, y)` / `hotspots(rect)` — `hotspots` is the first producer for the shared tooltip seam (`../tooltip/`): one single-cell anchor per gizmo glyph with title + description copy, surfaced by every gizmo-enabled module through `Module::hotspots()`
+- `GizmoBar::new(kinds)` / `title_start_x()` / `cells(rect, state, palette)` / `hit_test(rect, x, y)` / `hotspots(rect)` / `hotspots_with(rect, custom)` — `hotspots` is the first producer for the shared tooltip seam (`../tooltip/`): one single-cell anchor per gizmo glyph with title + description copy, surfaced by every gizmo-enabled module through `Module::hotspots()`. `hotspots_with` is the canonical assembly point for CUSTOM module controls: a module passes its own control hotspots and gets gizmo-bar + custom in one list (J 2026-09-10 tooltip-coverage sweep)
 - `GizmoState::new()` / `is_seamless()` / `is_hovered()` / `set_hovered(bool)` / `should_draw_gizmo_bar()` / `wants_pointer_capture()` / `handle_click(bar, rect, x, y) -> Option<GizmoClickOutcome>` / `drag_rect(x, y)` / `end_drag()`
 
 ## interface consumers
