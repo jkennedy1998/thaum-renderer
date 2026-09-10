@@ -113,7 +113,7 @@ fn main() {
         font_set,
         charset: charset.clone(),
     };
-    let fade = ShapeFade::build(&provider);
+    let mut fade = ShapeFade::build(&provider);
     println!(
         "graph: {} graphics, canonical weight One\n",
         fade.graph_at_weight(CellWeight::One).chars.len()
