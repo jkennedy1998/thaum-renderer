@@ -1,18 +1,9 @@
 use crate::{
-    Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
+    Cell, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
     GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, title_hotspot, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette,
     WorldPoint,
 };
-
-fn rgb_cell(rgb: [u8; 3]) -> CellColor {
-    CellColor::Flat([
-        rgb[0] as f32 / 255.0,
-        rgb[1] as f32 / 255.0,
-        rgb[2] as f32 / 255.0,
-        1.0,
-    ])
-}
 
 pub struct UiCustomizationModule {
     id: String,
@@ -50,7 +41,7 @@ impl UiCustomizationModule {
     fn row_y(&self, index: usize) -> i32 {
         let (_, content_height) = PanelChrome::content_size(self.rect);
         let (_, content_y) = PanelChrome::content_origin();
-        content_y + content_height - 2 - index as i32
+        content_y + content_height - 1 - index as i32
     }
 
     fn role_at(&self, x: i32, y: i32) -> Option<UiColorRole> {
@@ -113,7 +104,7 @@ impl Module for UiCustomizationModule {
                         y1: y,
                     },
                     role.label(),
-                    "click a hand color then this row to recolor that UI role",
+                    "left click recolors this role with your left hand's color, right click with your right hand's color",
                 )
             }));
         self.gizmos.hotspots_with(self.rect, custom)
@@ -147,42 +138,6 @@ impl Module for UiCustomizationModule {
         let bright = self.palette.get(UiColorRole::Bright);
         let medium = self.palette.get(UiColorRole::Medium);
         let vivid = self.palette.get(UiColorRole::Vivid);
-        let left_rgb = (self.get_left_rgb)();
-        let right_rgb = (self.get_right_rgb)();
-        let helper = "L/R CLICK = APPLY";
-        for (index, glyph) in helper.chars().enumerate() {
-            cells.push(Cell {
-                position: CellPoint {
-                    x: 1 + index as i32,
-                    y: 1,
-                    z: 0,
-                },
-                graphic: CellGraphic::Glyph(glyph),
-                color: bright,
-                weight: CellWeight::from_index_clamped(1),
-                ..Cell::default()
-            });
-        }
-        for (x, label, rgb) in [(1, 'L', left_rgb), (5, 'R', right_rgb)] {
-            cells.push(Cell {
-                position: CellPoint { x, y: 0, z: 0 },
-                graphic: CellGraphic::Glyph(label),
-                color: bright,
-                weight: CellWeight::from_index_clamped(2),
-                ..Cell::default()
-            });
-            cells.push(Cell {
-                position: CellPoint {
-                    x: x + 2,
-                    y: 0,
-                    z: 0,
-                },
-                graphic: CellGraphic::Glyph('█'),
-                color: rgb_cell(rgb),
-                weight: CellWeight::from_index_clamped(3),
-                ..Cell::default()
-            });
-        }
 
         for (index, role) in UiColorRole::ALL.iter().enumerate() {
             let y = self.row_y(index);
@@ -324,19 +279,4 @@ mod tests {
         assert_eq!(palette.get_rgb(UiColorRole::Dimmest), [7, 8, 9]);
     }
 
-    #[test]
-    fn clicking_helper_rows_does_not_change_the_palette() {
-        let palette = UiPalette::default();
-        let before = palette.get_rgb(UiColorRole::Vivid);
-        let mut module =
-            UiCustomizationModule::new("ui", rect(), palette.clone(), || [1, 2, 3], || [7, 8, 9]);
-
-        module.on_pointer_event(ModulePointerEvent::Click {
-            x: 2,
-            y: 1,
-            button: ModulePointerButton::Left,
-        });
-
-        assert_eq!(palette.get_rgb(UiColorRole::Vivid), before);
-    }
 }

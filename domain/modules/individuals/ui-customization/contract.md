@@ -39,7 +39,9 @@ Own a generic UI-color customization module: one renderer-owned floating panel l
 ## tests
 - inline `#[cfg(test)]` in `ui_customization_module.rs`
   - light
-  - validates left/right click role assignment and helper-row miss behavior
+  - validates left/right click role assignment (the helper text row and
+    L/R color blocks were removed per J 2026-09-10; the title tooltip and
+    per-row descriptions carry the left/right-click semantics)
 
 ## data
 - none

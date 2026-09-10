@@ -150,10 +150,18 @@ impl PropertyRows {
         (label_x, value_x, value_width)
     }
 
-    pub fn draw(rect: ModuleRect, rows: &[PropertyRow], palette: &UiPalette) -> Vec<Cell> {
+    pub fn draw(
+        rect: ModuleRect,
+        rows: &[PropertyRow],
+        palette: &UiPalette,
+        top_offset: i32,
+    ) -> Vec<Cell> {
         let (label_x, value_x, value_width) = Self::content_columns(rect);
         let mut cells = Vec::new();
-        let mut y = Self::top_row_y(rect);
+        // `top_offset` reserves whole rows at the top of the content area for
+        // module-drawn header content (hand previews and the like); the row
+        // list starts below them.
+        let mut y = Self::top_row_y(rect) - top_offset;
 
         for row in rows {
             if y < PanelChrome::content_inset() {
@@ -322,11 +330,12 @@ impl PropertyRows {
         rows: &[PropertyRow],
         x: i32,
         y: i32,
+        top_offset: i32,
     ) -> Option<(String, usize)> {
         let (_, value_x, _value_width) = Self::content_columns(rect);
         let local_y = y - rect.y0;
         let local_x = x - rect.x0;
-        let mut row_y = Self::top_row_y(rect);
+        let mut row_y = Self::top_row_y(rect) - top_offset;
 
         for row in rows {
             let row_height = Self::row_height(row);
@@ -363,6 +372,7 @@ impl PropertyRows {
         x: i32,
         y: i32,
         button: ModulePointerButton,
+        top_offset: i32,
     ) -> Option<PropertyHit> {
         let (_, value_x, value_width) = Self::content_columns(rect);
         let local_x = x - rect.x0;
@@ -372,7 +382,7 @@ impl PropertyRows {
             ModulePointerButton::Right => PropertyMatrixSide::Right,
             ModulePointerButton::Middle => return None,
         };
-        let mut row_y = Self::top_row_y(rect);
+        let mut row_y = Self::top_row_y(rect) - top_offset;
 
         for row in rows {
             let row_height = Self::row_height(row);
@@ -440,12 +450,12 @@ impl PropertyRows {
     /// iteration: one full-row hotspot per row with the row's label as title
     /// and a kind-appropriate interaction description. Consumed through the
     /// module's `Module::hotspots` override alongside its gizmo bar.
-    pub fn hotspots(rect: ModuleRect, rows: &[PropertyRow]) -> Vec<Hotspot> {
+    pub fn hotspots(rect: ModuleRect, rows: &[PropertyRow], top_offset: i32) -> Vec<Hotspot> {
         let (content_x, _, _) = Self::content_columns(rect);
         let (_, content_width) = PanelChrome::content_size(rect);
         let x1 = rect.x0 + content_x + content_width - 1;
         let mut hotspots = Vec::new();
-        let mut y = Self::top_row_y(rect);
+        let mut y = Self::top_row_y(rect) - top_offset;
 
         for row in rows {
             if y < PanelChrome::content_inset() {
@@ -516,8 +526,8 @@ mod tests {
             },
         ];
 
-        let y = PropertyRows::top_row_y(rect());
-        let cells = PropertyRows::draw(rect(), &rows, &UiPalette::default());
+        let _y = PropertyRows::top_row_y(rect());
+        let cells = PropertyRows::draw(rect(), &rows, &UiPalette::default(), 0);
         assert!(cells
             .iter()
             .any(|cell| cell.position == CellPoint { x: 1, y: 5, z: 0 }));
@@ -538,7 +548,7 @@ mod tests {
             token_width: 4,
         }];
 
-        let hit = PropertyRows::hit_test(rect(), &rows, 23, 25, ModulePointerButton::Right);
+        let hit = PropertyRows::hit_test(rect(), &rows, 23, 25, ModulePointerButton::Right, 0);
         assert_eq!(
             hit,
             Some(PropertyHit::Matrix {
@@ -573,9 +583,9 @@ mod tests {
 
     #[test]
     fn number_row_draws_each_field_as_a_signed_two_char_token() {
+        let _y = PropertyRows::top_row_y(rect());
         let y = PropertyRows::top_row_y(rect());
-        let y = PropertyRows::top_row_y(rect());
-        let cells = PropertyRows::draw(rect(), &[number_row()], &UiPalette::default());
+        let cells = PropertyRows::draw(rect(), &[number_row()], &UiPalette::default(), 0);
         let glyphs = |x: i32| {
             cells
                 .iter()
@@ -601,10 +611,10 @@ mod tests {
 
     #[test]
     fn number_row_click_opens_a_field_and_the_edit_buffer_replaces_the_token() {
-        let y = PropertyRows::top_row_y(rect());
+        let _y = PropertyRows::top_row_y(rect());
         let rows = number_row_editing(1, "-4");
         let y = PropertyRows::top_row_y(rect());
-        let cells = PropertyRows::draw(rect(), &rows, &UiPalette::default());
+        let cells = PropertyRows::draw(rect(), &rows, &UiPalette::default(), 0);
         let (_, value_x, _) = PropertyRows::content_columns(rect());
         let mut field_1: Vec<(i32, char)> = cells
             .iter()
@@ -624,7 +634,7 @@ mod tests {
 
     #[test]
     fn clicking_a_number_field_hits_that_field_and_other_buttons_do_not() {
-        let y = PropertyRows::top_row_y(rect());
+        let _y = PropertyRows::top_row_y(rect());
         let rows = vec![number_row()];
         let (_, value_x, _) = PropertyRows::content_columns(rect());
         // hit_test takes screen coords: module-local token x + rect origin.
@@ -632,7 +642,7 @@ mod tests {
         let field_y = rect().y0 + PropertyRows::top_row_y(rect());
 
         assert_eq!(
-            PropertyRows::hit_test(rect(), &rows, field_2_x, field_y, ModulePointerButton::Left),
+            PropertyRows::hit_test(rect(), &rows, field_2_x, field_y, ModulePointerButton::Left, 0),
             Some(PropertyHit::Number {
                 row_id: "step".into(),
                 field: 2,
@@ -644,7 +654,8 @@ mod tests {
                 &rows,
                 field_2_x,
                 field_y,
-                ModulePointerButton::Right
+                ModulePointerButton::Right,
+                0
             ),
             None
         );
@@ -652,7 +663,7 @@ mod tests {
 
     #[test]
     fn number_field_at_resolves_the_field_under_a_point_for_scroll_nudges() {
-        let y = PropertyRows::top_row_y(rect());
+        let _y = PropertyRows::top_row_y(rect());
         let rows = vec![number_row()];
         let (_, value_x, _) = PropertyRows::content_columns(rect());
         // number_field_at takes screen coords like hit_test: local token x + rect origin.
@@ -660,16 +671,16 @@ mod tests {
         let field_y = rect().y0 + PropertyRows::top_row_y(rect());
 
         assert_eq!(
-            PropertyRows::number_field_at(rect(), &rows, field_x(0) + 1, field_y),
+            PropertyRows::number_field_at(rect(), &rows, field_x(0) + 1, field_y, 0),
             Some(("step".into(), 0))
         );
         assert_eq!(
-            PropertyRows::number_field_at(rect(), &rows, field_x(1), field_y),
+            PropertyRows::number_field_at(rect(), &rows, field_x(1), field_y, 0),
             Some(("step".into(), 1))
         );
         // The gap between fields is not a field.
         assert_eq!(
-            PropertyRows::number_field_at(rect(), &rows, field_x(0) + 2, field_y),
+            PropertyRows::number_field_at(rect(), &rows, field_x(0) + 2, field_y, 0),
             None
         );
     }
@@ -707,7 +718,7 @@ mod tests {
                 value: "pen / pen".into(),
             },
         ];
-        let hotspots = PropertyRows::hotspots(rect(), &rows);
+        let hotspots = PropertyRows::hotspots(rect(), &rows, 0);
         // Separator generates nothing; the other rows keep draw order.
         assert_eq!(hotspots.len(), 2);
         assert_eq!(hotspots[0].title, "weight");
