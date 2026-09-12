@@ -47,6 +47,8 @@ Own the thaum renderer rebuild as its own repo-shaped boundary for the ASCII ren
   - consumer-shaped renderer test seams and sample usage
 - `workers/`
   - worker-shaped execution surfaces such as fallback clocks and hot-reload watchers when needed
+- `truth.md`
+  - direct J design decisions for the repo boundary
 
 ## dependencies
 - `domains/contracts/`

@@ -236,6 +236,32 @@ pub fn title_hotspot(
     )
 }
 
+/// One single-character button cell, the shared seam for small in-row
+/// toggles (layer eye/lock/delete and future ones). J 2026-09-12: buttons
+/// render bright at weight 1 so they are always visible, and go vivid at
+/// weight 2 when highlighted (hover/pressed) — never weight 0, which
+/// reads as invisible UI chrome.
+pub fn char_button_cell(
+    x: i32,
+    y: i32,
+    glyph: char,
+    palette: &UiPalette,
+    highlighted: bool,
+) -> Cell {
+    let (color, weight) = if highlighted {
+        (palette.get(UiColorRole::Vivid), CellWeight::from_index_clamped(2))
+    } else {
+        (palette.get(UiColorRole::Bright), CellWeight::from_index_clamped(1))
+    };
+    Cell {
+        position: CellPoint { x, y, z: 0 },
+        graphic: CellGraphic::Glyph(glyph),
+        color,
+        weight,
+        ..Cell::default()
+    }
+}
+
 const MIN_DRAG_SIZE: i32 = 6;
 
 /// Per-module gizmo interaction state: which toggles are active, whether the
@@ -833,5 +859,17 @@ mod tests {
         assert_eq!(hotspots[1].title, "row");
         // No custom list: identical to hotspots().
         assert_eq!(bar.hotspots_with(r, Vec::new()), bar.hotspots(r));
+    }
+
+    #[test]
+    fn char_button_is_bright_weight_one_at_rest_and_vivid_weight_two_highlighted() {
+        let palette = UiPalette::default();
+        let rest = char_button_cell(3, 4, 'o', &palette, false);
+        assert_eq!(rest.graphic, CellGraphic::Glyph('o'));
+        assert_eq!(rest.color, palette.get(UiColorRole::Bright));
+        assert_eq!(rest.weight, CellWeight::from_index_clamped(1));
+        let hot = char_button_cell(3, 4, 'o', &palette, true);
+        assert_eq!(hot.color, palette.get(UiColorRole::Vivid));
+        assert_eq!(hot.weight, CellWeight::from_index_clamped(2));
     }
 }

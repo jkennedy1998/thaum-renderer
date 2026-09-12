@@ -26,6 +26,12 @@ Own the shared implementation logic that every individual module builds on: gizm
   - default
 - `tooltip/`
   - default
+- `text-entry/`
+  - default
+- `text-cells/`
+  - default
+- `click-timing/`
+  - default
 
 ## contents
 - `contract.md`
@@ -42,6 +48,9 @@ Own the shared implementation logic that every individual module builds on: gizm
 - `GizmoBar`/`GizmoKind`/`GizmoState`, described in `module-gizmos/contract.md`
 - `ScrollState`, described in `scroll-state/contract.md`
 - `Hotspot`/`TooltipState`/`tooltip_card_group`, described in `tooltip/contract.md`
+- `TextEntryField`, described in `text-entry/contract.md`
+- `push_text_cells`, described in `text-cells/contract.md`
+- `DoubleClick`/`DOUBLE_CLICK_WINDOW`, described in `click-timing/contract.md`
 
 ## interface consumers
 - `thaum-renderer/domain/modules/individuals/`

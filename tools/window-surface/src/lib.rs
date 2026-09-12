@@ -4,7 +4,7 @@ use std::{
     mem,
     path::PathBuf,
     sync::Arc,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
@@ -20,7 +20,7 @@ use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
     event::{ElementState, Force, MouseButton, MouseScrollDelta, Touch, TouchPhase, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes},
 };
@@ -106,6 +106,11 @@ pub struct SurfaceQuad {
 }
 
 pub const SURFACE_QUAD_NO_ATLAS: [f32; 4] = [-1.0, -1.0, 0.0, 0.0];
+
+/// Presentation is intentionally bounded even when a driver does not apply
+/// vsync, so an idle or input-heavy app cannot spin the CPU/GPU unchecked.
+const MAX_FRAME_RATE_HZ: u64 = 60;
+const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / MAX_FRAME_RATE_HZ);
 
 impl SurfaceQuad {
     fn vertices(&self) -> [SurfaceVertex; 6] {
@@ -257,19 +262,50 @@ pub fn run_window_surface_with_scene_provider(
 /// data every frame.
 pub type SharedWindowSurfaceScene = std::sync::Arc<WindowSurfaceScene>;
 
-pub fn run_window_surface_with_frame_provider(
+/// One frame provider result plus its presentation-quality request. The
+/// quality scale changes the offscreen target size, then the result is
+/// upscaled to the window; scene coordinates and input remain full-size.
+pub struct WindowSurfaceFrameOutput {
+    pub scene: SharedWindowSurfaceScene,
+    pub internal_render_scale: f32,
+}
+
+impl WindowSurfaceFrameOutput {
+    pub fn new(scene: SharedWindowSurfaceScene, internal_render_scale: f32) -> Self {
+        Self {
+            scene,
+            internal_render_scale,
+        }
+    }
+}
+
+/// Runs a frame provider that may adjust the offscreen presentation scale at
+/// runtime. Existing scene-only callers should use
+/// [`run_window_surface_with_frame_provider`].
+pub fn run_window_surface_with_dynamic_frame_provider(
     config: WindowSurfaceConfig,
-    scene_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene> + 'static,
+    frame_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<WindowSurfaceFrameOutput>
+        + 'static,
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
-    let mut app = WindowSurfaceApp::new(config, Box::new(scene_provider));
+    let mut app = WindowSurfaceApp::new(config, Box::new(frame_provider));
     event_loop.run_app(&mut app)?;
     Ok(())
 }
 
+pub fn run_window_surface_with_frame_provider(
+    config: WindowSurfaceConfig,
+    mut scene_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene> + 'static,
+) -> Result<()> {
+    let internal_render_scale = config.internal_render_scale;
+    run_window_surface_with_dynamic_frame_provider(config, move |frame| {
+        scene_provider(frame).map(|scene| WindowSurfaceFrameOutput::new(scene, internal_render_scale))
+    })
+}
+
 struct WindowSurfaceApp {
     config: WindowSurfaceConfig,
-    scene_provider: Box<dyn FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene>>,
+    frame_provider: Box<dyn FnMut(WindowSurfaceFrameContext) -> Result<WindowSurfaceFrameOutput>>,
     window: Option<Arc<Window>>,
     gpu_surface: Option<GpuSurface>,
     surface_size: SurfaceSize,
@@ -286,13 +322,15 @@ struct WindowSurfaceApp {
     performance_log: Option<PerformanceLogState>,
     pending_frame_sample: Option<PerformanceSample>,
     last_redraw_at: Option<Instant>,
+    /// Earliest time the next scene build and presentation may begin.
+    next_frame_at: Instant,
 }
 
 impl WindowSurfaceApp {
     fn new(
         config: WindowSurfaceConfig,
-        scene_provider: Box<
-            dyn FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene>,
+        frame_provider: Box<
+            dyn FnMut(WindowSurfaceFrameContext) -> Result<WindowSurfaceFrameOutput>,
         >,
     ) -> Self {
         let surface_size = SurfaceSize::from(&config);
@@ -304,7 +342,7 @@ impl WindowSurfaceApp {
 
         Self {
             config,
-            scene_provider,
+            frame_provider,
             window: None,
             gpu_surface: None,
             surface_size,
@@ -321,6 +359,7 @@ impl WindowSurfaceApp {
             performance_log,
             pending_frame_sample: None,
             last_redraw_at: None,
+            next_frame_at: Instant::now(),
         }
     }
 
@@ -377,19 +416,20 @@ impl ApplicationHandler for WindowSurfaceApp {
                     .expect("failed to create renderer window"),
             );
 
-            let scene = (self.scene_provider)(WindowSurfaceFrameContext {
+            let output = (self.frame_provider)(WindowSurfaceFrameContext {
                 surface_size: self.surface_size,
                 input: WindowSurfaceInput::default(),
             })
             .expect("failed to build initial renderer scene");
+            self.config.internal_render_scale = output.internal_render_scale;
             let initial_sample = PerformanceSample::from_scene(
                 self.surface_size,
                 scaled_internal_surface_size(self.surface_size, self.config.internal_render_scale),
-                &scene,
+                &output.scene,
             );
             let gpu_surface = pollster::block_on(GpuSurface::new(
                 window.clone(),
-                scene,
+                output.scene,
                 self.config.internal_render_scale,
                 self.config.upscale_mode,
             ))
@@ -532,9 +572,19 @@ impl ApplicationHandler for WindowSurfaceApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Winit otherwise loops immediately after every redraw. Schedule the
+        // next wake before doing any scene work so a busy input stream is
+        // bounded to 60 presentation attempts per second as well.
+        let now = Instant::now();
+        if now < self.next_frame_at {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
+            return;
+        }
+        self.next_frame_at = now + FRAME_INTERVAL;
+
         if let Some(gpu_surface) = &mut self.gpu_surface {
             let scene_build_started_at = Instant::now();
-            let scene = match (self.scene_provider)(WindowSurfaceFrameContext {
+            let output = match (self.frame_provider)(WindowSurfaceFrameContext {
                 surface_size: self.surface_size,
                 input: WindowSurfaceInput {
                     pressed_keys: self.pressed_keys.clone(),
@@ -549,11 +599,14 @@ impl ApplicationHandler for WindowSurfaceApp {
                     wheel_delta_y: self.wheel_delta_y,
                 },
             }) {
-                Ok(scene) => scene,
+                Ok(output) => output,
                 Err(error) => {
                     panic!("failed to build renderer scene: {error:#}");
                 }
             };
+            self.config.internal_render_scale = output.internal_render_scale;
+            gpu_surface.set_internal_render_scale(output.internal_render_scale);
+            let scene = output.scene;
             self.just_pressed_keys.clear();
             self.just_clicked = None;
             self.just_right_clicked = None;
@@ -575,6 +628,7 @@ impl ApplicationHandler for WindowSurfaceApp {
 
         if let Some(window) = &self.window {
             window.request_redraw();
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
         } else {
             event_loop.exit();
         }
@@ -678,6 +732,12 @@ impl GpuSurface {
                 adapter_info.name, adapter_info.backend, adapter_info.driver
             ),
         })
+    }
+
+    /// Updates the offscreen render percentage. `update_scene` observes the
+    /// changed internal size and recreates only its size-dependent targets.
+    fn set_internal_render_scale(&mut self, internal_render_scale: f32) {
+        self.internal_render_scale = internal_render_scale.clamp(0.1, 1.0);
     }
 
     fn resize(&mut self, size: SurfaceSize) {

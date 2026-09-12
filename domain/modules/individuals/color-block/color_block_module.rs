@@ -1,14 +1,16 @@
 use thaum_renderer_tools_color::nearest_rgb_in_collection;
 
 use crate::{
-    Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, title_hotspot, ModulePointerEvent,
-    ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette, WorldPoint,
+    title_hotspot, Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint,
+    CellWeight, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module,
+    ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, UiColorRole, UiPalette,
+    WorldPoint,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DragTarget {
     Field,
+    HueSlider,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -174,6 +176,12 @@ impl ColorBlockModule {
         let (field_x0, field_x1, field_y0, field_y1, _) = content_layout(self.rect);
         self.selected_hsv.saturation = ratio_at(x, field_x0, field_x1);
         self.selected_hsv.value = ratio_at(y, field_y0, field_y1);
+        self.selected_rgb = self.resolve_rgb(self.selected_hsv);
+    }
+
+    fn set_from_hue_slider_point(&mut self, y: i32) {
+        let (_, _, field_y0, field_y1, _) = content_layout(self.rect);
+        self.selected_hsv.hue = ratio_at(y, field_y0, field_y1);
         self.selected_rgb = self.resolve_rgb(self.selected_hsv);
     }
 
@@ -372,18 +380,20 @@ impl Module for ColorBlockModule {
                     }
                     return;
                 }
-                let (field_x0, field_x1, field_y0, field_y1, _) = content_layout(self.rect);
-                if x >= self.rect.x0 + field_x0
-                    && x <= self.rect.x0 + field_x1
-                    && y >= self.rect.y0 + field_y0
-                    && y <= self.rect.y0 + field_y1
+                let (field_x0, field_x1, field_y0, field_y1, slider_x) = content_layout(self.rect);
+                let local_x = x - self.rect.x0;
+                let local_y = y - self.rect.y0;
+                if local_x >= field_x0
+                    && local_x <= field_x1
+                    && local_y >= field_y0
+                    && local_y <= field_y1
                 {
                     self.drag_target = Some(DragTarget::Field);
-                    self.set_from_field_point(x - self.rect.x0, y - self.rect.y0);
+                    self.set_from_field_point(local_x, local_y);
+                } else if local_x == slider_x && local_y >= field_y0 && local_y <= field_y1 {
+                    self.drag_target = Some(DragTarget::HueSlider);
+                    self.set_from_hue_slider_point(local_y);
                 }
-                // Clicks outside the field (hue-slider column included) are
-                // intentionally inert: the hue marker may only move via wheel
-                // scroll, so clicking can never relocate it.
             }
             ModulePointerEvent::Move { x, y } => {
                 self.gizmo_state.note_pointer(&self.gizmos, self.rect, x, y);
@@ -395,6 +405,7 @@ impl Module for ColorBlockModule {
                     Some(DragTarget::Field) => {
                         self.set_from_field_point(x - self.rect.x0, y - self.rect.y0)
                     }
+                    Some(DragTarget::HueSlider) => self.set_from_hue_slider_point(y - self.rect.y0),
                     None => {}
                 }
             }
@@ -470,23 +481,30 @@ mod tests {
     }
 
     #[test]
-    fn clicking_the_slider_does_not_change_the_hue() {
+    fn dragging_the_slider_updates_the_hue_until_pointer_up() {
         let mut module = ColorBlockModule::new("block", rect(), UiPalette::default());
         module.set_selected_rgb([255, 0, 0]);
-        let before = module.selected_rgb();
-        let hue_before = module.selected_hsv.hue;
-        let (_, _, _, _, slider_x) = content_layout(rect());
+        let (_, _, field_y0, field_y1, slider_x) = content_layout(rect());
 
         module.on_pointer_event(ModulePointerEvent::Click {
             x: slider_x,
-            y: 5,
+            y: field_y0,
             button: ModulePointerButton::Left,
         });
+        assert!(module.wants_pointer_capture());
+        let hue_after_click = module.selected_hsv.hue;
 
-        // The hue marker may only move via wheel scroll; a click on the
-        // slider column must leave both the hue and the selection alone.
-        assert_eq!(module.selected_hsv.hue, hue_before);
-        assert_eq!(module.selected_rgb(), before);
+        module.on_pointer_event(ModulePointerEvent::Move {
+            x: slider_x,
+            y: field_y1,
+        });
+        assert_ne!(module.selected_hsv.hue, hue_after_click);
+
+        module.on_pointer_event(ModulePointerEvent::Up {
+            x: slider_x,
+            y: field_y1,
+        });
+        assert!(!module.wants_pointer_capture());
     }
 
     #[test]

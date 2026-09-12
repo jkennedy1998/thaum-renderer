@@ -8,6 +8,7 @@ Own reusable helper seams for creating and managing the real graphics window and
 - reusable window creation and presentation-surface setup helpers
 - low-level presentation concerns shared by renderer runtime paths
 - raw OS window input capture (keyboard, cursor position, mouse clicks), surfaced per-frame as `WindowSurfaceInput` in clip-space coordinates matching rendered quad placement
+- a 60 Hz maximum scene-build and presentation cadence, including when vsync is absent
 
 ## does not own
 - renderer design truth
@@ -49,5 +50,6 @@ Own reusable helper seams for creating and managing the real graphics window and
 - in Rust, `wgpu` plus `winit` is the current best-fit direction for the primary implementation path unless later research proves a better cross-platform fit
 - `WindowSurfaceInput.cursor_position`/`just_clicked` are reported in the same clip-space (-1..1, y up) that `SurfaceQuad::center` renders into, so a consumer can convert them to world/cell coordinates with the same math it already uses for rendering (see `domain/camera/screen-world-remap/`), rather than this crate guessing at cell semantics
 - `WindowSurfaceInput.pointer_down` persists across frames for as long as the primary button stays held (unlike `just_clicked`, which only fires the frame the press happens); a consumer combines it with `cursor_position` each frame to drive a drag session, such as `domain/modules/shared/module-gizmos/`'s move/resize gizmos, via `domain/modules/`'s pointer-capture dispatch
+- the presentation loop sleeps until the next 60 Hz frame deadline rather than immediately requesting another redraw, preventing uncapped CPU/GPU work on drivers that do not pace presentation.
 - dev machine (jobo) hardware truth from J: Strix Halo, 128 GB unified memory — CPU and GPU share one physical memory pool, so vertex/texture uploads are memcpys into shared GTT, not PCIe transfers, and process RSS is not a meaningful perf signal on this machine
 - renderer perf measurement truth on jobo: `:10` is the xrdp software-rendering display (wgpu falls back to lavapipe; GPU sysfs reads 0), while `:0` is the real AMDGPU seat with DRI3 — perf-log numbers are only hardware-truthful when the renderer runs on `:0`

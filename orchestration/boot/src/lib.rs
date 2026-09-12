@@ -19,8 +19,9 @@ use thaum_renderer_domain::{
 };
 use thaum_renderer_window_surface::GlyphAtlasSceneData;
 pub use thaum_renderer_window_surface::{
-    run_window_surface_with_frame_provider, SharedWindowSurfaceScene, SurfaceQuad, SurfaceSize,
-    WindowSurfaceConfig, WindowSurfaceFrameContext, WindowSurfaceInput, WindowSurfaceScene,
+    run_window_surface_with_dynamic_frame_provider, run_window_surface_with_frame_provider,
+    SharedWindowSurfaceScene, SurfaceQuad, SurfaceSize, WindowSurfaceConfig,
+    WindowSurfaceFrameContext, WindowSurfaceFrameOutput, WindowSurfaceInput, WindowSurfaceScene,
 };
 
 mod effect_quads;
@@ -176,7 +177,7 @@ pub fn run_renderer_window_with_state_frame_provider(
     let asset_cache = RendererAssetCache::default();
     let mut scene_cache = BootSceneCache::default();
 
-    run_window_surface_with_frame_provider(window_config, move |frame| {
+    run_window_surface_with_dynamic_frame_provider(window_config, move |frame| {
         let now = Instant::now();
         if frame_state.uses_fallback_breath {
             while now.duration_since(last_tick) >= FALLBACK_BREATH_TICK_DURATION {
@@ -193,7 +194,9 @@ pub fn run_renderer_window_with_state_frame_provider(
             &asset_cache,
             &mut scene_cache,
         )
-        .map(|(scene, _)| scene)
+        .map(|(scene, _)| {
+            WindowSurfaceFrameOutput::new(scene, frame_state.config.window.internal_render_scale)
+        })
     })
 }
 

@@ -56,6 +56,10 @@ pub mod module_gizmos;
 pub mod panel_chrome;
 #[path = "modules/shared/text-entry/text_entry.rs"]
 pub mod text_entry;
+#[path = "modules/shared/text-cells/text_cells.rs"]
+pub mod text_cells;
+#[path = "modules/shared/click-timing/click_timing.rs"]
+pub mod click_timing;
 #[path = "post-effects/post_effects.rs"]
 pub mod post_effects;
 #[path = "modules/shared/property-rows/property_rows.rs"]
@@ -95,7 +99,8 @@ pub use camera::{
     VisiblePlaneStack,
 };
 pub use camera_perspective_module::{
-    CameraDepthLink, CameraLayersLink, CameraPerspectiveModule, MAX_VISIBLE_PLANE_RADIUS,
+    CameraDepthLink, CameraLayersLink, CameraPerspectiveModule, CameraZoomCommand,
+    CameraZoomLink, RenderQualityProfile, MAX_VISIBLE_PLANE_RADIUS,
 };
 pub use cell::Cell;
 pub use cell_color::{CellColor, CellColorSlot};
@@ -135,7 +140,8 @@ pub use module::{
     BlankPanelModule, Module, ModulePointerButton, ModulePointerEvent, ModuleRect, ModuleRegistry,
 };
 pub use module_gizmos::{
-    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, ResizeEdge, title_hotspot,
+    char_button_cell, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, ResizeEdge,
+    title_hotspot,
 };
 pub use panel_chrome::{PanelBorderEdge, PanelBorderStyle, PanelChrome};
 pub use post_effects::{
@@ -160,6 +166,8 @@ pub use sprite_color_space::{
     SpriteColorChannel,
 };
 pub use tooltip::{tooltip_card_group, Hotspot, TooltipState, DWELL, TEXT_WRAP_COLUMNS};
+pub use text_cells::push_text_cells;
+pub use click_timing::{DoubleClick, DOUBLE_CLICK_WINDOW};
 pub use ui_customization_module::UiCustomizationModule;
 pub use ui_palette::{UiColorRole, UiPalette};
 pub use ui_session_state::{
