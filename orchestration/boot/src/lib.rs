@@ -1,6 +1,6 @@
 use std::{
     cell::{Ref, RefCell, RefMut},
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -9,19 +9,21 @@ use anyhow::{Context, Result};
 use thaum_renderer_breath_fallback_clock::{FallbackBreathClock, FALLBACK_BREATH_TICK_DURATION};
 use thaum_renderer_domain::{
     apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
-    apply_debug_warble_post_effect_to_rgba, encode_relative_depth_to_post_effect_bus,
-    project_flat_2d_world_to_view_plane, project_rotating_3d_world_to_view_plane,
-    projected_plane_is_visible, projected_plane_scale_factor, resolve_shaded_graphic,
+    apply_debug_warble_post_effect_to_rgba, camera_rotation_for_camera,
+    encode_relative_depth_to_post_effect_bus, project_flat_2d_world_to_view_plane,
+    project_rotating_3d_world_to_view_plane, projected_plane_is_visible,
+    projected_plane_scale_factor, resolve_shaded_color, resolve_shaded_graphic,
     resolve_shaded_texture, resolve_shaded_warble, resolve_shaded_weight, Camera,
     CameraProjectedPoint, Cell, CellGroupIntakeBehavior, CellPoint, Composition, DataLanes,
-    GlyphFontSet, IndexColorClampEffect, SpriteAtlasSet, WorldPoint, GLYPH_TILE_HEIGHT,
-    GLYPH_TILE_WIDTH,
+    FacingRotation, GlyphFontSet, IndexColorClampEffect, IndexedColor, SideGraphic, SidedGraphic,
+    SpriteAtlasSet, SpriteColorChannel, WorldPoint, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
 };
 use thaum_renderer_window_surface::GlyphAtlasSceneData;
 pub use thaum_renderer_window_surface::{
     run_window_surface_with_dynamic_frame_provider, run_window_surface_with_frame_provider,
-    SharedWindowSurfaceScene, SurfaceQuad, SurfaceSize, WindowSurfaceConfig,
-    WindowSurfaceFrameContext, WindowSurfaceFrameOutput, WindowSurfaceInput, WindowSurfaceScene,
+    SharedWindowSurfaceScene, SurfacePresentationTransform, SurfaceQuad, SurfaceSize,
+    WindowSurfaceConfig, WindowSurfaceFrameContext, WindowSurfaceFrameOutput, WindowSurfaceInput,
+    WindowSurfaceScene,
 };
 
 mod effect_quads;
@@ -124,6 +126,7 @@ struct ProjectedBootCell {
     world: WorldPoint,
     projected: CameraProjectedPoint,
     cell: Cell,
+    applies_presentation_transform: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -196,6 +199,13 @@ pub fn run_renderer_window_with_state_frame_provider(
         )
         .map(|(scene, _)| {
             WindowSurfaceFrameOutput::new(scene, frame_state.config.window.internal_render_scale)
+                .with_presentation_transform(SurfacePresentationTransform {
+                    basis: frame_state.camera.presentation_residual_basis(),
+                    // Frame interpolation is the old restrained tilt handoff,
+                    // not a second projection system. World-depth perspective
+                    // was already applied while staging these quads.
+                    perspective: 0.0,
+                })
         })
     })
 }
@@ -486,7 +496,36 @@ fn composition_contains_visible_sprites(composition: &Composition) -> bool {
         .groups
         .iter()
         .flat_map(|group| group.iter_cells())
-        .any(|cell| cell.graphic.sprite().is_some())
+        .any(|cell| graphic_needs_sprite_atlas(&cell.graphic))
+}
+
+/// Sprite-backed looks need the atlas set loaded: direct Sprite cells, and
+/// Sided cells whose declared side looks can win as a Sprite. Sided
+/// resolution happens later at staging, so a Sprite-only pre-check misses
+/// them and staging's first sprite raster panics with no atlases loaded.
+fn graphic_needs_sprite_atlas(graphic: &thaum_renderer_domain::CellGraphic) -> bool {
+    match graphic {
+        thaum_renderer_domain::CellGraphic::Sprite(_) => true,
+        thaum_renderer_domain::CellGraphic::Sided(sided) => sided_declares_sprite(sided),
+        _ => false,
+    }
+}
+
+/// A Sided declaration can resolve to a Sprite whenever any declared look
+/// (base, facing tier, or orientation tier) is a Sprite. `same-as` aliases
+/// need no check of their own: a missing alias target resolves to no side,
+/// and a present target is itself a declared look that this scan covers.
+fn sided_declares_sprite(sided: &SidedGraphic) -> bool {
+    let look_is_sprite = |look: &SideGraphic| matches!(look, SideGraphic::Sprite(_));
+    sided.base().is_some_and(look_is_sprite)
+        || sided
+            .facing_variant_map()
+            .values()
+            .any(|variant| matches!(variant, thaum_renderer_domain::FacingVariant::Look(look) if look_is_sprite(look)))
+        || sided
+            .orientation_variant_map()
+            .values()
+            .any(|variant| matches!(variant, thaum_renderer_domain::OrientationVariant::Look(look) if look_is_sprite(look)))
 }
 
 fn project_cell_to_surface_quads(
@@ -537,19 +576,26 @@ fn project_cell_to_surface_quads(
     if let Some(glyph) = shaded_graphic.glyph_char() {
         // One whole-cell quad sampling the glyph atlas; coverage is applied in
         // the quad-pass fragment shader. No per-texel quads, no ring quads.
-        return Ok(vec![glyph_cell_to_surface_quad(
+        let mut quad = glyph_cell_to_surface_quad(
             glyph_placement,
             glyph,
             shaded_weight.as_index() as u32,
             cell_center,
             projected_cell_clip_size,
-            projected_cell.cell.color.resolve_glyph(),
+            resolve_shaded_color(
+                projected_cell.cell.color,
+                SpriteColorChannel::A,
+                IndexedColor::Material(thaum_renderer_domain::ColorBand::MediumLight),
+                &projected_cell.cell.shader_stack,
+            ),
             shaded_texture,
             shaded_warble,
             depth_code,
             gate_id,
             projected_cell.world,
-        )?]);
+        )?;
+        quad.presentation_transform = projected_cell.applies_presentation_transform;
+        return Ok(vec![quad]);
     }
 
     if let Some(sprite) = shaded_graphic.sprite() {
@@ -560,9 +606,10 @@ fn project_cell_to_surface_quads(
                 sprite.atlas_relative_path(),
                 shaded_weight,
                 projected_cell.cell.color,
+                &projected_cell.cell.shader_stack,
             )
             .map_err(anyhow::Error::msg)?;
-        return sprite_raster_to_surface_quads(
+        let mut quads = sprite_raster_to_surface_quads(
             &raster,
             SPRITE_BINARY_ALPHA_THRESHOLD,
             cell_center,
@@ -572,7 +619,11 @@ fn project_cell_to_surface_quads(
             depth_code,
             gate_id,
             projected_cell.world,
-        );
+        )?;
+        for quad in &mut quads {
+            quad.presentation_transform = projected_cell.applies_presentation_transform;
+        }
+        return Ok(quads);
     }
 
     Ok(Vec::new())
@@ -602,8 +653,14 @@ fn stage_projected_boot_cells(
     state: &BootState,
     cell_clip_size: [f32; 2],
 ) -> Vec<ProjectedBootCell> {
+    // Layered staging (overlap-policy, 2026-09-14): every visible cell from
+    // every group stages in pass order. Cells from different groups that
+    // share a projected position STACK — later groups paint on top via draw
+    // order, with true alpha show-through from the quads beneath. Nothing
+    // here overwrites a staged coordinate; cells whose shader hides them
+    // this frame simply produce no quads downstream, letting lower layers
+    // show through instead of blanking the position.
     let mut staged = Vec::new();
-    let mut projected_to_index = HashMap::<(i32, u32, u32), usize>::new();
 
     for group_index in state.composition.pass_order.iter().copied() {
         let group = state
@@ -615,6 +672,25 @@ fn stage_projected_boot_cells(
             });
 
         for cell in group.iter_cells() {
+            // Sided cells resolve their side look here, at staging time: the
+            // relative orientation (cell facing under group facing and the
+            // camera) picks the side, and the winning graphic replaces the
+            // cell's own graphic. Color and weight stay the cell's own: side
+            // declarations are graphic-only. No declared side (or no Sided
+            // graphic) leaves the cell as authored.
+            let cell = if let Some(sided) = cell.graphic.sided() {
+                let relative = FacingRotation::relative_rotation(
+                    FacingRotation::from_facing(cell.facing),
+                    FacingRotation::from_facing(group.facing),
+                    camera_rotation_for_camera(state.camera.swing, state.camera.roll),
+                );
+                match sided.resolve(relative) {
+                    Some(graphic) => cell.clone().apply_side_graphic(graphic),
+                    None => cell.clone(),
+                }
+            } else {
+                cell.clone()
+            };
             let world = group.world_point_for(cell.position);
             let projected = match group.intake_behavior {
                 CellGroupIntakeBehavior::Rotating3d => {
@@ -658,50 +734,19 @@ fn stage_projected_boot_cells(
                 continue;
             }
 
-            let key = (
-                projected.plane,
-                projected.u.to_bits(),
-                projected.v.to_bits(),
-            );
-            let next = ProjectedBootCell {
+            staged.push(ProjectedBootCell {
                 world,
                 projected,
                 cell: cell.clone(),
-            };
-            if let Some(&index) = projected_to_index.get(&key) {
-                // One visible cell per projected position: later pass-order
-                // cells win, but a cell whose shader hides it this frame (a
-                // flashing overlay in its off half) yields to what is staged
-                // beneath it instead of blanking the position.
-                if staged_cell_renders_this_frame(&next, state.data_lanes) {
-                    staged[index] = next;
-                }
-            } else {
-                let index = staged.len();
-                staged.push(next);
-                projected_to_index.insert(key, index);
-            }
+                applies_presentation_transform: matches!(
+                    group.intake_behavior,
+                    CellGroupIntakeBehavior::Rotating3d
+                ),
+            });
         }
     }
 
     staged
-}
-
-/// Whether a cell would render a visible graphic this frame: its base
-/// graphic is visible and no shader in its stack hides it (the vivid flash
-/// pair hides its cell during the opposite half of the breath cycle).
-fn staged_cell_renders_this_frame(
-    projected_cell: &ProjectedBootCell,
-    data_lanes: DataLanes,
-) -> bool {
-    projected_cell.cell.graphic.is_visible()
-        && resolve_shaded_graphic(
-            projected_cell.cell.graphic.clone(),
-            &projected_cell.cell.shader_stack,
-            projected_cell.world,
-            data_lanes,
-        )
-        .is_visible()
 }
 
 fn group_projected_boot_cells_by_plane(
@@ -845,10 +890,12 @@ fn post_effect_gate_id_for_world_point(world: WorldPoint) -> u16 {
 mod tests {
     use super::*;
     use thaum_renderer_domain::{
-        project_world_to_view_plane, CameraSwing, Cell, CellColor, CellGraphic, CellGroup,
-        CellGroupFacing, CellMaterialId, CellPoint, CellWeight, DataLanes,
-        CELL_SHADER_TEXTURE_SHIMMER, CELL_SHADER_VIVID_FLASH, CELL_SHADER_VIVID_FLASH_ALT,
-        CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WEIGHT_SIN, VIVID_FLASH_BREATH_PERIOD,
+        load_sided_declaration, project_world_to_view_plane, CameraRoll, CameraSwing, Cell,
+        CellColor, CellFacing, CellGraphic, CellGroup, CellGroupFacing, CellMaterialId, CellPoint,
+        CellWeight, DataLanes, FacingVariant, SideGraphic, SidedGraphic, CELL_SHADER_LIGHT_MINUS_2,
+        CELL_SHADER_LIGHT_PLUS_2, CELL_SHADER_TEXTURE_SHIMMER, CELL_SHADER_VIVID_FLASH,
+        CELL_SHADER_VIVID_FLASH_ALT, CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WEIGHT_SIN,
+        VIVID_FLASH_BREATH_PERIOD,
     };
 
     fn staged_asset_root() -> PathBuf {
@@ -866,6 +913,117 @@ mod tests {
         assert!(state.uses_fallback_breath);
     }
 
+    #[test]
+    fn stick_declaration_resolves_through_staging_end_to_end() {
+        // Load the canonical sample declaration from the asset root, put it
+        // on a cell facing the default camera, and stage it: the declaration
+        // file becomes runtime side looks with no hand-built wiring.
+        let stick = load_sided_declaration(&staged_asset_root().join("sided/stick.json"))
+            .expect("sample stick declaration loads");
+        let stick_cell = Cell {
+            position: CellPoint { x: 0, y: 0, z: 0 },
+            facing: CellFacing::NegZ,
+            graphic: CellGraphic::Sided(stick),
+            // The cell's own color slot assignment: the declaration is
+            // graphic-only, so this color survives side resolution.
+            color: CellColor::Material(CellMaterialId::GrayScale),
+            ..Cell::default()
+        };
+        let group = CellGroup::from_cells(WorldPoint::origin(), [stick_cell])
+            .with_intake_behavior(CellGroupIntakeBehavior::Rotating3d);
+
+        let build_state = |camera: Camera| BootState {
+            camera,
+            composition: Composition {
+                groups: vec![group.clone()],
+                pass_order: Vec::new(),
+                revision: 0,
+                flat_2d_screen_locked: false,
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+        let cell_clip_size =
+            cell_clip_size_for_surface(SurfaceSize::from(&BootConfig::default().window));
+
+        // Upright: the horizontal side shows the standing profile, and the
+        // cell's own color slot assignment survives side resolution.
+        let staged = stage_projected_boot_cells(&build_state(Camera::default()), cell_clip_size);
+        assert_eq!(staged.len(), 1);
+        assert_eq!(staged[0].cell.graphic, CellGraphic::Glyph('┃'));
+        assert_eq!(
+            staged[0].cell.color,
+            CellColor::Material(CellMaterialId::GrayScale)
+        );
+
+        // Camera rolled a quarter turn: the stick lies over, so the same
+        // cell now stages the lying profile.
+        let rolled = build_state(Camera {
+            roll: CameraRoll::Deg90,
+            ..Camera::default()
+        });
+        let staged = stage_projected_boot_cells(&rolled, cell_clip_size);
+        assert_eq!(staged[0].cell.graphic, CellGraphic::Glyph('━'));
+    }
+
+    #[test]
+    fn sided_cells_resolve_their_side_graphic_at_staging_time() {
+        let sided_cell = Cell {
+            position: CellPoint { x: 0, y: 0, z: 0 },
+            // Front toward the default camera: relative facing is PosZ, so
+            // the PosZ side is the one the viewer sees.
+            facing: CellFacing::NegZ,
+            graphic: CellGraphic::Sided(SidedGraphic::new().with_facing_variant(
+                CellFacing::PosZ,
+                FacingVariant::Look(SideGraphic::Glyph('F')),
+            )),
+            color: CellColor::Flat([1.0, 0.0, 0.0, 1.0]),
+            weight: CellWeight::Three,
+            shader_stack: vec![CELL_SHADER_WEIGHT_SIN],
+            ..Cell::default()
+        };
+        let group = CellGroup::from_cells(WorldPoint::origin(), [sided_cell])
+            .with_intake_behavior(CellGroupIntakeBehavior::Rotating3d);
+
+        let build_state = |camera: Camera| BootState {
+            camera,
+            composition: Composition {
+                groups: vec![group.clone()],
+                pass_order: Vec::new(),
+                revision: 0,
+                flat_2d_screen_locked: false,
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig::default(),
+            uses_fallback_breath: false,
+        };
+        let cell_clip_size =
+            cell_clip_size_for_surface(SurfaceSize::from(&BootConfig::default().window));
+
+        // Default camera (views from North): the relative orientation is the
+        // identity, so the PosZ side wins and replaces the cell's graphic.
+        // Color, weight, and shader stack stay the cell's own.
+        let staged = stage_projected_boot_cells(&build_state(Camera::default()), cell_clip_size);
+        assert_eq!(staged.len(), 1);
+        assert_eq!(staged[0].cell.graphic, CellGraphic::Glyph('F'));
+        assert_eq!(staged[0].cell.color, CellColor::Flat([1.0, 0.0, 0.0, 1.0]));
+        assert_eq!(staged[0].cell.weight, CellWeight::Three);
+        assert_eq!(staged[0].cell.shader_stack, vec![CELL_SHADER_WEIGHT_SIN]);
+
+        // Viewed from East the PosZ side is not facing the camera, and with
+        // no base declared the staged cell keeps its (unrenderable) Sided
+        // graphic instead of inventing art.
+        let from_east = build_state(Camera {
+            swing: CameraSwing::PosX,
+            ..Camera::default()
+        });
+        let staged = stage_projected_boot_cells(&from_east, cell_clip_size);
+        assert_eq!(staged.len(), 1);
+        assert!(staged[0].cell.graphic.sided().is_some());
+    }
     #[test]
     fn stage_projected_boot_cells_keeps_flat_2d_modules_screen_locked_across_camera_pan_and_swing()
     {
@@ -1040,10 +1198,12 @@ mod tests {
     }
 
     #[test]
-    fn stage_projected_boot_cells_flash_pair_yields_to_beneath_cells_instead_of_blank() {
-        // Document cell, then the two flash halves stacked above it. Each
-        // phase must surface the half that renders, and when an overlay half
-        // is empty the document cell beneath shows through — no blank state.
+    fn stage_projected_boot_cells_stages_flash_layers_in_pass_order() {
+        // Document cell, then the two flash halves above it. Layered staging
+        // keeps every layer present in pass order every frame; which layer
+        // actually produces quads is quad-time visibility (a flash half in
+        // its off phase yields no quads, so the layers beneath show through
+        // — no blank state).
         let scene_group = CellGroup::from_cells(
             WorldPoint::origin(),
             [Cell {
@@ -1086,19 +1246,24 @@ mod tests {
         let cell_clip_size =
             cell_clip_size_for_surface(SurfaceSize::from(&BootConfig::default().window));
 
-        // Lit half: the FLASH overlay wins over everything beneath.
+        // Every phase stages all three layers, document cell at the bottom,
+        // last-pass flash half on top.
         let lit = stage_projected_boot_cells(
             &build_state(DataLanes::with_breath(VIVID_FLASH_BREATH_PERIOD)),
             cell_clip_size,
         );
-        assert_eq!(lit.len(), 1);
-        assert_eq!(lit[0].cell.graphic, CellGraphic::Glyph('F'));
+        assert_eq!(lit.len(), 3);
+        assert_eq!(lit[0].cell.graphic, CellGraphic::Glyph('S'));
+        assert_eq!(lit[1].cell.graphic, CellGraphic::Glyph('V'));
+        assert_eq!(lit[2].cell.graphic, CellGraphic::Glyph('F'));
 
-        // Off half: the FLASH overlay yields to the ALT half beneath it.
+        // Off half: same three layers; the FLASH half produces no quads this
+        // frame, so the ALT half beneath it is what renders.
         let off =
             stage_projected_boot_cells(&build_state(DataLanes::with_breath(0)), cell_clip_size);
-        assert_eq!(off.len(), 1);
-        assert_eq!(off[0].cell.graphic, CellGraphic::Glyph('V'));
+        assert_eq!(off.len(), 3);
+        assert_eq!(off[1].cell.graphic, CellGraphic::Glyph('V'));
+        assert_eq!(off[2].cell.graphic, CellGraphic::Glyph('F'));
 
         // Off half with an empty ALT half: the document cell shows through.
         let empty_alt_group = CellGroup::from_cells(
@@ -1124,12 +1289,16 @@ mod tests {
             uses_fallback_breath: false,
         };
         let revealed = stage_projected_boot_cells(&reveal_state, cell_clip_size);
-        assert_eq!(revealed.len(), 1);
+        // All layers still stage with the empty ALT half in the middle; the
+        // document cell is what produces quads this frame.
+        assert_eq!(revealed.len(), 3);
         assert_eq!(revealed[0].cell.graphic, CellGraphic::Glyph('S'));
+        assert_eq!(revealed[1].cell.graphic, CellGraphic::None);
+        assert_eq!(revealed[2].cell.graphic, CellGraphic::Glyph('F'));
     }
 
     #[test]
-    fn stage_projected_boot_cells_reveals_rotating_3d_cells_once_flat_2d_moves_off_them() {
+    fn stage_projected_boot_cells_stacks_rotating_3d_and_flat_2d_at_the_same_projection() {
         let scene_group = CellGroup::from_cells(
             WorldPoint::origin(),
             [Cell {
@@ -1173,8 +1342,11 @@ mod tests {
             cell_clip_size,
         );
 
-        assert_eq!(overlapping.len(), 1);
-        assert_eq!(overlapping[0].cell.graphic, CellGraphic::Glyph('M'));
+        // Same projection: both layers stage, flat 2d module on top of the
+        // rotating 3d scene cell (pass order).
+        assert_eq!(overlapping.len(), 2);
+        assert_eq!(overlapping[0].cell.graphic, CellGraphic::Glyph('S'));
+        assert_eq!(overlapping[1].cell.graphic, CellGraphic::Glyph('M'));
         assert_eq!(separated.len(), 2);
         assert!(separated
             .iter()
@@ -1398,6 +1570,7 @@ mod tests {
                     graphic: CellGraphic::Glyph('C'),
                     ..Cell::default()
                 },
+                applies_presentation_transform: true,
             },
             ProjectedBootCell {
                 world: WorldPoint { x: 1, y: 0, z: 0 },
@@ -1410,6 +1583,7 @@ mod tests {
                     graphic: CellGraphic::Glyph('A'),
                     ..Cell::default()
                 },
+                applies_presentation_transform: true,
             },
             ProjectedBootCell {
                 world: WorldPoint { x: 4, y: 1, z: 0 },
@@ -1422,6 +1596,7 @@ mod tests {
                     graphic: CellGraphic::Glyph('D'),
                     ..Cell::default()
                 },
+                applies_presentation_transform: true,
             },
         ]);
 
@@ -1849,7 +2024,7 @@ mod tests {
     }
 
     #[test]
-    fn build_window_surface_scene_resolves_exact_world_xyz_overlap_before_projection() {
+    fn build_window_surface_scene_stacks_exact_world_xyz_overlap_as_layered_quads() {
         let state = BootState {
             camera: Camera::default(),
             composition: Composition {
@@ -1887,13 +2062,12 @@ mod tests {
         };
 
         let scene = build_window_surface_scene(&state).unwrap();
-        // Exact world-xyz overlap resolves before projection: only the winning
-        // (green) cell reaches the scene, as one whole-cell quad.
-        assert_eq!(scene.quads.len(), 1);
-        assert!(scene
-            .quads
-            .iter()
-            .all(|quad| quad.color == [0.0, 1.0, 0.0, 1.0]));
+        // Exact world-xyz overlap layers: both cells reach the scene as
+        // whole-cell quads in pass order — red beneath, green on top, the
+        // green showing through wherever the red quad lets it.
+        assert_eq!(scene.quads.len(), 2);
+        assert_eq!(scene.quads[0].color, [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(scene.quads[1].color, [0.0, 1.0, 0.0, 1.0]);
     }
 
     #[test]
@@ -2007,6 +2181,63 @@ mod tests {
             .quads
             .iter()
             .all(|quad| quad.post_effect_bus.texture_code != 0));
+    }
+
+    #[test]
+    fn build_window_surface_scene_shifts_glyph_color_through_a_light_shader() {
+        let build_state = |shader_stack: Vec<u32>| BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Glyph('A'),
+                        color: CellColor::Material(CellMaterialId::GrayScale),
+                        weight: CellWeight::Two,
+                        shader_stack,
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+                revision: 0,
+                flat_2d_screen_locked: false,
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let normal = build_window_surface_scene(&build_state(Vec::new())).unwrap();
+        let brighter =
+            build_window_surface_scene(&build_state(vec![CELL_SHADER_LIGHT_PLUS_2])).unwrap();
+        let darker =
+            build_window_surface_scene(&build_state(vec![CELL_SHADER_LIGHT_MINUS_2])).unwrap();
+
+        let lit_quad = |scene: &WindowSurfaceScene| {
+            scene
+                .quads
+                .iter()
+                .find(|quad| quad.color[3] > 0.0)
+                .expect("the glyph paints at least one visible quad")
+                .color
+        };
+        let normal_color = lit_quad(&normal);
+        let brighter_color = lit_quad(&brighter);
+        let darker_color = lit_quad(&darker);
+
+        assert!(
+            brighter_color[0] > normal_color[0],
+            "CELL_SHADER_LIGHT_PLUS_2 should brighten the glyph's material color"
+        );
+        assert!(
+            darker_color[0] < normal_color[0],
+            "CELL_SHADER_LIGHT_MINUS_2 should darken the glyph's material color"
+        );
     }
 
     #[test]

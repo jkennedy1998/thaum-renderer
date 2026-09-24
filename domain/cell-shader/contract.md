@@ -17,6 +17,7 @@ Own the renderer cell-shader slot as the additive per-cell effector channel cons
 - shader consumption of renderer context and renderer-owned data lanes
 - shader consumption of renderer adjacency when used for rendering
 - built-in standard shader placement such as the weight-driven sin shader
+- light-band shading: `CELL_SHADER_LIGHT_MINUS_2/MINUS_1/PLUS_1/PLUS_2/PLUS_3` walk brand black → four material bands → brand white; `CELL_SHADER_LIGHT_MINUS_3` owns the special darkest contrast remap; `resolve_shaded_color` is the color-slot counterpart to `resolve_shaded_weight`
 
 ## does not own
 - gameplay logic
@@ -43,6 +44,7 @@ Own the renderer cell-shader slot as the additive per-cell effector channel cons
 - `thaum-renderer/domain/cell-adjacency/`
 - `thaum-renderer/domain/cell-color/`
 - `thaum-renderer/domain/cell-graphic/`
+- `thaum-renderer/domain/cell-materials/`
 - `thaum-renderer/domain/cell-texture/`
 - `thaum-renderer/domain/cell-warble/`
 - `thaum-renderer/domain/cell-weight/`
@@ -63,7 +65,9 @@ Own the renderer cell-shader slot as the additive per-cell effector channel cons
 - none
 
 ## tests
-- none
+- `cargo test -p thaum-renderer-domain --lib cell_shader`
+  - light
+  - validates pass-through, weight-sin stepping, later-shader-wins ordering, texture/warble overrides, the vivid-flash phase split, ordinary indexed light-ramp saturation, the darkest contrast remap, `resolve_shaded_color` leaving the authored range unshifted under `CELL_SHADER_PASS`, and light shader asset-name resolution
 
 ## data
 - none
@@ -79,3 +83,5 @@ Own the renderer cell-shader slot as the additive per-cell effector channel cons
 - checker does not need to be part of the built-in proving set
 - there is no cheap-vs-expensive split locked yet; that line should wait for actual renderer tests
 - shaders should only pay adjacency cost when adjacency is actually used
+- source-of-truth from J (2026-09-18, mole-in-the-wall session): "it's just taking the current indexed palette for the material and shifting colors down and up. Brighter than normal gets shifted towards the bright colors, darker than normal gets shifted towards the darkest color" — ordinary light shaders use `IndexedColor::shift`, a plain clamped index shift through brand black, the four material bands, and brand white. The dedicated darkest state is the intentional later contrast-preserving exception.
+- how many discrete light shifts an app actually uses (3-band vs 5-band window) is the app's clamp choice before picking a shader id, not a renderer concept — the renderer only needs to define enough shift constants to cover the widest window in use

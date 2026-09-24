@@ -53,9 +53,13 @@ impl SceneFingerprint {
         surface_size: SurfaceSize,
         composition_identity: CompositionIdentity,
     ) -> Self {
+        // Continuous presentation is a GPU-only residual transform. It must
+        // not invalidate staged quads until its derived 24-way frame changes.
+        let mut camera = state.camera;
+        camera.presentation = Default::default();
         Self {
             composition: composition_identity,
-            camera: state.camera,
+            camera,
             breath: state.data_lanes.breath(),
             surface_width: surface_size.width,
             surface_height: surface_size.height,
@@ -142,6 +146,7 @@ mod tests {
             warble_uv_corners: [[0.0, 0.0]; 4],
             post_effect_bus: SurfaceQuadPostEffectBus::default(),
             atlas_uv: [0.0, 0.0, 1.0, 1.0],
+            presentation_transform: false,
         }
     }
 

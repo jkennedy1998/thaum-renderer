@@ -5,8 +5,10 @@ Own the overlap policy used when composed cell-groups target the same renderer c
 
 ## owns
 - exact-xyz overlap resolution semantics
-- the rule that the last rendered cell at the same exact xyz coordinate wins
-- composition-facing conflict resolution between otherwise separate groups
+- the layering rule: cells from different groups at the same exact world xyz STACK — every layer survives, later groups render on top of earlier ones (pass order is bottom-to-top layer order), the data side never overwrites a stacked coordinate (J, 2026-09-14)
+- true alpha stacking within the one shared coordinate: the lower layer shows through the upper layer's transparent pixels; no extra quads, alpha stacking cleanly done
+- the rule that stacked coordinates aggregate on the data side: lighting and occlusion take every layer into account (any tile, character, or heap on a cell contributes; characters collide by default, non-colliding overlays like ghosts are the future case)
+- per-layer weight: each stacked layer carries its own weight value (type weight for rendering, never correlated with sim weight)
 
 ## does not own
 - app gameplay collision logic
@@ -34,7 +36,9 @@ Own the overlap policy used when composed cell-groups target the same renderer c
 - none
 
 ## tests
-- none
+- `cargo test -p thaum-renderer-domain compose`
+  - light
+  - stacking proofs: same-xyz cells from two groups both survive in pass order (later group on top), explicit pass order drives layer order, distinct coordinates stay flat
 
 ## data
 - none

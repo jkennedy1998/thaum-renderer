@@ -1,8 +1,8 @@
 use crate::{
-    Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, title_hotspot, ModulePointerButton,
-    ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState, RawInput, ScrollState,
-    UiColorRole, UiPalette, WorldPoint,
+    title_hotspot, Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint,
+    CellWeight, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module,
+    ModulePointerButton, ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState,
+    RawInput, ScrollState, UiColorRole, UiPalette, WorldPoint,
 };
 
 /// One listed control: the named action plus presentation metadata. The

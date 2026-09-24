@@ -9,6 +9,27 @@ use crate::{CELL_HEIGHT_CLIP_SPACE, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
 const TEXTURED_FOOTPRINT_OUTSET_PIXELS: f32 = 1.0;
 const TEXTURED_TYPEGRID_OVERLAP_SCALE: f32 = 0.06;
 
+fn quad_frame_for_run(
+    column_start: usize,
+    run_length: usize,
+    row_index: usize,
+    width: usize,
+    height: usize,
+    cell_center: [f32; 2],
+    cell_clip_size: [f32; 2],
+    pixel_size: [f32; 2],
+) -> ([f32; 2], [f32; 2]) {
+    let left = cell_center[0] - cell_clip_size[0] * 0.5 + column_start as f32 * pixel_size[0];
+    let right = left + run_length as f32 * pixel_size[0];
+    let top = cell_center[1] + cell_clip_size[1] * 0.5 - row_index as f32 * pixel_size[1];
+    let bottom = top - pixel_size[1];
+
+    (
+        [(left + right) * 0.5, (top + bottom) * 0.5],
+        [right - left, top - bottom],
+    )
+}
+
 fn quad_frame_for_texel(
     column_index: usize,
     row_index: usize,
@@ -164,6 +185,37 @@ fn warble_uv_corners_for_texel(
     [[left, bottom], [right, bottom], [right, top], [left, top]]
 }
 
+fn local_uv_corners_for_run(
+    column_start: usize,
+    run_length: usize,
+    row_index: usize,
+    width: usize,
+    height: usize,
+) -> [[f32; 2]; 4] {
+    let left = column_start as f32 / width as f32;
+    let right = (column_start + run_length) as f32 / width as f32;
+    let top = row_index as f32 / height as f32;
+    let bottom = (row_index + 1) as f32 / height as f32;
+
+    [[left, bottom], [right, bottom], [right, top], [left, top]]
+}
+
+fn warble_uv_corners_for_run(
+    column_start: usize,
+    run_length: usize,
+    row_index: usize,
+    width: usize,
+    height: usize,
+    world: WorldPoint,
+) -> [[f32; 2]; 4] {
+    let left = world.x as f32 + column_start as f32 / width as f32 - 0.5;
+    let right = world.x as f32 + (column_start + run_length) as f32 / width as f32 - 0.5;
+    let top = world.y as f32 + 0.5 - row_index as f32 / height as f32;
+    let bottom = world.y as f32 + 0.5 - (row_index + 1) as f32 / height as f32;
+
+    [[left, bottom], [right, bottom], [right, top], [left, top]]
+}
+
 fn push_texture_buffer_ring(
     quads: &mut Vec<SurfaceQuad>,
     visible_texels: &[bool],
@@ -221,6 +273,7 @@ fn push_texture_buffer_ring(
                 ),
                 post_effect_bus,
                 atlas_uv: SURFACE_QUAD_NO_ATLAS,
+                presentation_transform: false,
             });
         }
     }
@@ -258,10 +311,11 @@ pub(crate) fn sprite_raster_to_surface_quads(
                 .unwrap_or(false)
         })
         .collect::<Vec<_>>();
-
-    for row_index in 0..raster.height {
-        for column_index in 0..raster.width {
-            let color = raster.colors[row_index * raster.width + column_index]
+    let texel_colors = raster
+        .colors
+        .iter()
+        .map(|color| {
+            color
                 .map(|mut color| {
                     let coverage = (color[3] * 255.0).round() as u8;
                     color[3] = if coverage < threshold {
@@ -271,7 +325,72 @@ pub(crate) fn sprite_raster_to_surface_quads(
                     };
                     color
                 })
-                .unwrap_or([0.0, 0.0, 0.0, 0.0]);
+                .unwrap_or([0.0, 0.0, 0.0, 0.0])
+        })
+        .collect::<Vec<_>>();
+
+    if !emit_expanded_post_effect_footprint {
+        // No texture/warble effects: only visible texels emit, so adjacent
+        // texels sharing one resolved color collapse into a single wide quad.
+        // Texture-heavy ground strips (the soil tiles) were emitting one quad
+        // per texel — tens of thousands of quads per frame and a fill-rate
+        // wall on software rasterizers (llvmpipe).
+        for row_index in 0..raster.height {
+            let mut column_index = 0;
+            while column_index < raster.width {
+                let color = texel_colors[row_index * raster.width + column_index];
+                if color[3] <= 0.0 {
+                    column_index += 1;
+                    continue;
+                }
+                let mut run_length = 1;
+                while column_index + run_length < raster.width
+                    && texel_colors[row_index * raster.width + column_index + run_length] == color
+                {
+                    run_length += 1;
+                }
+                let (center, size) = quad_frame_for_run(
+                    column_index,
+                    run_length,
+                    row_index,
+                    raster.width,
+                    raster.height,
+                    cell_center,
+                    cell_clip_size,
+                    pixel_size,
+                );
+                quads.push(SurfaceQuad {
+                    center,
+                    size,
+                    color,
+                    local_uv_corners: local_uv_corners_for_run(
+                        column_index,
+                        run_length,
+                        row_index,
+                        raster.width,
+                        raster.height,
+                    ),
+                    warble_uv_corners: warble_uv_corners_for_run(
+                        column_index,
+                        run_length,
+                        row_index,
+                        raster.width,
+                        raster.height,
+                        world,
+                    ),
+                    post_effect_bus,
+                    atlas_uv: SURFACE_QUAD_NO_ATLAS,
+                    presentation_transform: false,
+                });
+                column_index += run_length;
+            }
+        }
+        return Ok(quads);
+    }
+
+    for row_index in 0..raster.height {
+        for column_index in 0..raster.width {
+            let color = texel_colors[row_index * raster.width + column_index];
             let is_visible = color[3] > 0.0;
 
             if !is_visible
@@ -316,6 +435,7 @@ pub(crate) fn sprite_raster_to_surface_quads(
                 ),
                 post_effect_bus,
                 atlas_uv: SURFACE_QUAD_NO_ATLAS,
+                presentation_transform: false,
             });
         }
     }
@@ -427,6 +547,7 @@ pub(crate) fn raster_to_surface_quads(
                 ),
                 post_effect_bus,
                 atlas_uv: SURFACE_QUAD_NO_ATLAS,
+                presentation_transform: false,
             });
         }
     }
@@ -619,6 +740,86 @@ mod tests {
         assert_eq!(quads.len(), 9);
         assert_eq!(interior_invisible, 8);
     }
+
+    fn sprite_raster(
+        width: usize,
+        height: usize,
+        colors: Vec<Option<[f32; 4]>>,
+    ) -> SpriteTileRaster {
+        SpriteTileRaster {
+            width,
+            height,
+            colors,
+        }
+    }
+
+    const OPAQUE: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+
+    #[test]
+    fn untextured_sprite_rasters_merge_same_color_runs_into_one_quad() {
+        // 4x1 all one color: one wide quad, not four texel quads.
+        let raster = sprite_raster(4, 1, vec![Some(OPAQUE); 4]);
+        let quads = sprite_raster_to_surface_quads(
+            &raster,
+            128,
+            [0.0, 0.0],
+            [1.0, 1.0],
+            CellTexture::none(),
+            CellWarble::none(),
+            128,
+            7,
+            test_world(),
+        )
+        .unwrap();
+        assert_eq!(quads.len(), 1);
+        assert_eq!(quads[0].size[0], 1.0, "the run spans the whole cell width");
+        assert_eq!(
+            quads[0].local_uv_corners,
+            [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]],
+            "merged UVs span the whole tile"
+        );
+    }
+
+    #[test]
+    fn untextured_sprite_rasters_keep_distinct_texels_separate() {
+        let raster = sprite_raster(2, 1, vec![Some(OPAQUE), Some([0.0, 1.0, 0.0, 1.0])]);
+        let quads = sprite_raster_to_surface_quads(
+            &raster,
+            128,
+            [0.0, 0.0],
+            [1.0, 1.0],
+            CellTexture::none(),
+            CellWarble::none(),
+            128,
+            7,
+            test_world(),
+        )
+        .unwrap();
+        assert_eq!(quads.len(), 2);
+        assert!(quads.iter().all(|quad| quad.size[0] == 0.5));
+    }
+
+    #[test]
+    fn textured_sprite_rasters_keep_the_per_texel_footprint() {
+        let raster = sprite_raster(4, 1, vec![Some(OPAQUE); 4]);
+        let quads = sprite_raster_to_surface_quads(
+            &raster,
+            128,
+            [0.0, 0.0],
+            [1.0, 1.0],
+            CellTexture::new(1),
+            CellWarble::none(),
+            128,
+            7,
+            test_world(),
+        )
+        .unwrap();
+        assert_eq!(
+            quads.iter().filter(|quad| quad.color[3] > 0.0).count(),
+            4,
+            "texture effects still emit per texel for visible texels"
+        );
+    }
 }
 
 /// Per-frame placement of the scene's glyph atlas: maps (glyph, weight) keys
@@ -690,5 +891,6 @@ pub(crate) fn glyph_cell_to_surface_quad(
             gate_id,
         },
         atlas_uv,
+        presentation_transform: false,
     })
 }

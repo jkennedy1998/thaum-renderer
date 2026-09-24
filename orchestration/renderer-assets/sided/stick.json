@@ -1,0 +1,22 @@
+{
+  "format": "thaum-sided-declaration",
+  "version": 1,
+  "sides": {
+    "pos-z": { "glyph": "┃" },
+    "neg-z": { "same-as": "pos-z" },
+    "pos-x": { "same-as": "pos-z" },
+    "neg-x": { "same-as": "pos-z" },
+    "pos-y": { "glyph": "▪" },
+    "neg-y": { "same-as": "pos-y" }
+  },
+  "orientations": {
+    "pos-z/deg-90": { "glyph": "━" },
+    "neg-z/deg-90": { "same-as": "pos-z/deg-90" },
+    "pos-x/deg-90": { "same-as": "pos-z/deg-90" },
+    "neg-x/deg-90": { "same-as": "pos-z/deg-90" },
+    "pos-z/deg-270": { "same-as": "pos-z/deg-90" },
+    "neg-z/deg-270": { "same-as": "pos-z/deg-90" },
+    "pos-x/deg-270": { "same-as": "pos-z/deg-90" },
+    "neg-x/deg-270": { "same-as": "pos-z/deg-90" }
+  }
+}

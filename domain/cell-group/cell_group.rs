@@ -2,6 +2,10 @@ use std::collections::BTreeMap;
 
 use crate::{Cell, CellPoint, WorldPoint};
 
+/// The group-level facing vocabulary re-exports the canonical cell-facing
+/// type; facing rotation math lives in domain/cell-facing.
+pub use crate::CellFacing as CellGroupFacing;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CellClip {
     pub min: CellPoint,
@@ -23,17 +27,6 @@ impl CellClip {
 pub struct CellBounds {
     pub min: CellPoint,
     pub max: CellPoint,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum CellGroupFacing {
-    PosX,
-    NegX,
-    PosY,
-    NegY,
-    #[default]
-    PosZ,
-    NegZ,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -123,34 +116,7 @@ impl CellGroup {
     }
 
     pub fn transformed_local_point(&self, local: CellPoint) -> CellPoint {
-        match self.facing {
-            CellGroupFacing::PosX => CellPoint {
-                x: local.z,
-                y: local.y,
-                z: -local.x,
-            },
-            CellGroupFacing::NegX => CellPoint {
-                x: -local.z,
-                y: local.y,
-                z: local.x,
-            },
-            CellGroupFacing::PosY => CellPoint {
-                x: local.x,
-                y: local.z,
-                z: -local.y,
-            },
-            CellGroupFacing::NegY => CellPoint {
-                x: local.x,
-                y: -local.z,
-                z: local.y,
-            },
-            CellGroupFacing::PosZ => local,
-            CellGroupFacing::NegZ => CellPoint {
-                x: -local.x,
-                y: local.y,
-                z: -local.z,
-            },
-        }
+        self.facing.remap_point(local)
     }
 
     pub fn world_point_for(&self, local: CellPoint) -> WorldPoint {
@@ -295,6 +261,7 @@ mod tests {
             weight: CellWeight::Three,
             texture: CellTexture::new(11),
             warble: CellWarble::new(12),
+            facing: CellGroupFacing::PosZ,
             shader_stack: vec![9, 10],
         });
 
@@ -307,6 +274,7 @@ mod tests {
                 weight: CellWeight::Three,
                 texture: CellTexture::new(11),
                 warble: CellWarble::new(12),
+                facing: CellGroupFacing::PosZ,
                 shader_stack: vec![9, 10],
             })
         );

@@ -32,6 +32,7 @@ Own the renderer cell-group shape as the layer-level matrix boundary that arrang
 
 ## dependencies
 - `thaum-renderer/domain/cell/`
+- `thaum-renderer/domain/cell-facing/`
 - `thaum-renderer/domain/coordinate-space/`
 
 ## exposed interfaces
@@ -56,6 +57,7 @@ Own the renderer cell-group shape as the layer-level matrix boundary that arrang
 ## notes
 - cell-group is the layer shape in this renderer model
 - facing is currently constrained to the six cardinal directions
+- the facing value type and rotation algebra live in domain/cell-facing; this boundary re-exports the type as CellGroupFacing and delegates point remapping to it
 - cell-group should know about its own matrix-oriented space, not how sibling groups are composited together
 - the renderer should stay one renderer mode, while cell-groups can arrive through two intake behaviors: rotating 3d intake and non-rotating 2d intake
 - non-rotating intake may still carry 3d shapes locally; it simply does not participate in perspective rotation like the fully rotating 3d intake path

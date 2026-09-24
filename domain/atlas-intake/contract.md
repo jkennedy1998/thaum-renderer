@@ -24,6 +24,8 @@ Own the renderer-facing atlas intake seam that turns packed atlas assets into sp
 ## contents
 - `atlas_intake.rs`
   - rust atlas intake shapes and sprite-atlas loading helpers owned by this encapsulation
+- `truth.md`
+  - J's authored-atlas form and renderer-ownership decisions
 
 ## dependencies
 - `thaum-renderer/domain/cell-weight/`

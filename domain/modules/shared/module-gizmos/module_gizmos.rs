@@ -249,9 +249,15 @@ pub fn char_button_cell(
     highlighted: bool,
 ) -> Cell {
     let (color, weight) = if highlighted {
-        (palette.get(UiColorRole::Vivid), CellWeight::from_index_clamped(2))
+        (
+            palette.get(UiColorRole::Vivid),
+            CellWeight::from_index_clamped(2),
+        )
     } else {
-        (palette.get(UiColorRole::Bright), CellWeight::from_index_clamped(1))
+        (
+            palette.get(UiColorRole::Bright),
+            CellWeight::from_index_clamped(1),
+        )
     };
     Cell {
         position: CellPoint { x, y, z: 0 },
@@ -849,7 +855,12 @@ mod tests {
         let bar = GizmoBar::new(vec![GizmoKind::Move]);
         let r = rect(0, 0, 20, 10);
         let custom = vec![Hotspot::new(
-            ModuleRect { x0: 3, y0: 3, x1: 3, y1: 3 },
+            ModuleRect {
+                x0: 3,
+                y0: 3,
+                x1: 3,
+                y1: 3,
+            },
             "row",
             "custom control",
         )];

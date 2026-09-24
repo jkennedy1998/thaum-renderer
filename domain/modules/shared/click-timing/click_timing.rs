@@ -45,7 +45,10 @@ impl<K: Eq + Clone> DoubleClick<K> {
 
     /// A detector on a custom window, for surfaces with a different feel.
     pub fn with_window(window: Duration) -> Self {
-        Self { window, recent: None }
+        Self {
+            window,
+            recent: None,
+        }
     }
 
     /// Record one click on `subject` and report whether it completes a

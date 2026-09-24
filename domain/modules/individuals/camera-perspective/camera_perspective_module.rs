@@ -3,10 +3,10 @@ use std::rc::Rc;
 
 use crate::PerspectiveProfile;
 use crate::{
-    Cell, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight, GizmoBar,
-    GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, title_hotspot, ModulePointerButton,
+    title_hotspot, Cell, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
+    GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, ParallaxProfile, PersistedModuleUiState,
-    PropertyRows, UiColorRole, UiPalette, WorldPoint,
+    PropertyRows, ScrollState, UiColorRole, UiPalette, WorldPoint,
 };
 
 /// One editable perspective knob: a label, wheel fine-step, clamped range,
@@ -311,6 +311,50 @@ fn set_knob_value(profile: &mut PerspectiveProfile, index: usize, value: f32) {
         _ => profile.near_floor_fraction = value,
     }
 }
+
+/// One-line tooltip copy for a row: what the knob edits and how the
+/// wheel/click interaction behaves (standard hotspot seam, matching the
+/// controls panel's per-row tooltips).
+fn row_tooltip(index: usize) -> (&'static str, &'static str) {
+    match index {
+        0 => (
+            "scale",
+            "how much closer layers scale up; wheel fine-tunes, click cycles presets",
+        ),
+        1 => (
+            "position",
+            "how much closer layers shift sideways; wheel fine-tunes, click cycles presets",
+        ),
+        PARALLAX_TOGGLE_ROW => (
+            "parallax",
+            "toggles mouse-parallax drift on/off; wheel or click flips it",
+        ),
+        PARALLAX_STRENGTH_ROW => (
+            "str",
+            "how far the parallax drifts; wheel fine-tunes, click cycles presets",
+        ),
+        DEPTH_ROW => (
+            "depth",
+            "which depth plane the camera focuses; wheel steps, click re-centers at 0",
+        ),
+        LAYERS_ROW => (
+            "layers",
+            "how many depth layers render each side of focus; wheel steps, click cycles presets",
+        ),
+        ZOOM_ROW => (
+            "zoom",
+            "camera zoom; wheel steps in/out, click snaps the next preset",
+        ),
+        QUALITY_ROW => (
+            "quality",
+            "offscreen render scale before upscale; wheel fine-tunes, click cycles presets",
+        ),
+        _ => (
+            "floor",
+            "caps near-layer scaling so close layers stay readable; wheel fine-tunes, click cycles presets",
+        ),
+    }
+}
 /// Renderer-owned camera perspective panel: edits a shared
 /// [`PerspectiveProfile`] (scale strength, position strength, near-camera
 /// floor) so any app that opts into renderer modules can hand its users
@@ -335,6 +379,10 @@ pub struct CameraPerspectiveModule {
     /// The row currently under the pointer, driving the responsive
     /// value/label highlight.
     hovered_row: Option<usize>,
+    /// Row-scroll offset for the knob/value band. The bottom hint row stays
+    /// pinned; when the panel is shorter than the row list the rows crop
+    /// into the visible band and the list scrolls (shared `ScrollState`).
+    scroll: ScrollState,
 }
 
 impl CameraPerspectiveModule {
@@ -361,6 +409,7 @@ impl CameraPerspectiveModule {
             gizmo_state: GizmoState::new(),
             hidden: false,
             hovered_row: None,
+            scroll: ScrollState::new(),
         }
     }
 
@@ -414,20 +463,39 @@ impl CameraPerspectiveModule {
         self.quality.clone()
     }
 
-    fn knob_row_y(&self, index: usize) -> i32 {
-        PropertyRows::top_row_y(self.rect) - index as i32
+    /// Bottom hint row stays pinned; the knob/value rows scroll in the band
+    /// above it once the panel is shorter than the row list.
+    fn available_scroll_rows(&self) -> usize {
+        let (_, content_height) = PanelChrome::content_size(self.rect);
+        ScrollState::available_rows(content_height.max(0) as usize, 0, 1)
     }
 
-    /// Which knob/parallax row (if any) is under this screen-space point.
-    /// Rows stack downward from the top content row, one line each, matching
-    /// the property-rows convention (draw output is module-local, events are
-    /// screen-space like `PropertyRows::hit_test`).
+    fn max_scroll_rows(&self) -> usize {
+        ScrollState::max_offset(ROW_COUNT, self.available_scroll_rows())
+    }
+
+    /// Which knob/parallax row (if any) is under this screen-space point,
+    /// at the current scroll offset. Rows stack downward from the top
+    /// content row, one line each, matching the property-rows convention
+    /// (draw output is module-local, events are screen-space like
+    /// `PropertyRows::hit_test`). The pinned hint row, panel chrome, and
+    /// slots past the row-list end report `None` so wheel events there can
+    /// drive the list scroll instead of a knob.
     fn row_at(&self, x: i32, y: i32) -> Option<usize> {
         if !self.rect.contains(x, y) {
             return None;
         }
         let local_y = y - self.rect.y0;
-        (0..ROW_COUNT).find(|&index| self.knob_row_y(index) == local_y)
+        let top_row_y = PropertyRows::top_row_y(self.rect);
+        if local_y > top_row_y {
+            return None;
+        }
+        let slot = (top_row_y - local_y) as usize;
+        if slot >= self.available_scroll_rows() {
+            return None;
+        }
+        let index = self.scroll.offset() + slot;
+        (index < ROW_COUNT).then_some(index)
     }
 
     fn apply_wheel(
@@ -572,7 +640,11 @@ impl CameraPerspectiveModule {
                 .rev()
                 .copied()
                 .find(|preset| *preset > current + f32::EPSILON)
-                .unwrap_or(*QUALITY_PRESETS.last().expect("quality presets are non-empty"));
+                .unwrap_or(
+                    *QUALITY_PRESETS
+                        .last()
+                        .expect("quality presets are non-empty"),
+                );
             quality.set_internal_render_scale(next);
             return;
         }
@@ -622,12 +694,36 @@ impl Module for CameraPerspectiveModule {
     /// Tooltip hotspots: the module's gizmo bar plus a title hotspot naming
     /// the panel and its camera truth.
     fn hotspots(&self) -> Vec<Hotspot> {
-        let custom = vec![title_hotspot(
+        let mut custom = vec![title_hotspot(
             self.rect,
             self.gizmos.title_start_x(),
             "perspective module",
             "adjusts the camera settings per artfile. parallax triggers with mouse movement, scale and position interact with relative layer depth. turn it all down to 0 for orthographic!",
         )];
+        // One full-row tooltip per visible row, mirroring draw's iteration:
+        // the standard hover seam that explains each row's wheel/click
+        // behavior, so the panel's interactive rows are discoverable like
+        // every other module's buttons.
+        let (content_x, content_y) = PanelChrome::content_origin();
+        let (content_width, content_height) = PanelChrome::content_size(self.rect);
+        let top_row_y = content_y + (content_height - 1).max(0);
+        for slot in 0..self.available_scroll_rows() {
+            let index = self.scroll.offset() + slot;
+            if index >= ROW_COUNT {
+                break;
+            }
+            let (title, description) = row_tooltip(index);
+            custom.push(Hotspot::new(
+                ModuleRect {
+                    x0: self.rect.x0 + content_x,
+                    y0: self.rect.y0 + top_row_y - slot as i32,
+                    x1: self.rect.x0 + content_x + content_width.saturating_sub(1),
+                    y1: self.rect.y0 + top_row_y - slot as i32,
+                },
+                title,
+                description,
+            ));
+        }
         self.gizmos.hotspots_with(self.rect, custom)
     }
 
@@ -652,15 +748,24 @@ impl Module for CameraPerspectiveModule {
         }
 
         let (content_x, content_y) = PanelChrome::content_origin();
-        let (_, content_height) = PanelChrome::content_size(self.rect);
+        let (content_width, content_height) = PanelChrome::content_size(self.rect);
+        let content_right = content_x + content_width; // exclusive crop edge
         let top_row_y = content_y + (content_height - 1).max(0);
         let value_x = content_x + 9;
         let profile = self.profile.borrow();
         let parallax = self.parallax.borrow();
         let quality = self.quality.borrow();
 
-        for index in 0..ROW_COUNT {
-            let y = top_row_y - index as i32;
+        // The row list crops to the visible band above the pinned hint row
+        // and scrolls when the panel is shorter than the content: a smaller
+        // module crops its contents instead of spilling them past its edges.
+        let max_scroll = self.max_scroll_rows();
+        for slot in 0..self.available_scroll_rows() {
+            let index = self.scroll.offset() + slot;
+            if index >= ROW_COUNT {
+                break;
+            }
+            let y = top_row_y - slot as i32;
             let (label, value, engaged) = if index == PARALLAX_TOGGLE_ROW {
                 (
                     "parallax",
@@ -676,7 +781,11 @@ impl Module for CameraPerspectiveModule {
             } else if index == ZOOM_ROW {
                 ("zoom", format!("{:.2}", self.zoom.current()), true)
             } else if index == QUALITY_ROW {
-                ("quality", format!("{}%", quality.render_scale_percent()), true)
+                (
+                    "quality",
+                    format!("{}%", quality.render_scale_percent()),
+                    true,
+                )
             } else {
                 (
                     knob(index).label,
@@ -689,12 +798,12 @@ impl Module for CameraPerspectiveModule {
             // engaged (parallax on) or under the pointer.
             let hovered = self.hovered_row == Some(index);
             for (offset, glyph) in label.chars().enumerate() {
+                let x = content_x + offset as i32;
+                if x >= content_right {
+                    break;
+                }
                 cells.push(Cell {
-                    position: CellPoint {
-                        x: content_x + offset as i32,
-                        y,
-                        z: 0,
-                    },
+                    position: CellPoint { x, y, z: 0 },
                     graphic: CellGraphic::Glyph(glyph),
                     color: self.palette.get(if hovered {
                         UiColorRole::Vivid
@@ -706,12 +815,12 @@ impl Module for CameraPerspectiveModule {
                 });
             }
             for (offset, glyph) in value.chars().enumerate() {
+                let x = value_x + offset as i32;
+                if x >= content_right {
+                    break;
+                }
                 cells.push(Cell {
-                    position: CellPoint {
-                        x: value_x + offset as i32,
-                        y,
-                        z: 0,
-                    },
+                    position: CellPoint { x, y, z: 0 },
                     graphic: CellGraphic::Glyph(glyph),
                     color: self.palette.get(if engaged || hovered {
                         UiColorRole::Vivid
@@ -724,20 +833,46 @@ impl Module for CameraPerspectiveModule {
             }
         }
 
-        // Hint row on the bottom content line, dimmed.
+        // Hint row on the bottom content line, dimmed. When the row list
+        // overflows the panel, edge arrows mark the scroll state (▲ more
+        // rows above, ▼ more rows below).
         let hint_y = content_y;
+        let hint_right = if max_scroll > 0 {
+            content_right.saturating_sub(2)
+        } else {
+            content_right
+        };
         for (offset, glyph) in "wheel fine  click preset".chars().enumerate() {
+            let x = content_x + offset as i32;
+            if x >= hint_right {
+                break;
+            }
             cells.push(Cell {
-                position: CellPoint {
-                    x: content_x + offset as i32,
-                    y: hint_y,
-                    z: 0,
-                },
+                position: CellPoint { x, y: hint_y, z: 0 },
                 graphic: CellGraphic::Glyph(glyph),
                 color: self.palette.get(UiColorRole::Dimmest),
                 weight: CellWeight::from_index_clamped(1),
                 ..Cell::default()
             });
+        }
+        if max_scroll > 0 && content_width >= 2 {
+            let arrows = [
+                if self.scroll.offset() > 0 { '▲' } else { ' ' },
+                if self.scroll.offset() < max_scroll { '▼' } else { ' ' },
+            ];
+            for (offset, glyph) in arrows.into_iter().enumerate() {
+                cells.push(Cell {
+                    position: CellPoint {
+                        x: content_right - 2 + offset as i32,
+                        y: hint_y,
+                        z: 0,
+                    },
+                    graphic: CellGraphic::Glyph(glyph),
+                    color: self.palette.get(UiColorRole::Dimmest),
+                    weight: CellWeight::from_index_clamped(1),
+                    ..Cell::default()
+                });
+            }
         }
 
         // Group origin is the rect origin (shared module convention): cells
@@ -776,6 +911,12 @@ impl Module for CameraPerspectiveModule {
                 self.gizmo_state.note_pointer(&self.gizmos, self.rect, x, y);
                 if let Some(next_rect) = self.gizmo_state.drag_rect(x, y) {
                     self.rect = next_rect;
+                    // Shrinking the panel under a scrolled offset keeps the
+                    // offset valid so the list never parks past its end.
+                    let max = self.max_scroll_rows();
+                    if self.scroll.offset() > max {
+                        self.scroll.to_end(max);
+                    }
                 }
                 self.hovered_row = self.row_at(x, y);
             }
@@ -812,19 +953,40 @@ impl Module for CameraPerspectiveModule {
 
     fn apply_persisted_ui_state(&mut self, state: &PersistedModuleUiState) {
         self.rect = state.rect.to_runtime();
+        // A restored rect may be shorter than the row list; keep any
+        // restored scroll offset valid for it.
+        let max = self.max_scroll_rows();
+        if self.scroll.offset() > max {
+            self.scroll.to_end(max);
+        }
         self.gizmo_state.set_seamless(state.is_seamless);
         self.hidden = state.is_hidden;
     }
 
     fn on_wheel(&mut self, x: i32, y: i32, _delta_x: f32, delta_y: f32) -> bool {
-        let Some(index) = self.row_at(x, y) else {
-            // Off the panel rows: fall through to viewport camera behavior.
+        if let Some(index) = self.row_at(x, y) {
+            let mut profile = self.profile.borrow_mut();
+            let mut parallax = self.parallax.borrow_mut();
+            self.apply_wheel(&mut profile, &mut parallax, index, delta_y);
+            return true;
+        }
+        // Off the rows but over the panel's content band: scroll the row
+        // list when the panel is shorter than its content. Wheeling a panel
+        // that already shows everything falls through so the viewport
+        // camera behavior keeps working.
+        let (content_x, content_y) = PanelChrome::content_origin();
+        let (content_width, _) = PanelChrome::content_size(self.rect);
+        let local_x = x - self.rect.x0;
+        let local_y = y - self.rect.y0;
+        let over_content = self.rect.contains(x, y)
+            && local_x >= content_x
+            && local_x < content_x + content_width
+            && local_y >= content_y
+            && local_y <= PropertyRows::top_row_y(self.rect);
+        if !over_content {
             return false;
-        };
-        let mut profile = self.profile.borrow_mut();
-        let mut parallax = self.parallax.borrow_mut();
-        self.apply_wheel(&mut profile, &mut parallax, index, delta_y);
-        true
+        }
+        self.scroll.wheel(delta_y, self.max_scroll_rows())
     }
 }
 
@@ -1290,7 +1452,11 @@ mod tests {
             y,
             button: ModulePointerButton::Left,
         });
-        assert_eq!(zoom.drain_pending(), CameraZoomCommand::Set(2.0), "1.0 -> 2.0");
+        assert_eq!(
+            zoom.drain_pending(),
+            CameraZoomCommand::Set(2.0),
+            "1.0 -> 2.0"
+        );
 
         // From the top preset it wraps to the smallest one.
         zoom.set_current(4.0);

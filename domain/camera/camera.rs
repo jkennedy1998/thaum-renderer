@@ -2,6 +2,8 @@
 pub mod parallax;
 #[path = "perspective/perspective.rs"]
 pub mod perspective;
+#[path = "presentation/presentation.rs"]
+pub mod presentation;
 #[path = "projection/projection.rs"]
 pub mod projection;
 #[path = "roll/roll.rs"]
@@ -18,6 +20,7 @@ pub use parallax::{parallax_screen_offset, ParallaxProfile};
 pub use perspective::{
     depth_position_spread, depth_scale_factor, eased_signed_depth_units, PerspectiveProfile,
 };
+pub use presentation::{CameraPresentation, CameraPresentationAction};
 pub use projection::{
     build_visible_plane_stack_around_focus, derive_visible_plane_stack_from_world_points,
     focus_plane_for_camera, project_flat_2d_world_to_view_plane,
@@ -34,9 +37,10 @@ pub use screen_world_remap::{
 };
 pub use swing::CameraSwing;
 pub use view_orientation::{
-    active_depth_axis_for_swing, active_depth_direction_for_swing,
-    camera_view_orientation_for_camera, camera_view_orientation_for_swing,
-    project_world_relative_to_view, unproject_view_relative_to_world, world_depth_along_direction,
+    active_depth_axis_for_swing, active_depth_direction_for_swing, camera_facing_for_swing,
+    camera_rotation_for_camera, camera_view_orientation_for_camera,
+    camera_view_orientation_for_swing, project_world_relative_to_view,
+    unproject_view_relative_to_world, view_relative_facing, world_depth_along_direction,
     CameraViewOrientation, ViewRelativePoint,
 };
 
@@ -53,6 +57,9 @@ pub struct Camera {
     /// User-tunable mouse parallax (toggle + strength; the pointer offset is
     /// host-fed each frame). Default is disabled so the look is unchanged.
     pub parallax: ParallaxProfile,
+    /// Continuous, per-viewer pose whose nearest authored frame updates
+    /// `swing`/`roll`. It never replaces the 24-state downstream contract.
+    pub presentation: CameraPresentation,
     pub visible_plane_radius: i32,
     pub visible_plane_depth_offset: i32,
     pub zoom: f32,
@@ -73,6 +80,7 @@ impl Default for Camera {
             projection_mode: CameraProjectionMode::Perspective,
             perspective: PerspectiveProfile::default(),
             parallax: ParallaxProfile::default(),
+            presentation: CameraPresentation::default(),
             visible_plane_radius: 8,
             visible_plane_depth_offset: 0,
             zoom: 1.0,
@@ -85,6 +93,51 @@ impl Camera {
     pub const MIN_ZOOM: f32 = 0.05;
     pub const MAX_ZOOM: f32 = 4.0;
     pub const ZOOM_STEP_FACTOR: f32 = 1.25;
+
+    /// Start one smooth display transition between authored camera frames.
+    /// Semantic swing/roll remain unchanged until its visual midpoint.
+    pub fn begin_presentation_action(&mut self, action: CameraPresentationAction) -> bool {
+        self.presentation.begin(self.swing, self.roll, action)
+    }
+
+    /// Advance the active display transition and commit its discrete camera
+    /// frame at the visual midpoint. Input, projection, and variant lookup
+    /// therefore always consume one of the authored 24 frames.
+    pub fn advance_presentation(&mut self, delta_seconds: f32) {
+        let Some(action) = self
+            .presentation
+            .advance(self.swing, self.roll, delta_seconds)
+        else {
+            return;
+        };
+        match action {
+            CameraPresentationAction::SwingLeft => {
+                self.apply_swing_transition_untracked(SwingDirection::Left)
+            }
+            CameraPresentationAction::SwingRight => {
+                self.apply_swing_transition_untracked(SwingDirection::Right)
+            }
+            CameraPresentationAction::SwingUp => {
+                self.apply_swing_transition_untracked(SwingDirection::Up)
+            }
+            CameraPresentationAction::SwingDown => {
+                self.apply_swing_transition_untracked(SwingDirection::Down)
+            }
+            CameraPresentationAction::RollCounterClockwise => {
+                self.roll = self.roll.rotate_counter_clockwise()
+            }
+            CameraPresentationAction::RollClockwise => self.roll = self.roll.rotate_clockwise(),
+        }
+        self.presentation
+            .accept_semantic_commit(self.swing, self.roll);
+    }
+
+    /// Render-only residual transform around the current discrete staged view.
+    /// Consumers apply it only to 3D intake; depth perspective still belongs
+    /// to normal camera projection before this transition is presented.
+    pub fn presentation_residual_basis(&self) -> [[f32; 3]; 3] {
+        self.presentation.residual_basis()
+    }
 
     pub fn turn_clockwise(&mut self) {
         self.swing_right();
@@ -111,6 +164,11 @@ impl Camera {
     }
 
     fn apply_swing_transition(&mut self, direction: SwingDirection) {
+        self.presentation.reset();
+        self.apply_swing_transition_untracked(direction);
+    }
+
+    fn apply_swing_transition_untracked(&mut self, direction: SwingDirection) {
         let orientation = camera_view_orientation_for_camera(self.swing, self.roll);
         let target = match direction {
             SwingDirection::Left => CameraViewOrientation {

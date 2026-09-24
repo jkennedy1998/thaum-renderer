@@ -1,4 +1,7 @@
-use crate::{AxisSign, GlobalDirection, WorldAxis, WorldPoint};
+use crate::{
+    cell_facing::{CellFacing, CellRoll, FacingRotation},
+    AxisSign, GlobalDirection, WorldAxis, WorldPoint,
+};
 
 use super::{roll::CameraRoll, swing::CameraSwing};
 
@@ -83,6 +86,51 @@ pub const fn active_depth_axis_for_swing(swing: CameraSwing) -> WorldAxis {
 
 pub const fn active_depth_direction_for_swing(swing: CameraSwing) -> GlobalDirection {
     camera_view_orientation_for_swing(swing).depth
+}
+
+/// The camera-facing carrier for relative-facing resolution: the world side
+/// the camera views FROM (the opposite of its look direction), as a facing.
+/// This convention makes `CellFacing::relative_facing` return `PosZ` exactly
+/// when the viewer sees a cell's front, so authored front art resolves
+/// naturally. Camera roll is display-space rotation around the depth axis and
+/// does not participate in facing resolution — a rolled screen still looks at
+/// the same side of an object.
+pub const fn camera_facing_for_swing(swing: CameraSwing) -> CellFacing {
+    CellFacing::from_global_direction(opposite_direction(
+        camera_view_orientation_for_swing(swing).depth,
+    ))
+}
+
+/// The composed relative facing of one cell under one group facing as seen
+/// from this camera swing: the single variant-lookup key component. `PosZ`
+/// means the cell's front is visible.
+pub fn view_relative_facing(swing: CameraSwing, cell: CellFacing, group: CellFacing) -> CellFacing {
+    FacingRotation::relative_rotation(
+        FacingRotation::from_facing(cell),
+        FacingRotation::from_facing(group),
+        camera_rotation_for_camera(swing, CameraRoll::Deg0),
+    )
+    .facing
+}
+
+/// The camera's full orientation as a rotation in the 24-element group: the
+/// unrolled view-from orientation composed with its roll on the canonical
+/// side (the camera rolls around its look axis, which is the reverse of the
+/// facing frame's z, so the roll is complemented; pinned by test).
+pub fn camera_rotation_for_camera(swing: CameraSwing, roll: CameraRoll) -> FacingRotation {
+    FacingRotation::from_facing(camera_facing_for_swing(swing)).compose(FacingRotation::new(
+        CellFacing::PosZ,
+        camera_roll_as_cell_roll(roll),
+    ))
+}
+
+const fn camera_roll_as_cell_roll(roll: CameraRoll) -> CellRoll {
+    match roll {
+        CameraRoll::Deg0 => CellRoll::Deg0,
+        CameraRoll::Deg90 => CellRoll::Deg270,
+        CameraRoll::Deg180 => CellRoll::Deg180,
+        CameraRoll::Deg270 => CellRoll::Deg90,
+    }
 }
 
 pub fn project_world_relative_to_view(
@@ -189,6 +237,130 @@ mod tests {
         assert_eq!(active_depth_axis_for_swing(CameraSwing::NegY), WorldAxis::Y);
         assert_eq!(active_depth_axis_for_swing(CameraSwing::PosZ), WorldAxis::Z);
     }
+
+    #[test]
+    fn camera_facing_is_the_side_the_camera_views_from() {
+        // Default swing looks along South (+z), so it views from North.
+        assert_eq!(camera_facing_for_swing(CameraSwing::PosZ), CellFacing::NegZ);
+        // An East-looking camera views from the West side.
+        assert_eq!(camera_facing_for_swing(CameraSwing::PosX), CellFacing::NegX);
+        assert_eq!(camera_facing_for_swing(CameraSwing::PosY), CellFacing::NegY);
+        assert_eq!(camera_facing_for_swing(CameraSwing::NegY), CellFacing::PosY);
+    }
+
+    #[test]
+    fn front_facing_cells_resolve_to_posz_from_the_default_view() {
+        // Default camera views from North: a cell fronting North shows its
+        // front, one fronting South shows its back.
+        assert_eq!(
+            view_relative_facing(CameraSwing::PosZ, CellFacing::NegZ, CellFacing::PosZ),
+            CellFacing::PosZ
+        );
+        assert_eq!(
+            view_relative_facing(CameraSwing::PosZ, CellFacing::PosZ, CellFacing::PosZ),
+            CellFacing::NegZ
+        );
+    }
+
+    #[test]
+    fn front_view_tracks_the_camera_swing() {
+        // A cell fronting West shows its front from the PosX swing (which
+        // views from West) and its back once the camera swings to NegX
+        // (viewing from East).
+        assert_eq!(
+            view_relative_facing(CameraSwing::PosX, CellFacing::NegX, CellFacing::PosZ),
+            CellFacing::PosZ
+        );
+        assert_eq!(
+            view_relative_facing(CameraSwing::NegX, CellFacing::NegX, CellFacing::PosZ),
+            CellFacing::NegZ
+        );
+    }
+
+    #[test]
+    fn group_facing_turns_what_the_viewer_sees() {
+        // A PosZ-fronting cell on a PosX-facing group shows a side view from
+        // the default view: the group rotation turned the front East, which
+        // the North-viewing camera sees from the side (frame -x).
+        assert_eq!(
+            view_relative_facing(CameraSwing::PosZ, CellFacing::PosZ, CellFacing::PosX),
+            CellFacing::NegX
+        );
+        // Swing the camera to view from the East side and the front returns.
+        assert_eq!(
+            view_relative_facing(CameraSwing::NegX, CellFacing::PosZ, CellFacing::PosX),
+            CellFacing::PosZ
+        );
+    }
+
+    #[test]
+    fn camera_roll_lands_in_the_relative_roll_component_one_to_one() {
+        // Default swing (views from North), cell fronting North on an
+        // identity group: front view at every camera roll, and the camera
+        // roll lands one-to-one as the relative rotation's roll component.
+        for &camera_roll in &[
+            CameraRoll::Deg0,
+            CameraRoll::Deg90,
+            CameraRoll::Deg180,
+            CameraRoll::Deg270,
+        ] {
+            let relative = FacingRotation::relative_rotation(
+                FacingRotation::from_facing(CellFacing::NegZ),
+                FacingRotation::IDENTITY,
+                camera_rotation_for_camera(CameraSwing::PosZ, camera_roll),
+            );
+            assert_eq!(relative.facing, CellFacing::PosZ);
+            assert_eq!(relative.roll, camera_roll_as_cell_roll(camera_roll));
+        }
+    }
+
+    #[test]
+    fn roll_never_changes_which_side_of_a_cell_is_visible() {
+        // Rolling the screen never swaps which side of an object is seen:
+        // the side is the unrolled relative facing at every camera roll.
+        for &roll in &[
+            CameraRoll::Deg0,
+            CameraRoll::Deg90,
+            CameraRoll::Deg180,
+            CameraRoll::Deg270,
+        ] {
+            for &cell in &ALL_FACINGS {
+                let unrolled = view_relative_facing(CameraSwing::PosZ, cell, CellFacing::PosZ);
+                assert_eq!(baseline_of(cell).facing, unrolled);
+                let relative = FacingRotation::relative_rotation(
+                    FacingRotation::from_facing(cell),
+                    FacingRotation::IDENTITY,
+                    camera_rotation_for_camera(CameraSwing::PosZ, roll),
+                );
+                // The side survives the roll untouched; the camera roll
+                // multiplies the relative roll tag only (image rotation).
+                assert_eq!(
+                    relative,
+                    baseline_of(cell).compose(FacingRotation::new(
+                        CellFacing::PosZ,
+                        camera_roll_as_cell_roll(roll)
+                    ))
+                );
+            }
+        }
+    }
+
+    fn baseline_of(cell: CellFacing) -> FacingRotation {
+        FacingRotation::relative_rotation(
+            FacingRotation::from_facing(cell),
+            FacingRotation::IDENTITY,
+            FacingRotation::from_facing(camera_facing_for_swing(CameraSwing::PosZ)),
+        )
+    }
+
+    const ALL_FACINGS: [CellFacing; 6] = [
+        CellFacing::PosX,
+        CellFacing::NegX,
+        CellFacing::PosY,
+        CellFacing::NegY,
+        CellFacing::PosZ,
+        CellFacing::NegZ,
+    ];
 
     #[test]
     fn project_world_relative_to_view_uses_authored_basis_for_positive_x() {

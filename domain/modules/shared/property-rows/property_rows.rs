@@ -471,7 +471,8 @@ impl PropertyRows {
                 }
                 PropertyRow::Matrix { label, .. } => (
                     label.clone(),
-                    "click a token to set it: left-click is the left hand, right-click the right".to_string(),
+                    "click a token to set it: left-click is the left hand, right-click the right"
+                        .to_string(),
                 ),
                 PropertyRow::NumberRow { label, .. } => (
                     label.clone(),
@@ -642,7 +643,14 @@ mod tests {
         let field_y = rect().y0 + PropertyRows::top_row_y(rect());
 
         assert_eq!(
-            PropertyRows::hit_test(rect(), &rows, field_2_x, field_y, ModulePointerButton::Left, 0),
+            PropertyRows::hit_test(
+                rect(),
+                &rows,
+                field_2_x,
+                field_y,
+                ModulePointerButton::Left,
+                0
+            ),
             Some(PropertyHit::Number {
                 row_id: "step".into(),
                 field: 2,

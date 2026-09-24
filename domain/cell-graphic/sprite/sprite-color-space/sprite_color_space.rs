@@ -1,6 +1,6 @@
 use thaum_renderer_tools_color::nearest_rgb_in_collection;
 
-use crate::ColorBand;
+use crate::{ColorBand, IndexedColor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpriteColorChannel {
@@ -16,7 +16,7 @@ pub enum SpriteColorChannel {
 pub struct DecodedSpritePixel {
     pub alpha: u8,
     pub channel: SpriteColorChannel,
-    pub band: ColorBand,
+    pub indexed_color: IndexedColor,
 }
 
 pub fn decode_sprite_rgba(rgba: &[u8]) -> Result<Vec<Option<DecodedSpritePixel>>, String> {
@@ -35,15 +35,33 @@ pub fn decode_sprite_rgba(rgba: &[u8]) -> Result<Vec<Option<DecodedSpritePixel>>
 
 pub fn decode_sprite_pixel(pixel: [u8; 4]) -> Option<DecodedSpritePixel> {
     let [red, green, blue, alpha] = pixel;
-    if alpha == 0 || [red, green, blue] == [0, 0, 0] {
+    if alpha == 0 {
         return None;
+    }
+
+    // Brand black and white are deliberate indexed values, not transparency
+    // or a material-band fallback. Their shifted result may enter a material
+    // band, but at the lit center they override it with program black/white.
+    if [red, green, blue] == [0, 0, 0] {
+        return Some(DecodedSpritePixel {
+            alpha,
+            channel: SpriteColorChannel::A,
+            indexed_color: IndexedColor::BrandBlack,
+        });
+    }
+    if [red, green, blue] == [0xff, 0xff, 0xff] {
+        return Some(DecodedSpritePixel {
+            alpha,
+            channel: SpriteColorChannel::A,
+            indexed_color: IndexedColor::BrandWhite,
+        });
     }
 
     if red == green && green == blue {
         return Some(DecodedSpritePixel {
             alpha,
             channel: SpriteColorChannel::A,
-            band: ColorBand::MediumLight,
+            indexed_color: IndexedColor::Material(ColorBand::MediumLight),
         });
     }
 
@@ -51,7 +69,7 @@ pub fn decode_sprite_pixel(pixel: [u8; 4]) -> Option<DecodedSpritePixel> {
     Some(DecodedSpritePixel {
         alpha,
         channel: palette_channel(palette_index),
-        band: palette_band(palette_index),
+        indexed_color: IndexedColor::Material(palette_band(palette_index)),
     })
 }
 
@@ -121,26 +139,44 @@ mod tests {
     fn exact_palette_colors_decode_to_expected_channel_and_band() {
         let decoded = decode_sprite_pixel([0x87, 0xaa, 0xac, 0xff]).unwrap();
         assert_eq!(decoded.channel, SpriteColorChannel::BC);
-        assert_eq!(decoded.band, ColorBand::MediumLight);
+        assert_eq!(
+            decoded.indexed_color,
+            IndexedColor::Material(ColorBand::MediumLight)
+        );
     }
 
     #[test]
     fn grayscale_pixels_follow_the_medium_light_slot_a_fallback() {
         let decoded = decode_sprite_pixel([0x80, 0x80, 0x80, 0xff]).unwrap();
         assert_eq!(decoded.channel, SpriteColorChannel::A);
-        assert_eq!(decoded.band, ColorBand::MediumLight);
+        assert_eq!(
+            decoded.indexed_color,
+            IndexedColor::Material(ColorBand::MediumLight)
+        );
     }
 
     #[test]
-    fn transparent_and_black_pixels_decode_as_empty() {
+    fn transparent_pixels_are_empty_but_black_and_white_are_brand_endpoints() {
         assert_eq!(decode_sprite_pixel([0, 0, 0, 0]), None);
-        assert_eq!(decode_sprite_pixel([0, 0, 0, 0xff]), None);
+        assert_eq!(
+            decode_sprite_pixel([0, 0, 0, 0xff]).unwrap().indexed_color,
+            IndexedColor::BrandBlack
+        );
+        assert_eq!(
+            decode_sprite_pixel([0xff, 0xff, 0xff, 0xff])
+                .unwrap()
+                .indexed_color,
+            IndexedColor::BrandWhite
+        );
     }
 
     #[test]
     fn nearby_noncanonical_colors_match_to_the_nearest_palette_color_without_error() {
         let decoded = decode_sprite_pixel([0x89, 0xad, 0xaf, 0xff]).unwrap();
         assert_eq!(decoded.channel, SpriteColorChannel::BC);
-        assert_eq!(decoded.band, ColorBand::MediumLight);
+        assert_eq!(
+            decoded.indexed_color,
+            IndexedColor::Material(ColorBand::MediumLight)
+        );
     }
 }

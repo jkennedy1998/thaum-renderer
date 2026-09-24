@@ -1,4 +1,7 @@
-use crate::{CellGraphic, CellTexture, CellWarble, CellWeight, DataLanes, WorldPoint};
+use crate::{
+    CellColor, CellGraphic, CellTexture, CellWarble, CellWeight, ColorBand, DataLanes,
+    IndexedColor, SpriteColorChannel, WorldPoint,
+};
 
 pub const CELL_SHADER_PASS: u32 = 0;
 pub const CELL_SHADER_WEIGHT_SIN: u32 = 1;
@@ -8,6 +11,92 @@ pub const CELL_SHADER_WARBLE_FUDGE_1: u32 = 6;
 pub const CELL_SHADER_WARBLE_DISTORT_1: u32 = 7;
 pub const CELL_SHADER_WARBLE_FUDGE_5: u32 = 9;
 pub const CELL_SHADER_WARBLE_DISTORT_5: u32 = 10;
+/// Light shifts walk the complete indexed ramp: brand black, four material
+/// bands, then brand white. `shadow`/`bright` are ±1 and `dim`/`brighter`
+/// are ±2. `darkest` uses its own contrast-preserving remap so dark sprites
+/// retain readable internal detail; `brightest` remains a saturating +3.
+pub const CELL_SHADER_LIGHT_MINUS_3: u32 = 13;
+pub const CELL_SHADER_LIGHT_MINUS_2: u32 = 14;
+pub const CELL_SHADER_LIGHT_MINUS_1: u32 = 15;
+pub const CELL_SHADER_LIGHT_PLUS_1: u32 = 16;
+pub const CELL_SHADER_LIGHT_PLUS_2: u32 = 17;
+pub const CELL_SHADER_LIGHT_PLUS_3: u32 = 18;
+
+/// Resolves one portable shader asset filename to its runtime shader id.
+/// This is the built-in bridge until the renderer asset registry lands;
+/// declarations keep unknown filenames verbatim and resolution drops them.
+pub fn resolve_shader_asset(asset_file: &str) -> Option<u32> {
+    match asset_file {
+        "cell-shaders/pass.json" => Some(CELL_SHADER_PASS),
+        "cell-shaders/weight-sin.json" => Some(CELL_SHADER_WEIGHT_SIN),
+        "cell-shaders/warble-diagonal.json" => Some(CELL_SHADER_WARBLE_DIAGONAL),
+        "cell-shaders/texture-shimmer.json" => Some(CELL_SHADER_TEXTURE_SHIMMER),
+        "cell-shaders/warble-fudge-1.json" => Some(CELL_SHADER_WARBLE_FUDGE_1),
+        "cell-shaders/warble-distort-1.json" => Some(CELL_SHADER_WARBLE_DISTORT_1),
+        "cell-shaders/warble-fudge-5.json" => Some(CELL_SHADER_WARBLE_FUDGE_5),
+        "cell-shaders/warble-distort-5.json" => Some(CELL_SHADER_WARBLE_DISTORT_5),
+        "cell-shaders/light-minus-3.json" => Some(CELL_SHADER_LIGHT_MINUS_3),
+        "cell-shaders/light-minus-2.json" => Some(CELL_SHADER_LIGHT_MINUS_2),
+        "cell-shaders/light-minus-1.json" => Some(CELL_SHADER_LIGHT_MINUS_1),
+        "cell-shaders/light-plus-1.json" => Some(CELL_SHADER_LIGHT_PLUS_1),
+        "cell-shaders/light-plus-2.json" => Some(CELL_SHADER_LIGHT_PLUS_2),
+        "cell-shaders/light-plus-3.json" => Some(CELL_SHADER_LIGHT_PLUS_3),
+        _ => None,
+    }
+}
+
+/// The `ColorBand` shift declared by one light shader id, or `None` for
+/// every non-light shader (pass-through).
+fn light_shift_for_shader(shader: u32) -> Option<i32> {
+    match shader {
+        CELL_SHADER_LIGHT_MINUS_3 => Some(-3),
+        CELL_SHADER_LIGHT_MINUS_2 => Some(-2),
+        CELL_SHADER_LIGHT_MINUS_1 => Some(-1),
+        CELL_SHADER_LIGHT_PLUS_1 => Some(1),
+        CELL_SHADER_LIGHT_PLUS_2 => Some(2),
+        CELL_SHADER_LIGHT_PLUS_3 => Some(3),
+        _ => None,
+    }
+}
+
+/// Folds every light shader in the stack onto one indexed source color.
+/// The source may be brand black or white as well as a material band, so
+/// lighting can both override endpoints at `lit` and shift them inward at
+/// darker/brighter levels.
+pub fn shaded_indexed_color(indexed_color: IndexedColor, shader_stack: &[u32]) -> IndexedColor {
+    shader_stack.iter().fold(indexed_color, |color, shader| {
+        if *shader == CELL_SHADER_LIGHT_MINUS_3 {
+            darkest_contrast_color(color)
+        } else {
+            light_shift_for_shader(*shader).map_or(color, |shift| color.shift(shift))
+        }
+    })
+}
+
+/// The darkest visual state deliberately does not use the ordinary -3 ramp
+/// shift. It collapses the lightest authored values to brand black while
+/// swapping the two darkest material bands and carrying brand white to
+/// medium-light. That preserves three readable inner values in near-black
+/// scenes instead of merging all dark detail into one silhouette.
+fn darkest_contrast_color(color: IndexedColor) -> IndexedColor {
+    match color {
+        IndexedColor::BrandBlack
+        | IndexedColor::Material(ColorBand::MediumLight)
+        | IndexedColor::Material(ColorBand::Lightest) => IndexedColor::BrandBlack,
+        IndexedColor::Material(ColorBand::MediumDark) => IndexedColor::Material(ColorBand::Darkest),
+        IndexedColor::Material(ColorBand::Darkest) => IndexedColor::Material(ColorBand::MediumDark),
+        IndexedColor::BrandWhite => IndexedColor::Material(ColorBand::MediumLight),
+    }
+}
+
+pub fn resolve_shaded_color(
+    base_color: CellColor,
+    channel: SpriteColorChannel,
+    indexed_color: IndexedColor,
+    shader_stack: &[u32],
+) -> [f32; 4] {
+    base_color.resolve_sprite(channel, shaded_indexed_color(indexed_color, shader_stack))
+}
 /// Overlay flash pair: two phases over the breath clock. A cell carrying
 /// `CELL_SHADER_VIVID_FLASH` shows only during the lit phase; a cell carrying
 /// `CELL_SHADER_VIVID_FLASH_ALT` shows only during the off phase. Overlays
@@ -170,6 +259,7 @@ fn apply_warble_diagonal(world: WorldPoint, breath: i32) -> CellWarble {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{CellMaterialId, ColorBand, IndexedColor};
 
     #[test]
     fn pass_shader_keeps_weight_unchanged() {
@@ -334,6 +424,124 @@ mod tests {
                 DataLanes::with_breath(0),
             ),
             CellGraphic::Glyph('a')
+        );
+    }
+
+    #[test]
+    fn indexed_color_shift_walks_the_full_brand_and_material_ramp() {
+        assert_eq!(
+            IndexedColor::Material(ColorBand::MediumLight).shift(1),
+            IndexedColor::Material(ColorBand::Lightest)
+        );
+        assert_eq!(
+            IndexedColor::Material(ColorBand::MediumLight).shift(-1),
+            IndexedColor::Material(ColorBand::MediumDark)
+        );
+        assert_eq!(
+            IndexedColor::Material(ColorBand::Darkest).shift(-1),
+            IndexedColor::BrandBlack
+        );
+        assert_eq!(
+            IndexedColor::Material(ColorBand::Lightest).shift(1),
+            IndexedColor::BrandWhite
+        );
+    }
+
+    #[test]
+    fn indexed_color_shift_saturates_and_merges_at_both_endpoints() {
+        assert_eq!(
+            IndexedColor::Material(ColorBand::Darkest).shift(-3),
+            IndexedColor::Material(ColorBand::MediumDark).shift(-3)
+        );
+        assert_eq!(
+            IndexedColor::Material(ColorBand::Lightest).shift(3),
+            IndexedColor::BrandWhite
+        );
+        assert_eq!(
+            IndexedColor::Material(ColorBand::Darkest).shift(-3),
+            IndexedColor::BrandBlack
+        );
+    }
+
+    #[test]
+    fn pass_shader_leaves_color_at_the_full_authored_range() {
+        let color = CellColor::Material(CellMaterialId::GrayScale);
+        let indexed = IndexedColor::Material(ColorBand::MediumDark);
+        assert_eq!(
+            resolve_shaded_color(color, SpriteColorChannel::A, indexed, &[CELL_SHADER_PASS]),
+            color.resolve_sprite(SpriteColorChannel::A, indexed)
+        );
+    }
+
+    #[test]
+    fn light_shaders_shift_the_resolved_material_band_and_brand_endpoints() {
+        let color = CellColor::Material(CellMaterialId::GrayScale);
+        assert_eq!(
+            resolve_shaded_color(
+                color,
+                SpriteColorChannel::A,
+                IndexedColor::Material(ColorBand::MediumDark),
+                &[CELL_SHADER_LIGHT_PLUS_2],
+            ),
+            color.resolve_sprite(
+                SpriteColorChannel::A,
+                IndexedColor::Material(ColorBand::Lightest)
+            )
+        );
+        assert_eq!(
+            resolve_shaded_color(
+                color,
+                SpriteColorChannel::A,
+                IndexedColor::BrandWhite,
+                &[CELL_SHADER_LIGHT_MINUS_3],
+            ),
+            color.resolve_sprite(
+                SpriteColorChannel::A,
+                IndexedColor::Material(ColorBand::MediumLight)
+            )
+        );
+    }
+
+    #[test]
+    fn darkest_light_remap_preserves_contrast_instead_of_merging_every_band() {
+        use IndexedColor::{BrandBlack, BrandWhite, Material};
+
+        for input in [
+            BrandBlack,
+            Material(ColorBand::MediumLight),
+            Material(ColorBand::Lightest),
+        ] {
+            assert_eq!(
+                shaded_indexed_color(input, &[CELL_SHADER_LIGHT_MINUS_3]),
+                BrandBlack
+            );
+        }
+        assert_eq!(
+            shaded_indexed_color(
+                Material(ColorBand::MediumDark),
+                &[CELL_SHADER_LIGHT_MINUS_3]
+            ),
+            Material(ColorBand::Darkest)
+        );
+        assert_eq!(
+            shaded_indexed_color(Material(ColorBand::Darkest), &[CELL_SHADER_LIGHT_MINUS_3]),
+            Material(ColorBand::MediumDark)
+        );
+        assert_eq!(
+            shaded_indexed_color(BrandWhite, &[CELL_SHADER_LIGHT_MINUS_3]),
+            Material(ColorBand::MediumLight)
+        );
+    }
+
+    #[test]
+    fn light_shader_assets_resolve_to_their_ids() {
+        assert_eq!(
+            resolve_shader_asset("cell-shaders/light-minus-2.json"),
+            Some(CELL_SHADER_LIGHT_MINUS_2)
+        );
+        assert_eq!(
+            resolve_shader_asset("cell-shaders/light-plus-2.json"),
+            Some(CELL_SHADER_LIGHT_PLUS_2)
         );
     }
 }

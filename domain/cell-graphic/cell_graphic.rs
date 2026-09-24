@@ -1,12 +1,23 @@
+#[path = "facing-variants/facing_variants.rs"]
+pub mod facing_variants;
 #[path = "glyph/glyph_graphic.rs"]
 pub mod glyph_graphic;
+#[path = "sided-intake/sided_intake.rs"]
+pub mod sided_intake;
 #[path = "sprite/sprite_graphic.rs"]
 pub mod sprite_graphic;
 
 use std::path::{Path, PathBuf};
 
+pub use facing_variants::{FacingVariant, OrientationVariant, SideGraphic, SidedGraphic};
 pub use glyph_graphic::{
     glyph_font_path, GlyphFontSet, GlyphTileRaster, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+};
+pub use sided_intake::{
+    facing_from_portable_name, facing_portable_name, load_sided_declaration,
+    orientation_portable_key, parse_sided_declaration, roll_from_portable_name, roll_portable_name,
+    sided_declaration_json, SidedDeclarationError, SIDED_DECLARATION_FACING_VOCABULARY,
+    SIDED_DECLARATION_FORMAT_TAG, SIDED_DECLARATION_ROLL_VOCABULARY, SIDED_DECLARATION_VERSION,
 };
 pub use sprite_graphic::{SpriteAtlasSet, SpriteTileRaster};
 
@@ -15,6 +26,11 @@ pub enum CellGraphic {
     None,
     Glyph(char),
     Sprite(SpriteGraphic),
+    /// The Sided kind: one declaration mapping orientations onto full side
+    /// looks (graphic, color/material, weight, shader stack per side), so a
+    /// six-sided 3D cell rotates using its cell facing. Flat side art never
+    /// nests a Sided.
+    Sided(SidedGraphic),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -46,6 +62,7 @@ impl CellGraphic {
             Self::None => false,
             Self::Glyph(glyph) => *glyph != ' ',
             Self::Sprite(_) => true,
+            Self::Sided(_) => true,
         }
     }
 
@@ -55,12 +72,20 @@ impl CellGraphic {
             Self::Glyph(' ') => None,
             Self::Glyph(glyph) => Some(*glyph),
             Self::Sprite(_) => None,
+            Self::Sided(_) => None,
         }
     }
 
     pub fn sprite(&self) -> Option<&SpriteGraphic> {
         match self {
             Self::Sprite(sprite) => Some(sprite),
+            _ => None,
+        }
+    }
+
+    pub fn sided(&self) -> Option<&SidedGraphic> {
+        match self {
+            Self::Sided(sided) => Some(sided),
             _ => None,
         }
     }

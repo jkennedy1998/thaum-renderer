@@ -15,6 +15,7 @@ applied while projecting.
 - depth-to-screen perspective shaping via `perspective/`
 - mouse-driven view parallax via `parallax/`
 - camera swing/roll transitions between orientations
+- smooth per-viewer interpolation between the authored 24-way camera frames
 
 ## does not own
 - app-side camera intent or subject resolution (consumer domain, e.g.
@@ -29,6 +30,8 @@ applied while projecting.
   - mouse parallax toggle/strength and the per-depth screen shift
 - `perspective/`
   - `PerspectiveProfile` knobs and the depth-to-scale/position math
+- `presentation/`
+  - smooth transitions between authored camera frames and their render-only residual tilt
 - `projection/`
   - view-plane projection and inverse, visible-plane stacks
 - `roll/`

@@ -15,6 +15,8 @@ Current staged contents:
 - `cell-sprites/proofs/`
   - `grass.png`
   - `channel-bands.png`
+- `sided/`
+  - `stick.json` — canonical Sided declaration sample: a stick (upright horizontals `┃`, lying horizontals `━`, end grain `▪` at every roll)
 
 Intent:
 

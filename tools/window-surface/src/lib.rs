@@ -25,6 +25,24 @@ use winit::{
     window::{Window, WindowAttributes},
 };
 
+/// Render-only transform for the rotating world intake. The matrix is a
+/// column-basis 3×3 transform over clip-space x/y/z; screen-space UI quads
+/// opt out through `SurfaceQuad::presentation_transform`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SurfacePresentationTransform {
+    pub basis: [[f32; 3]; 3],
+    pub perspective: f32,
+}
+
+impl Default for SurfacePresentationTransform {
+    fn default() -> Self {
+        Self {
+            basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            perspective: 0.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowSurfaceUpscaleMode {
     Nearest,
@@ -103,6 +121,9 @@ pub struct SurfaceQuad {
     /// tile_v_size]. A negative origin_u marks a pass-through quad that does
     /// not sample the atlas (sprites, debug quads).
     pub atlas_uv: [f32; 4],
+    /// Apply the frame's presentation transform. Boot sets this only for
+    /// `Rotating3d` intake, leaving Flat2d/HUD content screen-fixed.
+    pub presentation_transform: bool,
 }
 
 pub const SURFACE_QUAD_NO_ATLAS: [f32; 4] = [-1.0, -1.0, 0.0, 0.0];
@@ -225,6 +246,10 @@ pub struct WindowSurfaceInput {
 pub struct WindowSurfaceFrameContext {
     pub surface_size: SurfaceSize,
     pub input: WindowSurfaceInput,
+    /// Wall-clock duration since the prior provider frame, capped by the
+    /// presentation loop's 60Hz cadence. Camera smoothing consumes this;
+    /// simulation timing remains consumer-owned.
+    pub delta_seconds: f32,
 }
 
 fn clip_position_from_physical_cursor(
@@ -268,6 +293,7 @@ pub type SharedWindowSurfaceScene = std::sync::Arc<WindowSurfaceScene>;
 pub struct WindowSurfaceFrameOutput {
     pub scene: SharedWindowSurfaceScene,
     pub internal_render_scale: f32,
+    pub presentation_transform: SurfacePresentationTransform,
 }
 
 impl WindowSurfaceFrameOutput {
@@ -275,7 +301,16 @@ impl WindowSurfaceFrameOutput {
         Self {
             scene,
             internal_render_scale,
+            presentation_transform: SurfacePresentationTransform::default(),
         }
+    }
+
+    pub fn with_presentation_transform(
+        mut self,
+        presentation_transform: SurfacePresentationTransform,
+    ) -> Self {
+        self.presentation_transform = presentation_transform;
+        self
     }
 }
 
@@ -284,8 +319,7 @@ impl WindowSurfaceFrameOutput {
 /// [`run_window_surface_with_frame_provider`].
 pub fn run_window_surface_with_dynamic_frame_provider(
     config: WindowSurfaceConfig,
-    frame_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<WindowSurfaceFrameOutput>
-        + 'static,
+    frame_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<WindowSurfaceFrameOutput> + 'static,
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let mut app = WindowSurfaceApp::new(config, Box::new(frame_provider));
@@ -295,11 +329,13 @@ pub fn run_window_surface_with_dynamic_frame_provider(
 
 pub fn run_window_surface_with_frame_provider(
     config: WindowSurfaceConfig,
-    mut scene_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene> + 'static,
+    mut scene_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene>
+        + 'static,
 ) -> Result<()> {
     let internal_render_scale = config.internal_render_scale;
     run_window_surface_with_dynamic_frame_provider(config, move |frame| {
-        scene_provider(frame).map(|scene| WindowSurfaceFrameOutput::new(scene, internal_render_scale))
+        scene_provider(frame)
+            .map(|scene| WindowSurfaceFrameOutput::new(scene, internal_render_scale))
     })
 }
 
@@ -324,6 +360,7 @@ struct WindowSurfaceApp {
     last_redraw_at: Option<Instant>,
     /// Earliest time the next scene build and presentation may begin.
     next_frame_at: Instant,
+    last_frame_provider_at: Option<Instant>,
 }
 
 impl WindowSurfaceApp {
@@ -360,6 +397,7 @@ impl WindowSurfaceApp {
             pending_frame_sample: None,
             last_redraw_at: None,
             next_frame_at: Instant::now(),
+            last_frame_provider_at: None,
         }
     }
 
@@ -419,6 +457,7 @@ impl ApplicationHandler for WindowSurfaceApp {
             let output = (self.frame_provider)(WindowSurfaceFrameContext {
                 surface_size: self.surface_size,
                 input: WindowSurfaceInput::default(),
+                delta_seconds: 0.0,
             })
             .expect("failed to build initial renderer scene");
             self.config.internal_render_scale = output.internal_render_scale;
@@ -581,6 +620,12 @@ impl ApplicationHandler for WindowSurfaceApp {
             return;
         }
         self.next_frame_at = now + FRAME_INTERVAL;
+        let delta_seconds = self
+            .last_frame_provider_at
+            .replace(now)
+            .map(|previous| now.duration_since(previous).as_secs_f32())
+            .unwrap_or(FRAME_INTERVAL.as_secs_f32())
+            .clamp(0.0, 0.1);
 
         if let Some(gpu_surface) = &mut self.gpu_surface {
             let scene_build_started_at = Instant::now();
@@ -598,6 +643,7 @@ impl ApplicationHandler for WindowSurfaceApp {
                     wheel_delta_x: self.wheel_delta_x,
                     wheel_delta_y: self.wheel_delta_y,
                 },
+                delta_seconds,
             }) {
                 Ok(output) => output,
                 Err(error) => {
@@ -606,6 +652,7 @@ impl ApplicationHandler for WindowSurfaceApp {
             };
             self.config.internal_render_scale = output.internal_render_scale;
             gpu_surface.set_internal_render_scale(output.internal_render_scale);
+            gpu_surface.set_presentation_transform(output.presentation_transform);
             let scene = output.scene;
             self.just_pressed_keys.clear();
             self.just_clicked = None;
@@ -740,6 +787,12 @@ impl GpuSurface {
         self.internal_render_scale = internal_render_scale.clamp(0.1, 1.0);
     }
 
+    fn set_presentation_transform(&mut self, transform: SurfacePresentationTransform) {
+        if let Some(quad_draw) = &mut self.quad_draw {
+            quad_draw.update_presentation_transform(&self.queue, transform);
+        }
+    }
+
     fn resize(&mut self, size: SurfaceSize) {
         if size.width == 0 || size.height == 0 {
             return;
@@ -867,6 +920,8 @@ struct QuadDraw {
     indexed_palette_texture: wgpu::Texture,
     atlas_texture: wgpu::Texture,
     atlas_bind_group: wgpu::BindGroup,
+    presentation_bind_group: wgpu::BindGroup,
+    presentation_uniform_buffer: wgpu::Buffer,
     uploaded_atlas: GlyphAtlasSceneData,
     color_view: wgpu::TextureView,
     bus_view: wgpu::TextureView,
@@ -979,6 +1034,18 @@ impl QuadDraw {
 
     /// Per-frame update: pushes vertices, post uniforms, and palette texels
     /// into the persistent GPU buffers without recreating any GPU objects.
+    fn update_presentation_transform(
+        &mut self,
+        queue: &wgpu::Queue,
+        transform: SurfacePresentationTransform,
+    ) {
+        queue.write_buffer(
+            &self.presentation_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&SurfacePresentationUniform::new(transform)),
+        );
+    }
+
     fn update_frame(
         &mut self,
         device: &wgpu::Device,
@@ -1166,9 +1233,47 @@ impl QuadDraw {
                     },
                 ],
             });
+        let presentation_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("thaum-renderer-presentation-bind-group-layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let presentation_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("thaum-renderer-presentation-uniform"),
+            size: std::mem::size_of::<SurfacePresentationUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(
+            &presentation_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&SurfacePresentationUniform::new(
+                SurfacePresentationTransform::default(),
+            )),
+        );
+        let presentation_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("thaum-renderer-presentation-bind-group"),
+            layout: &presentation_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: presentation_uniform_buffer.as_entire_binding(),
+            }],
+        });
         let quad_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("thaum-renderer-surface-quad-pipeline-layout"),
-            bind_group_layouts: &[Some(&atlas_bind_group_layout)],
+            bind_group_layouts: &[
+                Some(&atlas_bind_group_layout),
+                Some(&presentation_bind_group_layout),
+            ],
             immediate_size: 0,
         });
 
@@ -1461,6 +1566,8 @@ impl QuadDraw {
             indexed_palette_texture,
             atlas_texture,
             atlas_bind_group,
+            presentation_bind_group,
+            presentation_uniform_buffer,
             uploaded_atlas: scene.glyph_atlas.clone(),
             color_view,
             bus_view,
@@ -1529,6 +1636,7 @@ impl QuadDraw {
             });
             render_pass.set_pipeline(&self.quad_pipeline);
             render_pass.set_bind_group(0, &self.atlas_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.presentation_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.draw(0..self.vertex_count, 0..1);
         }
@@ -1573,6 +1681,7 @@ struct SurfaceVertex {
     meta: [f32; 4],
     warble_uv: [f32; 4],
     atlas_uv: [f32; 4],
+    presentation_weight: f32,
 }
 
 impl SurfaceVertex {
@@ -1606,6 +1715,11 @@ impl SurfaceVertex {
             ],
             warble_uv: [warble_uv[0], warble_uv[1], 0.0, 0.0],
             atlas_uv: quad.atlas_uv,
+            presentation_weight: if quad.presentation_transform {
+                1.0
+            } else {
+                0.0
+            },
         }
     }
 
@@ -1648,6 +1762,32 @@ impl SurfaceVertex {
                         as wgpu::BufferAddress,
                     shader_location: 5,
                 },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: (mem::size_of::<[f32; 2]>() + mem::size_of::<[f32; 4]>() * 5)
+                        as wgpu::BufferAddress,
+                    shader_location: 6,
+                },
+            ],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct SurfacePresentationUniform {
+    rows: [[f32; 4]; 4],
+}
+
+impl SurfacePresentationUniform {
+    fn new(transform: SurfacePresentationTransform) -> Self {
+        let basis = transform.basis;
+        Self {
+            rows: [
+                [basis[0][0], basis[1][0], basis[2][0], 0.0],
+                [basis[0][1], basis[1][1], basis[2][1], 0.0],
+                [basis[0][2], basis[1][2], basis[2][2], transform.perspective],
+                [0.0; 4],
             ],
         }
     }
@@ -2001,6 +2141,11 @@ const SURFACE_QUAD_SHADER: &str = r#"
 @group(0) @binding(0) var atlas_texture: texture_2d<f32>;
 @group(0) @binding(1) var atlas_sampler: sampler;
 
+struct PresentationUniform {
+    rows: array<vec4<f32>, 4>,
+};
+@group(1) @binding(0) var<uniform> presentation: PresentationUniform;
+
 struct VertexInput {
     @location(0) position: vec2<f32>,
     @location(1) color: vec4<f32>,
@@ -2008,6 +2153,7 @@ struct VertexInput {
     @location(3) aux_data: vec4<f32>,
     @location(4) warble_uv: vec4<f32>,
     @location(5) atlas_uv: vec4<f32>,
+    @location(6) presentation_weight: f32,
 };
 
 struct VertexOutput {
@@ -2029,7 +2175,15 @@ struct FragmentOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    output.clip_position = vec4<f32>(input.position, 0.0, 1.0);
+    let source = vec3<f32>(input.position, 0.0);
+    let transformed = vec3<f32>(
+        dot(presentation.rows[0].xyz, source),
+        dot(presentation.rows[1].xyz, source),
+        dot(presentation.rows[2].xyz, source)
+    );
+    let denominator = max(0.45, 1.0 + transformed.z * presentation.rows[2].w);
+    let presented = transformed.xy / denominator;
+    output.clip_position = vec4<f32>(mix(input.position, presented, input.presentation_weight), 0.0, 1.0);
     output.color = input.color;
     output.bus = input.bus;
     output.aux_data = input.aux_data;

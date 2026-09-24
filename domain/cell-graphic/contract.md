@@ -5,7 +5,7 @@ Own the renderer cell-graphic slot as the canonical graphic input consumed by a 
 
 ## owns
 - the canonical cell-graphic slot contract
-- the shared slot boundary for glyph-backed and sprite-backed cell graphics
+- the shared slot boundary for glyph-backed, sprite-backed, and sided cell graphics
 - the rule that supported graphics resolve to the same-sized rendering unit and final resolution shape at the cell boundary
 - the downstream graphic slot consumed after atlas-intake has already resolved packed atlas assets into sprite-usable sources
 
@@ -18,6 +18,10 @@ Own the renderer cell-graphic slot as the canonical graphic input consumed by a 
 - renderer composition behavior
 
 ## children-encapsulations
+- `facing-variants/`
+  - default
+- `sided-intake/`
+  - default
 - `glyph/`
   - default
 - `sprite/`
@@ -32,6 +36,7 @@ Own the renderer cell-graphic slot as the canonical graphic input consumed by a 
 ## dependencies
 - `thaum-renderer/domain/atlas-intake/`
 - `thaum-renderer/domain/cell-color/`
+- `thaum-renderer/domain/cell-facing/`
 - `thaum-renderer/domain/cell-materials/`
 
 ## exposed interfaces

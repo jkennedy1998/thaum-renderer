@@ -46,7 +46,9 @@ Own the renderer cell-color slot as the canonical color input consumed by a cell
 - none
 
 ## tests
-- none
+- `cargo test -p thaum-renderer-domain --lib cell_color`
+  - light
+  - proves material-band channel resolution, slot mixing, glyph defaults, and the shared indexed brand endpoints
 
 ## data
 - none

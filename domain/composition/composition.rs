@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{Cell, CellGroup, CellGroupIntakeBehavior, WorldPoint};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -66,9 +64,14 @@ pub struct ComposedCell {
     pub cell: Cell,
 }
 
+/// Reduces the composition into world-space cells in pass order. Cells
+/// from different groups at the same exact world XYZ STACK: every layer is
+/// present, later groups sit on top of earlier ones, and the data side
+/// never overwrites a stacked coordinate (overlap-policy, 2026-09-14).
+/// Consumers downstream (lighting, occlusion) aggregate over all layers;
+/// rendering alpha-stacks the top layer over the ones behind it.
 pub fn compose_cells(composition: &Composition) -> Vec<ComposedCell> {
     let mut composed = Vec::new();
-    let mut world_to_index = HashMap::<(i32, i32, i32), usize>::new();
 
     for group_index in composition.pass_order.iter().copied() {
         let group = composition.groups.get(group_index).unwrap_or_else(|| {
@@ -77,26 +80,12 @@ pub fn compose_cells(composition: &Composition) -> Vec<ComposedCell> {
 
         for cell in group.iter_cells() {
             let world = group.world_point_for(cell.position);
-            let key = (world.x, world.y, world.z);
-
-            if let Some(index) = world_to_index.get(&key).copied() {
-                composed[index] = ComposedCell {
-                    world,
-                    group_origin: group.origin,
-                    intake_behavior: group.intake_behavior,
-                    cell: cell.clone(),
-                };
-                continue;
-            }
-
-            let index = composed.len();
             composed.push(ComposedCell {
                 world,
                 group_origin: group.origin,
                 intake_behavior: group.intake_behavior,
                 cell: cell.clone(),
             });
-            world_to_index.insert(key, index);
         }
     }
 
@@ -143,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn compose_cells_replaces_earlier_cells_at_exact_same_world_xyz() {
+    fn compose_cells_stacks_cells_from_different_groups_at_exact_same_world_xyz() {
         let composition = Composition::ordered(vec![
             CellGroup::from_cells(
                 WorldPoint { x: 3, y: -2, z: 1 },
@@ -166,16 +155,17 @@ mod tests {
         ]);
 
         let composed = compose_cells(&composition);
-        assert_eq!(composed.len(), 1);
+        // Both layers survive: group A lands at world (3,-2,1); group B's
+        // local (1,0,0) maps onto the same world XYZ and sits ON TOP.
+        assert_eq!(composed.len(), 2);
         assert_eq!(composed[0].world, WorldPoint { x: 3, y: -2, z: 1 });
-        assert_eq!(composed[0].group_origin, WorldPoint { x: 2, y: -2, z: 1 });
+        assert_eq!(composed[0].group_origin, WorldPoint { x: 3, y: -2, z: 1 });
+        assert_eq!(composed[0].cell.graphic, CellGraphic::Glyph('A'));
+        assert_eq!(composed[1].world, WorldPoint { x: 3, y: -2, z: 1 });
+        assert_eq!(composed[1].group_origin, WorldPoint { x: 2, y: -2, z: 1 });
+        assert_eq!(composed[1].cell.graphic, CellGraphic::Glyph('B'));
         assert_eq!(
-            composed[0].intake_behavior,
-            CellGroupIntakeBehavior::Rotating3d
-        );
-        assert_eq!(composed[0].cell.graphic, CellGraphic::Glyph('B'));
-        assert_eq!(
-            composed[0].cell.color,
+            composed[1].cell.color,
             CellColor::Flat([0.0, 1.0, 0.0, 1.0])
         );
     }
@@ -209,16 +199,19 @@ mod tests {
         };
 
         let composed = compose_cells(&composition);
-        assert_eq!(composed.len(), 1);
+        // Pass order [1, 0]: B is the bottom layer at world (2,1,0), A is
+        // rendered last and stacks on top of it.
+        assert_eq!(composed.len(), 2);
+        assert_eq!(composed[0].cell.graphic, CellGraphic::Glyph('B'));
         assert_eq!(composed[0].world, WorldPoint { x: 2, y: 1, z: 0 });
-        assert_eq!(composed[0].group_origin, WorldPoint { x: 2, y: 1, z: 0 });
+        assert_eq!(composed[1].cell.graphic, CellGraphic::Glyph('A'));
+        assert_eq!(composed[1].world, WorldPoint { x: 2, y: 1, z: 0 });
         assert_eq!(
-            composed[0].intake_behavior,
+            composed[1].intake_behavior,
             CellGroupIntakeBehavior::Rotating3d
         );
-        assert_eq!(composed[0].cell.graphic, CellGraphic::Glyph('A'));
         assert_eq!(
-            composed[0].cell.color,
+            composed[1].cell.color,
             CellColor::Flat([1.0, 0.0, 0.0, 1.0])
         );
     }

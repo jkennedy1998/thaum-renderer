@@ -14,6 +14,9 @@ pub mod camera_perspective_module;
 pub mod cell;
 #[path = "cell-color/cell_color.rs"]
 pub mod cell_color;
+
+#[path = "cell-facing/cell_facing.rs"]
+pub mod cell_facing;
 #[path = "cell-graphic/cell_graphic.rs"]
 pub mod cell_graphic;
 #[path = "cell-group/cell_group.rs"]
@@ -28,6 +31,8 @@ pub mod cell_texture;
 pub mod cell_warble;
 #[path = "cell-weight/cell_weight.rs"]
 pub mod cell_weight;
+#[path = "modules/shared/click-timing/click_timing.rs"]
+pub mod click_timing;
 #[path = "modules/individuals/color-block/color_block_module.rs"]
 pub mod color_block_module;
 #[path = "modules/individuals/color-picker/color_picker_module.rs"]
@@ -54,12 +59,6 @@ pub mod module;
 pub mod module_gizmos;
 #[path = "modules/shared/panel-chrome/panel_chrome.rs"]
 pub mod panel_chrome;
-#[path = "modules/shared/text-entry/text_entry.rs"]
-pub mod text_entry;
-#[path = "modules/shared/text-cells/text_cells.rs"]
-pub mod text_cells;
-#[path = "modules/shared/click-timing/click_timing.rs"]
-pub mod click_timing;
 #[path = "post-effects/post_effects.rs"]
 pub mod post_effects;
 #[path = "modules/shared/property-rows/property_rows.rs"]
@@ -70,6 +69,10 @@ pub mod scroll_state;
 pub mod shape_fade;
 #[path = "cell-graphic/sprite/sprite-color-space/sprite_color_space.rs"]
 pub mod sprite_color_space;
+#[path = "modules/shared/text-cells/text_cells.rs"]
+pub mod text_cells;
+#[path = "modules/shared/text-entry/text_entry.rs"]
+pub mod text_entry;
 #[path = "modules/shared/tooltip/tooltip.rs"]
 pub mod tooltip;
 #[path = "modules/individuals/ui-customization/ui_customization_module.rs"]
@@ -84,42 +87,52 @@ pub use atlas_intake::{
 };
 pub use camera::{
     active_depth_axis_for_swing, active_depth_direction_for_swing,
-    build_visible_plane_stack_around_focus, camera_view_orientation_for_camera,
-    camera_view_orientation_for_swing, derive_visible_plane_stack_from_world_points,
-    focus_plane_for_camera, project_flat_2d_world_to_view_plane,
-    project_rotating_3d_world_to_view_plane, project_world_relative_to_view,
-    project_world_to_camera_units, project_world_to_view_plane,
+    build_visible_plane_stack_around_focus, camera_facing_for_swing, camera_rotation_for_camera,
+    camera_view_orientation_for_camera, camera_view_orientation_for_swing,
+    derive_visible_plane_stack_from_world_points, focus_plane_for_camera,
+    project_flat_2d_world_to_view_plane, project_rotating_3d_world_to_view_plane,
+    project_world_relative_to_view, project_world_to_camera_units, project_world_to_view_plane,
     project_world_to_view_plane_for_intake, projected_plane_is_visible,
     projected_plane_scale_factor, remap_camera_units_to_active_plane_world,
     remap_camera_units_to_world_on_plane, remap_surface_units_to_active_plane_world,
     remap_surface_units_to_flat_2d_local, unproject_flat_2d_view_plane_to_local,
-    unproject_view_plane_to_world, unproject_view_relative_to_world,
-    visible_plane_stack_for_camera, Camera, CameraProjectedPoint, CameraProjectionMode, CameraRoll,
-    CameraSwing, CameraViewOrientation, ParallaxProfile, PerspectiveProfile, ViewRelativePoint,
-    VisiblePlaneStack,
+    unproject_view_plane_to_world, unproject_view_relative_to_world, view_relative_facing,
+    visible_plane_stack_for_camera, Camera, CameraPresentationAction, CameraProjectedPoint,
+    CameraProjectionMode, CameraRoll, CameraSwing, CameraViewOrientation, ParallaxProfile,
+    PerspectiveProfile, ViewRelativePoint, VisiblePlaneStack,
 };
 pub use camera_perspective_module::{
-    CameraDepthLink, CameraLayersLink, CameraPerspectiveModule, CameraZoomCommand,
-    CameraZoomLink, RenderQualityProfile, MAX_VISIBLE_PLANE_RADIUS,
+    CameraDepthLink, CameraLayersLink, CameraPerspectiveModule, CameraZoomCommand, CameraZoomLink,
+    RenderQualityProfile, MAX_VISIBLE_PLANE_RADIUS,
 };
 pub use cell::Cell;
 pub use cell_color::{CellColor, CellColorSlot};
+pub use cell_facing::{CellFacing, CellRoll, FacingRotation};
 pub use cell_graphic::{
-    glyph_font_path, CellGraphic, GlyphFontSet, GlyphTileRaster, SpriteAtlasSet, SpriteGraphic,
-    SpriteTileRaster, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+    facing_from_portable_name, facing_portable_name, glyph_font_path, load_sided_declaration,
+    orientation_portable_key, parse_sided_declaration, roll_from_portable_name, roll_portable_name,
+    sided_declaration_json, CellGraphic, FacingVariant, GlyphFontSet, GlyphTileRaster,
+    OrientationVariant, SideGraphic, SidedDeclarationError, SidedGraphic, SpriteAtlasSet,
+    SpriteGraphic, SpriteTileRaster, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+    SIDED_DECLARATION_FACING_VOCABULARY, SIDED_DECLARATION_FORMAT_TAG,
+    SIDED_DECLARATION_ROLL_VOCABULARY, SIDED_DECLARATION_VERSION,
 };
 pub use cell_group::{CellBounds, CellClip, CellGroup, CellGroupFacing, CellGroupIntakeBehavior};
-pub use cell_materials::{CellMaterialId, ColorBand};
+pub use cell_materials::{CellMaterialId, ColorBand, IndexedColor};
 pub use cell_shader::{
-    resolve_shaded_graphic, resolve_shaded_texture, resolve_shaded_warble, resolve_shaded_weight,
-    vivid_flash_is_lit, CELL_SHADER_PASS, CELL_SHADER_TEXTURE_SHIMMER, CELL_SHADER_VIVID_FLASH,
-    CELL_SHADER_VIVID_FLASH_ALT, CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WARBLE_DISTORT_1,
-    CELL_SHADER_WARBLE_DISTORT_5, CELL_SHADER_WARBLE_FUDGE_1, CELL_SHADER_WARBLE_FUDGE_5,
-    CELL_SHADER_WEIGHT_SIN, VIVID_FLASH_BREATH_PERIOD,
+    resolve_shaded_color, resolve_shaded_graphic, resolve_shaded_texture, resolve_shaded_warble,
+    resolve_shaded_weight, resolve_shader_asset, shaded_indexed_color, vivid_flash_is_lit,
+    CELL_SHADER_LIGHT_MINUS_1, CELL_SHADER_LIGHT_MINUS_2, CELL_SHADER_LIGHT_MINUS_3,
+    CELL_SHADER_LIGHT_PLUS_1, CELL_SHADER_LIGHT_PLUS_2, CELL_SHADER_LIGHT_PLUS_3, CELL_SHADER_PASS,
+    CELL_SHADER_TEXTURE_SHIMMER, CELL_SHADER_VIVID_FLASH, CELL_SHADER_VIVID_FLASH_ALT,
+    CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WARBLE_DISTORT_1, CELL_SHADER_WARBLE_DISTORT_5,
+    CELL_SHADER_WARBLE_FUDGE_1, CELL_SHADER_WARBLE_FUDGE_5, CELL_SHADER_WEIGHT_SIN,
+    VIVID_FLASH_BREATH_PERIOD,
 };
 pub use cell_texture::CellTexture;
 pub use cell_warble::CellWarble;
 pub use cell_weight::CellWeight;
+pub use click_timing::{DoubleClick, DOUBLE_CLICK_WINDOW};
 pub use color_block_module::ColorBlockModule;
 pub use color_picker_module::ColorPickerModule;
 pub use command_bar::{
@@ -140,8 +153,7 @@ pub use module::{
     BlankPanelModule, Module, ModulePointerButton, ModulePointerEvent, ModuleRect, ModuleRegistry,
 };
 pub use module_gizmos::{
-    char_button_cell, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, ResizeEdge,
-    title_hotspot,
+    char_button_cell, title_hotspot, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, ResizeEdge,
 };
 pub use panel_chrome::{PanelBorderEdge, PanelBorderStyle, PanelChrome};
 pub use post_effects::{
@@ -165,9 +177,8 @@ pub use sprite_color_space::{
     canonical_sprite_palette, decode_sprite_pixel, decode_sprite_rgba, DecodedSpritePixel,
     SpriteColorChannel,
 };
-pub use tooltip::{tooltip_card_group, Hotspot, TooltipState, DWELL, TEXT_WRAP_COLUMNS};
 pub use text_cells::push_text_cells;
-pub use click_timing::{DoubleClick, DOUBLE_CLICK_WINDOW};
+pub use tooltip::{tooltip_card_group, Hotspot, TooltipState, DWELL, TEXT_WRAP_COLUMNS};
 pub use ui_customization_module::UiCustomizationModule;
 pub use ui_palette::{UiColorRole, UiPalette};
 pub use ui_session_state::{

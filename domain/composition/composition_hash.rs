@@ -48,6 +48,9 @@ fn hash_graphic(graphic: &crate::CellGraphic, hasher: &mut DefaultHasher) {
         CellGraphic::None => {}
         CellGraphic::Glyph(glyph) => glyph.hash(hasher),
         CellGraphic::Sprite(sprite) => sprite.atlas_relative_path().as_os_str().hash(hasher),
+        // Sided is declaration data: hash the whole declaration so two
+        // compositions with different side tables hash differently.
+        CellGraphic::Sided(sided) => sided.hash(hasher),
     }
 }
 

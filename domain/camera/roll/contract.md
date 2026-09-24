@@ -16,7 +16,8 @@ Own renderer camera roll semantics.
 - none
 
 ## contents
-- none
+- `roll.rs`
+  - rust camera roll vocabulary and clockwise/counter-clockwise transitions
 
 ## dependencies
 - `thaum-renderer/domain/camera/`

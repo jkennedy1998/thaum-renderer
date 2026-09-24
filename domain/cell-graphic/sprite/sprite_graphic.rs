@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    decode_sprite_rgba, load_sprite_atlas_image, CellColor, CellWeight, SpriteAtlasImage,
-    GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+    decode_sprite_rgba, load_sprite_atlas_image, shaded_indexed_color, CellColor, CellWeight,
+    SpriteAtlasImage, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,6 +34,7 @@ impl SpriteAtlasSet {
         atlas_relative_path: &Path,
         weight: CellWeight,
         color: CellColor,
+        shader_stack: &[u32],
     ) -> Result<SpriteTileRaster, String> {
         let atlas = self.load_atlas(atlas_relative_path)?;
         let rgba = atlas.single_tile_rgba(weight)?;
@@ -42,7 +43,8 @@ impl SpriteAtlasSet {
 
         for pixel in decoded {
             colors.push(pixel.map(|pixel| {
-                let mut resolved = color.resolve_sprite(pixel.channel, pixel.band);
+                let indexed_color = shaded_indexed_color(pixel.indexed_color, shader_stack);
+                let mut resolved = color.resolve_sprite(pixel.channel, indexed_color);
                 resolved[3] *= pixel.alpha as f32 / 255.0;
                 resolved
             }));
@@ -93,6 +95,7 @@ mod tests {
                 Path::new("proofs/grass.png"),
                 CellWeight::Two,
                 CellColor::Material(CellMaterialId::GrayScale),
+                &[],
             )
             .unwrap();
 
