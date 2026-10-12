@@ -24,6 +24,8 @@ Own the shared implementation logic that every individual module builds on: gizm
   - default
 - `scroll-state/`
   - default
+- `scrollbar/`
+  - default
 - `tooltip/`
   - default
 - `text-entry/`
@@ -47,6 +49,7 @@ Own the shared implementation logic that every individual module builds on: gizm
 - `PanelChrome`/`PanelBorderStyle`, described in `panel-chrome/contract.md`
 - `GizmoBar`/`GizmoKind`/`GizmoState`, described in `module-gizmos/contract.md`
 - `ScrollState`, described in `scroll-state/contract.md`
+- `Scrollbar`/`ScrollbarSpan`/`ScrollbarGraphics`, described in `scrollbar/contract.md`
 - `Hotspot`/`TooltipState`/`tooltip_card_group`, described in `tooltip/contract.md`
 - `TextEntryField`, described in `text-entry/contract.md`
 - `push_text_cells`, described in `text-cells/contract.md`
@@ -65,6 +68,7 @@ Own the shared implementation logic that every individual module builds on: gizm
 - `panel-chrome/`'s own tests, described in its contract
 - `module-gizmos/`'s own tests, described in its contract
 - `scroll-state/`'s own tests, described in its contract
+- `scrollbar/`'s own tests, described in its contract
 
 ## data
 - none

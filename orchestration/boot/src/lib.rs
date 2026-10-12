@@ -307,6 +307,20 @@ fn build_window_surface_scene_for_surface_with_cache(
     };
     scene.glyph_atlas = glyph_atlas;
 
+    // Backdrop quads first: screen-locked backdrop groups (see
+    // `CellGroup::backdrop`) render behind every depth plane, so their
+    // content sits behind all rendered characters regardless of depth.
+    for projected_cell in stage_projected_backdrop_cells(state, cell_clip_size) {
+        scene.quads.extend(project_cell_to_surface_quads(
+            state.camera,
+            projected_cell,
+            state.data_lanes,
+            sprite_atlases_borrow.as_mut(),
+            cell_clip_size,
+            &glyph_placement,
+        )?);
+    }
+
     for plane in
         group_projected_boot_cells_by_plane(stage_projected_boot_cells(state, cell_clip_size))
     {
@@ -653,6 +667,27 @@ fn stage_projected_boot_cells(
     state: &BootState,
     cell_clip_size: [f32; 2],
 ) -> Vec<ProjectedBootCell> {
+    stage_projected_boot_cells_with_backdrop(state, cell_clip_size, false)
+}
+
+/// Stages only backdrop groups (see `CellGroup::backdrop`): screen-locked
+/// Flat2d groups whose quads render before every depth plane, so their
+/// content sits behind all rendered characters regardless of depth. The
+/// projection is the screen-locked HUD path and the projected plane stays
+/// the focus plane, so backdrop cells keep full plane-0 cell size (no depth
+/// scaling) while still culling against the surface.
+fn stage_projected_backdrop_cells(
+    state: &BootState,
+    cell_clip_size: [f32; 2],
+) -> Vec<ProjectedBootCell> {
+    stage_projected_boot_cells_with_backdrop(state, cell_clip_size, true)
+}
+
+fn stage_projected_boot_cells_with_backdrop(
+    state: &BootState,
+    cell_clip_size: [f32; 2],
+    want_backdrop: bool,
+) -> Vec<ProjectedBootCell> {
     // Layered staging (overlap-policy, 2026-09-14): every visible cell from
     // every group stages in pass order. Cells from different groups that
     // share a projected position STACK — later groups paint on top via draw
@@ -670,6 +705,16 @@ fn stage_projected_boot_cells(
             .unwrap_or_else(|| {
                 panic!("composition pass_order references missing group index {group_index}")
             });
+        // Backdrop groups stage through the dedicated backdrop pass only:
+        // the plane pipeline must never see them, and the backdrop pass must
+        // never see plane groups. Non-Flat2d or non-screen-locked groups
+        // ignore the backdrop flag entirely.
+        let group_is_backdrop = group.backdrop
+            && group.intake_behavior == CellGroupIntakeBehavior::Flat2d
+            && state.composition.flat_2d_screen_locked;
+        if group_is_backdrop != want_backdrop {
+            continue;
+        }
 
         for cell in group.iter_cells() {
             // Sided cells resolve their side look here, at staging time: the
@@ -800,31 +845,31 @@ fn build_glyph_atlas(
     glyph_fonts: &GlyphFontSet,
 ) -> (GlyphAtlasSceneData, GlyphAtlasPlacement) {
     let mut keys = std::collections::BTreeSet::new();
-    for plane in
-        group_projected_boot_cells_by_plane(stage_projected_boot_cells(state, cell_clip_size))
-    {
-        for projected_cell in plane.cells {
-            if !projected_cell.cell.graphic.is_visible() {
-                continue;
-            }
-            let shaded_graphic = resolve_shaded_graphic(
-                projected_cell.cell.graphic.clone(),
+    // The atlas covers every visible staged glyph, backdrop cells included:
+    // backdrop quads sample the same atlas as plane quads.
+    let mut all_staged_cells = stage_projected_boot_cells(state, cell_clip_size);
+    all_staged_cells.extend(stage_projected_backdrop_cells(state, cell_clip_size));
+    for projected_cell in all_staged_cells {
+        if !projected_cell.cell.graphic.is_visible() {
+            continue;
+        }
+        let shaded_graphic = resolve_shaded_graphic(
+            projected_cell.cell.graphic.clone(),
+            &projected_cell.cell.shader_stack,
+            projected_cell.world,
+            state.data_lanes,
+        );
+        if !shaded_graphic.is_visible() {
+            continue;
+        }
+        if let Some(glyph) = shaded_graphic.glyph_char() {
+            let shaded_weight = resolve_shaded_weight(
+                projected_cell.cell.weight,
                 &projected_cell.cell.shader_stack,
                 projected_cell.world,
                 state.data_lanes,
             );
-            if !shaded_graphic.is_visible() {
-                continue;
-            }
-            if let Some(glyph) = shaded_graphic.glyph_char() {
-                let shaded_weight = resolve_shaded_weight(
-                    projected_cell.cell.weight,
-                    &projected_cell.cell.shader_stack,
-                    projected_cell.world,
-                    state.data_lanes,
-                );
-                keys.insert((glyph, shaded_weight));
-            }
+            keys.insert((glyph, shaded_weight));
         }
     }
 
@@ -891,11 +936,11 @@ mod tests {
     use super::*;
     use thaum_renderer_domain::{
         load_sided_declaration, project_world_to_view_plane, CameraRoll, CameraSwing, Cell,
-        CellColor, CellFacing, CellGraphic, CellGroup, CellGroupFacing, CellMaterialId, CellPoint,
-        CellWeight, DataLanes, FacingVariant, SideGraphic, SidedGraphic, CELL_SHADER_LIGHT_MINUS_2,
-        CELL_SHADER_LIGHT_PLUS_2, CELL_SHADER_TEXTURE_SHIMMER, CELL_SHADER_VIVID_FLASH,
-        CELL_SHADER_VIVID_FLASH_ALT, CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WEIGHT_SIN,
-        VIVID_FLASH_BREATH_PERIOD,
+        CellColor, CellFacing, CellGraphic, CellGroup, CellGroupFacing, CellGroupIntakeBehavior,
+        CellMaterialId, CellPoint, CellWeight, DataLanes, FacingVariant, SideGraphic,
+        SidedGraphic, CELL_SHADER_LIGHT_MINUS_2, CELL_SHADER_LIGHT_PLUS_2,
+        CELL_SHADER_TEXTURE_SHIMMER, CELL_SHADER_VIVID_FLASH, CELL_SHADER_VIVID_FLASH_ALT,
+        CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WEIGHT_SIN, VIVID_FLASH_BREATH_PERIOD,
     };
 
     fn staged_asset_root() -> PathBuf {
@@ -1632,6 +1677,59 @@ mod tests {
 
         let scene = build_window_surface_scene(&state).unwrap();
         assert!(scene.quads.is_empty());
+    }
+
+    #[test]
+    fn backdrop_groups_render_before_every_depth_plane() {
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![
+                    // A far-plane world cell: if backdrop groups staged
+                    // through the plane pipeline, this far plane would draw
+                    // before a plane-0 backdrop and cover it.
+                    CellGroup::from_cells(
+                        WorldPoint::origin(),
+                        [Cell {
+                            position: CellPoint { x: 0, y: 0, z: 6 },
+                            graphic: CellGraphic::Glyph('F'),
+                            color: CellColor::Flat([1.0, 0.0, 0.0, 1.0]),
+                            ..Cell::default()
+                        }],
+                    ),
+                    // The screen-locked backdrop cell.
+                    CellGroup::from_cells(
+                        WorldPoint::origin(),
+                        [Cell {
+                            graphic: CellGraphic::Glyph('B'),
+                            color: CellColor::Flat([0.0, 1.0, 0.0, 1.0]),
+                            ..Cell::default()
+                        }],
+                    )
+                    .with_intake_behavior(CellGroupIntakeBehavior::Flat2d)
+                    .as_backdrop(),
+                ],
+                pass_order: Vec::new(),
+                revision: 0,
+                flat_2d_screen_locked: true,
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        assert!(scene.quads.len() >= 2);
+        // The backdrop quad is the scene's first quad, ahead of the far
+        // plane's: green backdrop first, the red far-plane cell after it.
+        assert!(scene.quads[0].color[1] > 0.9 && scene.quads[0].color[0] < 0.1);
+        assert!(scene.quads[1..]
+            .iter()
+            .any(|quad| quad.color[0] > 0.9 && quad.color[1] < 0.1));
     }
 
     #[test]

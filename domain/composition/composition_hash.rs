@@ -22,6 +22,7 @@ pub fn composition_content_hash(composition: &Composition) -> u64 {
         group.facing.hash(&mut hasher);
         group.intake_behavior.hash(&mut hasher);
         group.clip.hash(&mut hasher);
+        group.backdrop.hash(&mut hasher);
         // BTreeMap iteration order is deterministic, so sequential hashing
         // yields the same digest for equal group content.
         for (point, cell) in &group.cells {

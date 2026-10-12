@@ -10,6 +10,7 @@ Own the renderer cell-group shape as the layer-level matrix boundary that arrang
 - clipping of the group's own content
 - transform-oriented group truth including facing and broader basis-oriented transforms
 - the group-declared intake behavior that decides whether the group participates in rotating 3d intake or non-rotating 2d intake before shared projection/composition
+- the group-declared backdrop flag that opts a screen-locked Flat2d group into rendering behind every depth plane
 
 ## does not own
 - renderer composition between multiple cell groups
@@ -58,6 +59,7 @@ Own the renderer cell-group shape as the layer-level matrix boundary that arrang
 - cell-group is the layer shape in this renderer model
 - facing is currently constrained to the six cardinal directions
 - the facing value type and rotation algebra live in domain/cell-facing; this boundary re-exports the type as CellGroupFacing and delegates point remapping to it
+- the `backdrop` flag (J 2026-10-11, drawing-space background): boot stages flagged screen-locked Flat2d groups through a dedicated backdrop pass and emits their quads before every depth plane, so the content sits behind all rendered characters regardless of depth; the flag is ignored for other intake behaviors
 - cell-group should know about its own matrix-oriented space, not how sibling groups are composited together
 - the renderer should stay one renderer mode, while cell-groups can arrive through two intake behaviors: rotating 3d intake and non-rotating 2d intake
 - non-rotating intake may still carry 3d shapes locally; it simply does not participate in perspective rotation like the fully rotating 3d intake path

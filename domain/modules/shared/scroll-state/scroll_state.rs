@@ -22,6 +22,12 @@ impl ScrollState {
         self.offset
     }
 
+    /// Jumps to an explicit offset, clamped to `max` (scrollbar drags and
+    /// track jumps write the offset back through here).
+    pub fn set_offset(&mut self, offset: usize, max: usize) {
+        self.offset = offset.min(max);
+    }
+
     /// Largest valid offset for `total_rows` shown in a `viewport_rows`
     /// tall window. Saturates at 0 so short content simply never scrolls.
     pub fn max_offset(total_rows: usize, viewport_rows: usize) -> usize {
@@ -112,6 +118,17 @@ mod tests {
         scroll.to_end(5);
         assert_eq!(scroll.offset(), 5);
         scroll.to_top();
+        assert_eq!(scroll.offset(), 0);
+    }
+
+    #[test]
+    fn set_offset_clamps_at_the_max() {
+        let mut scroll = ScrollState::new();
+        scroll.set_offset(9, 5);
+        assert_eq!(scroll.offset(), 5);
+        scroll.set_offset(2, 5);
+        assert_eq!(scroll.offset(), 2);
+        scroll.set_offset(0, 0);
         assert_eq!(scroll.offset(), 0);
     }
 

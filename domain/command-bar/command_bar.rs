@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
-    Hotspot, ModulePointerButton, ModulePointerEvent, ModuleRect, UiColorRole, UiPalette,
-    WorldPoint,
+    Hotspot, ModulePointerButton, ModulePointerEvent, ModuleRect, Scrollbar, ScrollbarSpan,
+    UiColorRole, UiPalette, WorldPoint,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,6 +116,10 @@ pub struct CommandBar {
     menu_path: Vec<String>,
     scroll_offset: usize,
     hovered_button_id: Option<String>,
+    /// Horizontal scrollbar over the button list, shown when the buttons
+    /// overflow the bar. Span lives on the row just below the button row,
+    /// re-synced on every layout update; drag state survives re-placement.
+    scrollbar: Scrollbar,
 }
 
 impl CommandBar {
@@ -138,6 +142,7 @@ impl CommandBar {
             menu_path: Vec::new(),
             scroll_offset: 0,
             hovered_button_id: None,
+            scrollbar: Scrollbar::new(ScrollbarSpan::Horizontal { y: 0, x0: 0, x1: 0 }),
         }
     }
 
@@ -223,6 +228,15 @@ impl CommandBar {
             x1: base_x0 + width - 1,
             y1: base_y0 + expanded_height - 1,
         };
+        // Scrollbar re-placement on every resize: one row below the
+        // button row (two rows below the top border), spanning the button
+        // region. Drag state survives the re-placement.
+        let height = self.expanded_rect.y1 - self.expanded_rect.y0;
+        self.scrollbar.set_span(ScrollbarSpan::Horizontal {
+            y: height - 2,
+            x0: 3,
+            x1: width - 1,
+        });
     }
 
     pub fn rect(&self) -> ModuleRect {
@@ -321,6 +335,21 @@ impl CommandBar {
                     ));
                 }
             }
+            // Overflow scrollbar under the button row: only when the
+            // button list does not fit.
+            let content = self.active_buttons().len();
+            let viewport = self.button_viewport_capacity();
+            for cell in self.scrollbar.cells(
+                content,
+                viewport,
+                self.scroll_offset,
+                &self.palette,
+                None,
+                self.scrollbar.is_active(),
+            )
+            {
+                cells.push(cell);
+            }
         } else {
             let color = self.palette.get(UiColorRole::Vivid);
             cells.push(command_bar_cell(0, 0, '^', color, 3));
@@ -348,18 +377,73 @@ impl CommandBar {
                 x,
                 y,
                 button: ModulePointerButton::Left,
-            } => self.handle_left_click(x, y),
+            } => {
+                // A click on the scrollbar row is scrollbar interaction:
+                // thumb grab or track page-jump, never a button press.
+                // Pointer events arrive in screen space; the scrollbar span
+                // is module-local, so convert before hit-testing.
+                let content = self.active_buttons().len();
+                let viewport = self.button_viewport_capacity();
+                if Scrollbar::is_visible(content, viewport) {
+                    let rect = self.expanded_rect;
+                    let (local_x, local_y) = (x - rect.x0, y - rect.y0);
+                    if self.scrollbar.contains(local_x, local_y) {
+                        self.scrollbar.on_down(
+                            local_x,
+                            local_y,
+                            content,
+                            viewport,
+                            &mut self.scroll_offset,
+                        );
+                        return None;
+                    }
+                }
+                self.handle_left_click(x, y)
+            }
             ModulePointerEvent::Down { .. }
             | ModulePointerEvent::Up { .. }
             | ModulePointerEvent::Click { .. } => None,
         }
     }
 
-    pub fn on_wheel(&mut self, x: i32, y: i32, _delta_x: f32, delta_y: f32) -> bool {
-        if !self.shows_expanded_body() || !self.contains(x, y) || delta_y == 0.0 {
+    /// Whether a scrollbar thumb drag is live: the host feeds pointer moves
+    /// and the eventual release while this is true.
+    pub fn is_scrollbar_dragging(&self) -> bool {
+        self.scrollbar.is_dragging()
+    }
+
+    /// Pointer move during a live scrollbar drag: re-maps the grab point to
+    /// a new scroll offset. Returns whether the offset changed. Screen-space
+    /// pointer coords are converted to the bar's module-local span.
+    pub fn drag_scrollbar(&mut self, x: i32, y: i32) -> bool {
+        let content = self.active_buttons().len();
+        let viewport = self.button_viewport_capacity();
+        let rect = self.expanded_rect;
+        self.scrollbar.on_drag(
+            x - rect.x0,
+            y - rect.y0,
+            content,
+            viewport,
+            &mut self.scroll_offset,
+        )
+    }
+
+    /// Pointer release: ends the scrollbar drag session.
+    pub fn end_scrollbar_drag(&mut self) {
+        self.scrollbar.on_up();
+    }
+
+    pub fn on_wheel(&mut self, x: i32, y: i32, delta_x: f32, delta_y: f32) -> bool {
+        if !self.shows_expanded_body() || !self.contains(x, y) {
             return false;
         }
-        if delta_y < 0.0 {
+        // Single horizontal bar rule (J): vertical wheel scrolls it too; a
+        // mouse with a horizontal wheel scrolls it directly.
+        let steps = Scrollbar::wheel_steps(delta_x, delta_y, self.scrollbar.span().axis());
+        if steps == 0.0 {
+            return false;
+        }
+        if steps > 0.0 {
             self.scroll_right();
         } else {
             self.scroll_left();
@@ -388,7 +472,7 @@ impl CommandBar {
     }
 
     fn button_row_y(&self) -> i32 {
-        (self.expanded_rect.y1 - 2).max(self.expanded_rect.y0)
+        (self.expanded_rect.y1 - 1).max(self.expanded_rect.y0)
     }
 
     fn button_layout(&self) -> Vec<ButtonLayoutEntry> {
@@ -433,16 +517,45 @@ impl CommandBar {
         }
     }
 
-    fn clamp_scroll_offset(&mut self) {
+    /// How many buttons fit the button row from the start of the list: the
+    /// button-unit viewport the scrollbar and clamp math share.
+    fn button_viewport_capacity(&self) -> usize {
+        if !self.shows_expanded_body() {
+            return 0;
+        }
+        let limit = self.expanded_rect.x1 - 1;
+        let mut x = self.expanded_rect.x0 + 3;
+        let mut count = 0;
+        for button in self.active_buttons() {
+            let width = button.label.chars().count() as i32;
+            if x + width - 1 > limit {
+                break;
+            }
+            x += width + 2;
+            count += 1;
+        }
+        count
+    }
+
+    /// Scroll range over the button list: how many buttons sit past what
+    /// fits. Collapsed bars keep the legacy `count - 1` guard so a persisted
+    /// offset stays sane until the next expanded layout update.
+    fn scroll_max(&self) -> usize {
         let button_count = self.active_buttons().len();
-        self.scroll_offset = self.scroll_offset.min(button_count.saturating_sub(1));
+        let capacity = self.button_viewport_capacity();
+        if capacity > 0 {
+            button_count.saturating_sub(capacity)
+        } else {
+            button_count.saturating_sub(1)
+        }
+    }
+
+    fn clamp_scroll_offset(&mut self) {
+        self.scroll_offset = self.scroll_offset.min(self.scroll_max());
     }
 
     fn scroll_right(&mut self) {
-        let button_count = self.active_buttons().len();
-        if button_count > 0 {
-            self.scroll_offset = (self.scroll_offset + 1).min(button_count - 1);
-        }
+        self.scroll_offset = (self.scroll_offset + 1).min(self.scroll_max());
     }
 
     fn scroll_left(&mut self) {
@@ -658,7 +771,7 @@ mod tests {
         bar.set_pointer_position(Some((-3, -6)));
 
         let group = bar.draw();
-        assert_eq!(glyph_at(&group, 3, 4), Some('M'));
+        assert_eq!(glyph_at(&group, 3, 5), Some('M'));
         assert_eq!(glyph_at(&group, 3, 0), Some(' '));
     }
 
@@ -726,5 +839,122 @@ mod tests {
                 "Create or save.",
             )]
         );
+    }
+
+    /// An expanded bar whose five 5-char buttons do not all fit, so the
+    /// scrollbar shows. Four fit the button row; one sits past the end.
+    fn overflow_bar() -> CommandBar {
+        let mut bar = CommandBar::new("bar", UiPalette::default()).with_buttons(vec![
+            CommandBarButton::new("a", "AAAAA"),
+            CommandBarButton::new("b", "BBBBB"),
+            CommandBarButton::new("c", "CCCCC"),
+            CommandBarButton::new("d", "DDDDD"),
+            CommandBarButton::new("e", "EEEEE"),
+        ]);
+        bar.update_layout([0.05, 0.1], CellPoint::origin());
+        let (handle_x, handle_y) = bar.expand_handle_position();
+        bar.on_pointer_event(ModulePointerEvent::Click {
+            x: handle_x,
+            y: handle_y,
+            button: ModulePointerButton::Left,
+        });
+        bar
+    }
+
+    #[test]
+    fn overflowing_buttons_draw_a_scrollbar_below_the_button_row() {
+        let bar = overflow_bar();
+        let rect = bar.rect();
+        let width = rect.x1 - rect.x0;
+        let height = rect.y1 - rect.y0;
+        let group = bar.draw();
+        // Offset 0: the thumb leads the track (local draw coords); the
+        // occupied left end cap keeps its own glyph, weight boosted.
+        assert_eq!(glyph_at(&group, 3, height - 2), Some('┣'));
+        assert_eq!(glyph_at(&group, width - 1, height - 2), Some('═'));
+    }
+
+    #[test]
+    fn fitting_buttons_draw_no_scrollbar() {
+        let mut bar = CommandBar::new("bar", UiPalette::default()).with_buttons(vec![
+            CommandBarButton::new("a", "AAAA"),
+            CommandBarButton::new("b", "BBBB"),
+        ]);
+        bar.update_layout([0.05, 0.1], CellPoint::origin());
+        let (handle_x, handle_y) = bar.expand_handle_position();
+        bar.on_pointer_event(ModulePointerEvent::Click {
+            x: handle_x,
+            y: handle_y,
+            button: ModulePointerButton::Left,
+        });
+        let local_bar_y = bar.rect().y1 - bar.rect().y0 - 2;
+        let local_width = bar.rect().x1 - bar.rect().x0;
+        let group = bar.draw();
+        // The row only carries the plain background: no scrollbar cells.
+        assert_eq!(glyph_at(&group, local_width - 1, local_bar_y), Some(' '));
+    }
+
+    #[test]
+    fn track_click_page_jumps_then_drags_and_releases() {
+        let mut bar = overflow_bar();
+        let rect = bar.rect();
+        let bar_y = rect.y1 - 2;
+        // Content 5, viewport 4: max offset 1.
+        // Click the track's far end: jump the thumb there, drag session on.
+        assert_eq!(bar.scroll_offset, 0);
+        assert_eq!(
+            bar.on_pointer_event(ModulePointerEvent::Click {
+                x: rect.x1 - 1,
+                y: bar_y,
+                button: ModulePointerButton::Left,
+            }),
+            None,
+            "scrollbar clicks never fall through to button presses"
+        );
+        assert_eq!(bar.scroll_offset, 1);
+        assert!(bar.is_scrollbar_dragging());
+        // Drag back to the track start, then release.
+        assert!(bar.drag_scrollbar(rect.x0 + 3, bar_y));
+        assert_eq!(bar.scroll_offset, 0);
+        bar.end_scrollbar_drag();
+        assert!(!bar.is_scrollbar_dragging());
+    }
+
+    #[test]
+    fn thumb_drag_follows_the_pointer_until_release() {
+        let mut bar = overflow_bar();
+        let rect = bar.rect();
+        let bar_y = rect.y1 - 2;
+        // Grab the thumb's leading edge.
+        bar.on_pointer_event(ModulePointerEvent::Click {
+            x: rect.x0 + 3,
+            y: bar_y,
+            button: ModulePointerButton::Left,
+        });
+        assert_eq!(bar.scroll_offset, 0);
+        assert!(bar.is_scrollbar_dragging());
+        assert!(bar.drag_scrollbar(rect.x1 - 1, bar_y));
+        assert_eq!(bar.scroll_offset, 1);
+        bar.end_scrollbar_drag();
+        assert!(!bar.is_scrollbar_dragging());
+    }
+
+    #[test]
+    fn either_wheel_axis_scrolls_the_horizontal_bar() {
+        let mut bar = overflow_bar();
+        let rect = bar.rect();
+        let bar_y = rect.y1 - 2;
+        // Vertical wheel down scrolls toward the end (single-bar rule).
+        assert!(bar.on_wheel(rect.x0 + 10, bar_y, 0.0, -1.0));
+        assert_eq!(bar.scroll_offset, 1);
+        // Clamped at the end.
+        assert!(bar.on_wheel(rect.x0 + 10, bar_y, 0.0, -1.0));
+        assert_eq!(bar.scroll_offset, 1);
+        // Horizontal wheel back toward the start.
+        assert!(bar.on_wheel(rect.x0 + 10, bar_y, -1.0, 0.0));
+        assert_eq!(bar.scroll_offset, 0);
+        // Horizontal wheel toward the end again.
+        assert!(bar.on_wheel(rect.x0 + 10, bar_y, 1.0, 0.0));
+        assert_eq!(bar.scroll_offset, 1);
     }
 }

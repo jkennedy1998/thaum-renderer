@@ -51,6 +51,8 @@ Own the renderer-specific design contracts for the atomic cell system, grouped r
   - process-global leveled debug logging for every host of the renderer (THAUM_DEBUG); hosts pick log locations
 - `controls/`
   - default
+- `command-bar/`
+  - default
 - `modules/`
   - default
 

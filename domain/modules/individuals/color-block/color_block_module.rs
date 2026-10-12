@@ -112,6 +112,12 @@ pub struct ColorBlockModule {
     rect: ModuleRect,
     palette: UiPalette,
     indexed_palette: Vec<[u8; 3]>,
+    /// Whether picks snap to the indexed palette. On (default), the block
+    /// bands every pick onto the nearest palette entry; off, field/slider/
+    /// wheel picks keep their raw color — the free-pick mode behind the
+    /// clamp widget, so users can paint (and then `+`-add) colors outside
+    /// the palette.
+    clamped: bool,
     selected_rgb: [u8; 3],
     selected_hsv: HsvColor,
     drag_target: Option<DragTarget>,
@@ -128,6 +134,7 @@ impl ColorBlockModule {
             rect,
             palette,
             indexed_palette: Vec::new(),
+            clamped: true,
             selected_rgb,
             selected_hsv: rgb_to_hsv(selected_rgb),
             drag_target: None,
@@ -141,6 +148,32 @@ impl ColorBlockModule {
         self.indexed_palette = indexed_palette.to_vec();
         self.selected_rgb = self.resolve_rgb(self.selected_hsv);
         self
+    }
+
+    /// Replaces the banded palette at runtime without disturbing the current
+    /// selection: the consumer owns the palette policy and may swap the live
+    /// list (for example a document-owned palette the user edits), and the
+    /// user's wheel-scrolled color must stay where they left it. The next
+    /// set/snap resolves against the new list.
+    pub fn set_indexed_palette(&mut self, indexed_palette: &[[u8; 3]]) {
+        self.indexed_palette = indexed_palette.to_vec();
+    }
+
+    /// Whether picks snap to the indexed palette right now.
+    pub fn clamped(&self) -> bool {
+        self.clamped
+    }
+
+    /// Toggles index clamping. Turning clamping back on re-snaps the current
+    /// selection to the nearest palette entry; turning it off leaves the
+    /// selection untouched (it was already snapped or already raw).
+    pub fn set_clamped(&mut self, clamped: bool) {
+        self.clamped = clamped;
+        let snapped = self.snap_rgb(self.selected_rgb);
+        if snapped != self.selected_rgb {
+            self.selected_rgb = snapped;
+            self.selected_hsv = rgb_to_hsv(snapped);
+        }
     }
 
     pub fn selected_rgb(&self) -> [u8; 3] {
@@ -161,7 +194,7 @@ impl ColorBlockModule {
     }
 
     fn snap_rgb(&self, rgb: [u8; 3]) -> [u8; 3] {
-        if self.indexed_palette.is_empty() {
+        if self.indexed_palette.is_empty() || !self.clamped {
             rgb
         } else {
             self.indexed_palette[nearest_rgb_in_collection(rgb, &self.indexed_palette)]
@@ -241,6 +274,16 @@ impl Module for ColorBlockModule {
                 },
                 "hue slider",
                 "click or drag to pick the hue",
+            ),
+            Hotspot::new(
+                ModuleRect {
+                    x0: self.rect.x0 + field_x0 + 8,
+                    y0: self.rect.y0 + field_y0 - 2,
+                    x1: self.rect.x0 + field_x0 + 8,
+                    y1: self.rect.y0 + field_y0 - 2,
+                },
+                "clamp toggle",
+                "click to toggle index clamping: '#' snaps picks onto the palette, '*' lets you pick any raw color (then + in the palette module adds it to the palette)",
             ),
         ];
         self.gizmos.hotspots_with(self.rect, custom)
@@ -355,6 +398,26 @@ impl Module for ColorBlockModule {
             });
         }
 
+        // Clamp widget: one toggle cell right of the hex readout — '#' when
+        // picks snap to the indexed palette, '*' when they stay raw, drawn
+        // in the palette's vivid role while unclamped so free-pick mode is
+        // visible at a glance.
+        cells.push(Cell {
+            position: CellPoint {
+                x: field_x0 + hex.chars().count() as i32 + 1,
+                y: field_y0 - 2,
+                z: 0,
+            },
+            graphic: CellGraphic::Glyph(if self.clamped { '#' } else { '*' }),
+            color: if self.clamped {
+                self.palette.get(UiColorRole::Medium)
+            } else {
+                self.palette.get(UiColorRole::Vivid)
+            },
+            weight: CellWeight::from_index_clamped(2),
+            ..Cell::default()
+        });
+
         cells.push(Cell {
             position: CellPoint {
                 x: slider_x,
@@ -383,6 +446,12 @@ impl Module for ColorBlockModule {
                 let (field_x0, field_x1, field_y0, field_y1, slider_x) = content_layout(self.rect);
                 let local_x = x - self.rect.x0;
                 let local_y = y - self.rect.y0;
+                // The clamp toggle sits on the hex row, right of the
+                // readout; a click flips clamping and never picks a color.
+                if local_y == field_y0 - 2 && local_x == field_x0 + 8 {
+                    self.set_clamped(!self.clamped);
+                    return;
+                }
                 if local_x >= field_x0
                     && local_x <= field_x1
                     && local_y >= field_y0
@@ -584,5 +653,75 @@ mod tests {
             module.selected_rgb(),
             [0, 0, 0] | [255, 0, 0] | [255, 255, 255]
         ));
+    }
+
+    #[test]
+    fn the_clamp_widget_toggles_free_picking_and_back() {
+        let mut module = ColorBlockModule::new("block", rect(), UiPalette::default())
+            .with_indexed_palette(&[[0, 0, 0], [255, 0, 0], [255, 255, 255]]);
+        assert!(module.clamped());
+        // The widget draws on the hex row right of the readout.
+        let widget_x = 1 + 8;
+        let widget_y = 1;
+
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: widget_x,
+            y: widget_y,
+            button: ModulePointerButton::Left,
+        });
+        assert!(!module.clamped());
+
+        // An off-palette pick now holds exactly — no banding.
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: 4,
+            y: 5,
+            button: ModulePointerButton::Left,
+        });
+        let raw_pick = module.selected_rgb();
+        assert!(![[0, 0, 0], [255, 0, 0], [255, 255, 255]]
+            .contains(&raw_pick));
+
+        // Toggling back re-snaps the selection to the nearest entry.
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: widget_x,
+            y: widget_y,
+            button: ModulePointerButton::Left,
+        });
+        assert!(module.clamped());
+        assert!([[0, 0, 0], [255, 0, 0], [255, 255, 255]]
+            .contains(&module.selected_rgb()));
+    }
+
+    #[test]
+    fn the_clamp_widget_click_never_picks_a_color() {
+        let mut module = ColorBlockModule::new("block", rect(), UiPalette::default())
+            .with_indexed_palette(&[[0, 0, 0], [255, 0, 0], [255, 255, 255]]);
+        let before = module.selected_rgb();
+
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: 1 + 8,
+            y: 1,
+            button: ModulePointerButton::Left,
+        });
+
+        assert_eq!(module.selected_rgb(), before);
+    }
+
+    #[test]
+    fn the_clamp_widget_draws_hash_when_clamped_and_star_with_vivid_when_free() {
+        let mut module = ColorBlockModule::new("block", rect(), UiPalette::default())
+            .with_indexed_palette(&[[0, 0, 0], [255, 0, 0], [255, 255, 255]]);
+        let group = module.draw();
+        let widget_cell = &group.cells
+            [&CellPoint { x: 1 + 8, y: 1, z: 0 }];
+        assert_eq!(widget_cell.graphic, CellGraphic::Glyph('#'));
+        assert_eq!(widget_cell.color, module.palette.get(UiColorRole::Medium));
+
+        module.set_clamped(false);
+        let group = module.draw();
+        let widget_cell = &group.cells
+            [&CellPoint { x: 1 + 8, y: 1, z: 0 }];
+        assert_eq!(widget_cell.graphic, CellGraphic::Glyph('*'));
+        assert_eq!(widget_cell.color, module.palette.get(UiColorRole::Vivid));
     }
 }

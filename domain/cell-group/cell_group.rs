@@ -43,6 +43,12 @@ pub struct CellGroup {
     pub intake_behavior: CellGroupIntakeBehavior,
     pub cells: BTreeMap<CellPoint, Cell>,
     pub clip: Option<CellClip>,
+    /// Backdrop opt-in: boot stages this group's cells like Flat2d HUD
+    /// content but emits their quads before every depth plane, so the
+    /// content sits behind all rendered characters regardless of depth.
+    /// Only meaningful for Flat2d groups under a screen-locked composition;
+    /// other groups ignore the flag.
+    pub backdrop: bool,
 }
 
 impl CellGroup {
@@ -53,6 +59,7 @@ impl CellGroup {
             intake_behavior: CellGroupIntakeBehavior::default(),
             cells: BTreeMap::new(),
             clip: None,
+            backdrop: false,
         }
     }
 
@@ -64,6 +71,12 @@ impl CellGroup {
 
     pub fn with_clip(mut self, clip: CellClip) -> Self {
         self.clip = Some(clip);
+        self
+    }
+
+    /// Marks the group as a backdrop (see the field docs).
+    pub fn as_backdrop(mut self) -> Self {
+        self.backdrop = true;
         self
     }
 

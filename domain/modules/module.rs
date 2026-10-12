@@ -71,6 +71,14 @@ pub trait Module {
     /// module's rect origin and always flat against the screen (`Flat2d`).
     fn draw(&self) -> CellGroup;
 
+    /// Optional screen-locked backdrop group for this module: boot renders
+    /// it behind every depth plane (see `CellGroup::backdrop`), so its
+    /// content sits behind all rendered characters regardless of depth.
+    /// `None` by default.
+    fn backdrop_group(&self) -> Option<CellGroup> {
+        None
+    }
+
     /// React to a pointer lifecycle event already known to be within this
     /// module's rect. No-op by default.
     fn on_pointer_event(&mut self, _event: ModulePointerEvent) {}
@@ -218,6 +226,11 @@ impl ModuleRegistry {
             .iter()
             .filter(|module| !module.is_hidden())
             .map(|module| module.as_ref())
+    }
+
+    /// Every visible module's declared backdrop group, in draw order.
+    pub fn backdrop_groups(&self) -> Vec<CellGroup> {
+        self.iter().filter_map(|module| module.backdrop_group()).collect()
     }
 
     pub fn persisted_ui_state(&self) -> Vec<PersistedModuleUiState> {

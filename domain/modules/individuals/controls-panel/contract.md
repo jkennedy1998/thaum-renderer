@@ -9,6 +9,7 @@ Own a generic big-list controls panel: one renderer-owned floating panel listing
 - Flat2d-correct stacking: slot 0 renders at the content's screen-top row and later slots walk down the screen (larger local y is higher on screen)
 - the never-detached-header rule: a section title is never the window's trailing visible slot; a header whose rows sit past the window edge is dropped from the window
 - wheel scrolling through the shared `ScrollState` seam (`domain/modules/shared/scroll-state/`): one row per notch, clamped, unmoved offsets fall through to the host
+- the vertical scrollbar over the slot list (shared `domain/modules/shared/scrollbar/` seam): overlaid on the rightmost content column, spanning exactly the slot viewport with the reserved blank row bar-free (the old span math collapsed the track to one cell, rendering only the top cap — fixed to the graphic picker's band shape), thumb drag + track page-jump, drawn only when the slots overflow; the draw path derives the span fresh each frame via `cells_with_span`
 - left-click toggling key-capture wait on the clicked action; right-click unbinding it
 - keyboard-only capture via `capture_key` / `cancel_capture`; pointer and wheel bindings stay owned by their existing live paths
 - gizmo-bar-backed move/close/resize/seamless behavior

@@ -6,7 +6,7 @@ use crate::{
     title_hotspot, Cell, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint, CellWeight,
     GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module, ModulePointerButton,
     ModulePointerEvent, ModuleRect, PanelChrome, ParallaxProfile, PersistedModuleUiState,
-    PropertyRows, ScrollState, UiColorRole, UiPalette, WorldPoint,
+    PropertyRows, Scrollbar, ScrollbarSpan, ScrollState, UiColorRole, UiPalette, WorldPoint,
 };
 
 /// One editable perspective knob: a label, wheel fine-step, clamped range,
@@ -383,6 +383,10 @@ pub struct CameraPerspectiveModule {
     /// pinned; when the panel is shorter than the row list the rows crop
     /// into the visible band and the list scrolls (shared `ScrollState`).
     scroll: ScrollState,
+    /// Vertical scrollbar over the knob/value band, overlaid on the
+    /// rightmost content column; drag state lives here, geometry re-synced
+    /// on every pointer/wheel event so panel resizes keep it honest.
+    scrollbar: Scrollbar,
 }
 
 impl CameraPerspectiveModule {
@@ -410,6 +414,11 @@ impl CameraPerspectiveModule {
             hidden: false,
             hovered_row: None,
             scroll: ScrollState::new(),
+            scrollbar: Scrollbar::new(ScrollbarSpan::Vertical {
+                x: 0,
+                top: 0,
+                bottom: 0,
+            }),
         }
     }
 
@@ -474,13 +483,65 @@ impl CameraPerspectiveModule {
         ScrollState::max_offset(ROW_COUNT, self.available_scroll_rows())
     }
 
+    /// Where the vertical scrollbar lives this frame: the rightmost content
+    /// column, spanning the knob/value band (the pinned hint row at the
+    /// content's screen-bottom end stays bar-free).
+    fn scrollbar_span(&self) -> ScrollbarSpan {
+        let (content_x, content_y) = PanelChrome::content_origin();
+        let (content_width, content_height) = PanelChrome::content_size(self.rect);
+        let top = content_y + (content_height - 1).max(0);
+        // Same shape as the graphic picker's bar: the track spans exactly
+        // the knob/value band — the pinned hint row at `content_y` stays
+        // bar-free — clamped for degenerate panel heights. The old
+        // `.max(...)` here collapsed the track to one cell, which rendered
+        // only the bar's top cap (J 2026-10-11 report).
+        let bottom = (top - self.available_scroll_rows() as i32 + 1).max(content_y);
+        ScrollbarSpan::Vertical {
+            x: content_x + content_width - 1,
+            top,
+            bottom,
+        }
+    }
+
+    /// Press on the bar: thumb grab or track page-jump. Returns whether the
+    /// bar consumed the press.
+    fn scrollbar_press(&mut self, local_x: i32, local_y: i32) -> bool {
+        let max = self.max_scroll_rows();
+        let mut offset = self.scroll.offset();
+        let consumed = self.scrollbar.on_down(
+            local_x,
+            local_y,
+            ROW_COUNT,
+            self.available_scroll_rows(),
+            &mut offset,
+        );
+        self.scroll.set_offset(offset, max);
+        consumed
+    }
+
+    /// Pointer move during a live bar drag: re-map the grab point.
+    fn scrollbar_drag(&mut self, local_x: i32, local_y: i32) -> bool {
+        let max = self.max_scroll_rows();
+        let mut offset = self.scroll.offset();
+        let moved = self.scrollbar.on_drag(
+            local_x,
+            local_y,
+            ROW_COUNT,
+            self.available_scroll_rows(),
+            &mut offset,
+        );
+        self.scroll.set_offset(offset, max);
+        moved
+    }
+
     /// Which knob/parallax row (if any) is under this screen-space point,
     /// at the current scroll offset. Rows stack downward from the top
     /// content row, one line each, matching the property-rows convention
     /// (draw output is module-local, events are screen-space like
-    /// `PropertyRows::hit_test`). The pinned hint row, panel chrome, and
-    /// slots past the row-list end report `None` so wheel events there can
-    /// drive the list scroll instead of a knob.
+    /// `PropertyRows::hit_test`). Rows respond only across their rendered
+    /// content span (J), never the whole panel width. The pinned hint row,
+    /// panel chrome, and slots past the row-list end report `None` so
+    /// wheel events there can drive the list scroll instead of a knob.
     fn row_at(&self, x: i32, y: i32) -> Option<usize> {
         if !self.rect.contains(x, y) {
             return None;
@@ -495,7 +556,75 @@ impl CameraPerspectiveModule {
             return None;
         }
         let index = self.scroll.offset() + slot;
-        (index < ROW_COUNT).then_some(index)
+        if index >= ROW_COUNT {
+            return None;
+        }
+        // Content-bounded rows (J): outside the rendered label/value span
+        // the row is not the row — that band stays list-scroll and bar
+        // space, so the scrollbar column and the right padding never
+        // fine-tune a knob or raise its tooltip.
+        let (profile, parallax, quality) =
+            (self.profile.borrow(), self.parallax.borrow(), self.quality.borrow());
+        let (row_x0, row_x1) = self.row_content_span(&profile, &parallax, &quality, index);
+        let local_x = x - self.rect.x0;
+        (local_x >= row_x0 && local_x <= row_x1).then_some(index)
+    }
+
+    /// Label/value text for one row — the single source both draw and the
+    /// hit-tests read, so the interactive span can never drift from what
+    /// is actually rendered.
+    fn row_label_value(
+        &self,
+        profile: &PerspectiveProfile,
+        parallax: &ParallaxProfile,
+        quality: &RenderQualityProfile,
+        index: usize,
+    ) -> (String, String, bool) {
+        if index == PARALLAX_TOGGLE_ROW {
+            (
+                "parallax".to_string(),
+                if parallax.enabled { "on" } else { "off" }.to_string(),
+                parallax.enabled,
+            )
+        } else if index == PARALLAX_STRENGTH_ROW {
+            ("str".to_string(), format!("{:.2}", parallax.strength), parallax.enabled)
+        } else if index == DEPTH_ROW {
+            ("depth".to_string(), format!("{}", self.depth.current()), true)
+        } else if index == LAYERS_ROW {
+            ("layers".to_string(), format!("{}", self.layers.current()), true)
+        } else if index == ZOOM_ROW {
+            ("zoom".to_string(), format!("{:.2}", self.zoom.current()), true)
+        } else if index == QUALITY_ROW {
+            (
+                "quality".to_string(),
+                format!("{}%", quality.render_scale_percent()),
+                true,
+            )
+        } else {
+            (
+                knob(index).label.to_string(),
+                format!("{:.2}", knob_value(profile, index)),
+                true,
+            )
+        }
+    }
+
+    /// The module-local x span one row's rendered content covers,
+    /// inclusive: from the content's left edge to the last rendered value
+    /// glyph. J: rows span their contents, not the whole module, so the
+    /// band right of the values stays list-scroll and scrollbar space.
+    fn row_content_span(
+        &self,
+        profile: &PerspectiveProfile,
+        parallax: &ParallaxProfile,
+        quality: &RenderQualityProfile,
+        index: usize,
+    ) -> (i32, i32) {
+        let (content_x, _) = PanelChrome::content_origin();
+        let value_x = content_x + 9;
+        let (_, value, _) = self.row_label_value(profile, parallax, quality, index);
+        let x1 = value_x + value.chars().count() as i32 - 1;
+        (content_x, x1.max(content_x))
     }
 
     fn apply_wheel(
@@ -704,20 +833,27 @@ impl Module for CameraPerspectiveModule {
         // the standard hover seam that explains each row's wheel/click
         // behavior, so the panel's interactive rows are discoverable like
         // every other module's buttons.
-        let (content_x, content_y) = PanelChrome::content_origin();
-        let (content_width, content_height) = PanelChrome::content_size(self.rect);
+        let (_, content_y) = PanelChrome::content_origin();
+        let (_, content_height) = PanelChrome::content_size(self.rect);
         let top_row_y = content_y + (content_height - 1).max(0);
+        let (profile, parallax, quality) =
+            (self.profile.borrow(), self.parallax.borrow(), self.quality.borrow());
         for slot in 0..self.available_scroll_rows() {
             let index = self.scroll.offset() + slot;
             if index >= ROW_COUNT {
                 break;
             }
             let (title, description) = row_tooltip(index);
+            // One tooltip per visible row, bounded to the row's rendered
+            // content (J): hovering the panel's right padding must not
+            // raise the row's tooltip.
+            let (row_x0, row_x1) =
+                self.row_content_span(&profile, &parallax, &quality, index);
             custom.push(Hotspot::new(
                 ModuleRect {
-                    x0: self.rect.x0 + content_x,
+                    x0: self.rect.x0 + row_x0,
                     y0: self.rect.y0 + top_row_y - slot as i32,
-                    x1: self.rect.x0 + content_x + content_width.saturating_sub(1),
+                    x1: self.rect.x0 + row_x1,
                     y1: self.rect.y0 + top_row_y - slot as i32,
                 },
                 title,
@@ -766,33 +902,8 @@ impl Module for CameraPerspectiveModule {
                 break;
             }
             let y = top_row_y - slot as i32;
-            let (label, value, engaged) = if index == PARALLAX_TOGGLE_ROW {
-                (
-                    "parallax",
-                    if parallax.enabled { "on" } else { "off" }.to_string(),
-                    parallax.enabled,
-                )
-            } else if index == PARALLAX_STRENGTH_ROW {
-                ("str", format!("{:.2}", parallax.strength), parallax.enabled)
-            } else if index == DEPTH_ROW {
-                ("depth", format!("{}", self.depth.current()), true)
-            } else if index == LAYERS_ROW {
-                ("layers", format!("{}", self.layers.current()), true)
-            } else if index == ZOOM_ROW {
-                ("zoom", format!("{:.2}", self.zoom.current()), true)
-            } else if index == QUALITY_ROW {
-                (
-                    "quality",
-                    format!("{}%", quality.render_scale_percent()),
-                    true,
-                )
-            } else {
-                (
-                    knob(index).label,
-                    format!("{:.2}", knob_value(&profile, index)),
-                    true,
-                )
-            };
+            let (label, value, engaged) =
+                self.row_label_value(&profile, &parallax, &quality, index);
             // Standard responsive role ladder (matching the controls panel):
             // labels Medium, values Bright at rest and Vivid when the row is
             // engaged (parallax on) or under the pointer.
@@ -875,6 +986,20 @@ impl Module for CameraPerspectiveModule {
             }
         }
 
+        // Vertical scrollbar over the knob/value band, drawn last so the
+        // thumb/track overwrite any row cell they sit on. Only renders when
+        // the row list overflows the band. The span derives fresh each
+        // frame so a boot/restore render is never a stale leftover bar.
+        cells.extend(self.scrollbar.cells_with_span(
+            self.scrollbar_span(),
+            ROW_COUNT,
+            self.available_scroll_rows(),
+            self.scroll.offset(),
+            &self.palette,
+            None,
+            self.scrollbar.is_active(),
+        ));
+
         // Group origin is the rect origin (shared module convention): cells
         // are rect-local, so an origin of (0,0) would draw the panel at the
         // screen's bottom-left corner while hit-testing still listens at
@@ -890,6 +1015,7 @@ impl Module for CameraPerspectiveModule {
     }
 
     fn on_pointer_event(&mut self, event: ModulePointerEvent) {
+        self.scrollbar.set_span(self.scrollbar_span());
         match event {
             ModulePointerEvent::Click { x, y, button } => {
                 if let Some(outcome) = self.gizmo_state.handle_click(&self.gizmos, self.rect, x, y)
@@ -897,6 +1023,13 @@ impl Module for CameraPerspectiveModule {
                     if outcome == GizmoClickOutcome::Gizmo(GizmoKind::Close) {
                         self.hidden = true;
                     }
+                    return;
+                }
+                // A left press on the scrollbar is bar interaction (thumb
+                // grab or track page-jump), never a preset cycle.
+                if button == ModulePointerButton::Left
+                    && self.scrollbar_press(x - self.rect.x0, y - self.rect.y0)
+                {
                     return;
                 }
                 if button == ModulePointerButton::Left {
@@ -908,6 +1041,13 @@ impl Module for CameraPerspectiveModule {
                 }
             }
             ModulePointerEvent::Move { x, y } => {
+                self.scrollbar.note_pointer(x - self.rect.x0, y - self.rect.y0);
+                // A live bar drag owns the pointer: follow the thumb, skip
+                // the gizmo drag path entirely.
+                if self.scrollbar.is_dragging() {
+                    self.scrollbar_drag(x - self.rect.x0, y - self.rect.y0);
+                    return;
+                }
                 self.gizmo_state.note_pointer(&self.gizmos, self.rect, x, y);
                 if let Some(next_rect) = self.gizmo_state.drag_rect(x, y) {
                     self.rect = next_rect;
@@ -920,9 +1060,13 @@ impl Module for CameraPerspectiveModule {
                 }
                 self.hovered_row = self.row_at(x, y);
             }
-            ModulePointerEvent::Up { .. } => self.gizmo_state.end_drag(),
+            ModulePointerEvent::Up { .. } => {
+                self.scrollbar.on_up();
+                self.gizmo_state.end_drag();
+            }
             ModulePointerEvent::Enter => self.gizmo_state.set_hovered(true),
             ModulePointerEvent::Leave => {
+                self.scrollbar.clear_pointer();
                 self.gizmo_state.set_hovered(false);
                 self.hovered_row = None;
             }
@@ -931,7 +1075,7 @@ impl Module for CameraPerspectiveModule {
     }
 
     fn wants_pointer_capture(&self) -> bool {
-        self.gizmo_state.wants_pointer_capture()
+        self.gizmo_state.wants_pointer_capture() || self.scrollbar.is_dragging()
     }
 
     fn is_hidden(&self) -> bool {
@@ -964,6 +1108,9 @@ impl Module for CameraPerspectiveModule {
     }
 
     fn on_wheel(&mut self, x: i32, y: i32, _delta_x: f32, delta_y: f32) -> bool {
+        // Re-sync the bar geometry before any interaction so panel resizes
+        // keep the span honest.
+        self.scrollbar.set_span(self.scrollbar_span());
         if let Some(index) = self.row_at(x, y) {
             let mut profile = self.profile.borrow_mut();
             let mut parallax = self.parallax.borrow_mut();
@@ -1207,6 +1354,115 @@ mod tests {
         // One line below the bottom (quality) row: still fall-through.
         assert!(!module.on_wheel(12, quality_row_y() - 1, 0.0, 1.0));
         assert!(!module.on_wheel(12, rect().y1 - 1, 0.0, 1.0));
+    }
+
+    fn short_rect() -> ModuleRect {
+        // 9 tall: content 6 = 5 visible rows plus the reserved bottom hint
+        // row, so the 9-row list overflows and scrolls.
+        ModuleRect { x0: 10, y0: 10, x1: 33, y1: 19 }
+    }
+
+    #[test]
+    fn wheel_right_of_a_rows_content_scrolls_the_list() {
+        // J: rows span their contents, not the whole module — the band
+        // right of the values (including the scrollbar column) is list
+        // scroll space, not knob fine-tune space.
+        let (mut module, _profile, _parallax, _depth, _layers, _zoom) = module();
+        module.rect = short_rect();
+        let top_row_screen_y = short_rect().y0 + PropertyRows::top_row_y(short_rect());
+        // Local x 15 sits right of every row's rendered value span.
+        assert!(module.on_wheel(short_rect().x0 + 15, top_row_screen_y, 0.0, -1.0));
+        assert_eq!(module.scroll.offset(), 1);
+        // Wheel back up returns the list to the top.
+        assert!(module.on_wheel(short_rect().x0 + 15, top_row_screen_y, 0.0, 1.0));
+        assert_eq!(module.scroll.offset(), 0);
+    }
+
+    #[test]
+    fn overflowing_module_draws_a_full_height_bar_without_any_interaction() {
+        // Regression (J 2026-10-11): the span math collapsed the track to
+        // one cell, so only the bar's top cap rendered, and the draw path
+        // used the constructor's stale zero span until the first pointer
+        // event re-placed it. A short module must draw the full-height bar
+        // straight out of the box, with the hint row bar-free.
+        let (mut module, _profile, _parallax, _depth, _layers, _zoom) = module();
+        module.rect = short_rect();
+        let group = module.draw();
+        let (bar_x, top, bottom) = match module.scrollbar_span() {
+            ScrollbarSpan::Vertical { x, top, bottom } => (x, top, bottom),
+            ScrollbarSpan::Horizontal { .. } => unreachable!(),
+        };
+        let local = |x: i32, y: i32| {
+            group
+                .iter_cells()
+                .find(|cell| cell.position.x == x && cell.position.y == y)
+                .and_then(|cell| match cell.graphic {
+                    CellGraphic::Glyph(glyph) => Some(glyph),
+                    _ => None,
+                })
+        };
+        // The track covers the whole knob/value band, caps included.
+        assert_eq!((top - bottom + 1) as usize, module.available_scroll_rows());
+        assert_eq!(local(bar_x, top), Some('┳'));
+        assert_eq!(local(bar_x, bottom), Some('┻'));
+        for y in bottom..=top {
+            assert!(local(bar_x, y).is_some(), "track cell missing at y {y}");
+        }
+        // The pinned hint row below the band stays bar-free.
+        let hint_y = 1;
+        assert!(!matches!(local(bar_x, hint_y), Some('┳' | '┻' | '┃' | '║')));
+    }
+
+    #[test]
+    fn wheel_over_a_rows_content_still_fine_tunes_when_the_list_scrolls() {
+        let (mut module, profile, _parallax, _depth, _layers, _zoom) = module();
+        module.rect = short_rect();
+        let top_row_screen_y = short_rect().y0 + PropertyRows::top_row_y(short_rect());
+        // Local x 12 is inside the scale row's rendered span (value ends
+        // at local 13), so the wheel fine-tunes the knob, not the list.
+        assert!(module.on_wheel(12, top_row_screen_y, 0.0, 1.0));
+        assert!((profile.borrow().scale_strength - 0.95).abs() < 1e-4);
+        assert_eq!(module.scroll.offset(), 0);
+    }
+
+    #[test]
+    fn row_tooltips_hug_their_rendered_content() {
+        let (module, _profile, _parallax, _depth, _layers, _zoom) = module();
+        let hotspots = module.hotspots();
+        // Local content starts at x 1; value_x is content_x + 9.
+        let scale = hotspots
+            .iter()
+            .find(|h| h.title == "scale")
+            .expect("scale row tooltip");
+        assert_eq!(scale.rect.x0, rect().x0 + 1);
+        assert_eq!(scale.rect.x1, rect().x0 + 13, "'1.00' ends at value_x + 3");
+        let depth = hotspots
+            .iter()
+            .find(|h| h.title == "depth")
+            .expect("depth row tooltip");
+        assert_eq!(depth.rect.x1, rect().x0 + 10, "'0' ends at value_x");
+    }
+
+    #[test]
+    fn clicks_right_of_a_rows_content_do_not_actuate_the_row() {
+        let (mut module, _profile, _parallax, depth, _layers, _zoom) = module();
+        depth.set_current(5);
+        let depth_y = scale_row_y() - DEPTH_ROW as i32;
+        // Inside the rendered span (the value '0' cell): click re-centers.
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: rect().x0 + 10,
+            y: depth_y,
+            button: ModulePointerButton::Left,
+        });
+        assert_eq!(depth.drain_pending(), -5);
+        // Right padding past the value: the row is not the row there.
+        depth.set_current(5);
+        module.on_pointer_event(ModulePointerEvent::Click {
+            x: rect().x0 + 15,
+            y: depth_y,
+            button: ModulePointerButton::Left,
+        });
+        assert_eq!(depth.drain_pending(), 0);
     }
 
     #[test]

@@ -2,6 +2,7 @@ use crate::{
     title_hotspot, Cell, CellColor, CellGraphic, CellGroup, CellGroupIntakeBehavior, CellPoint,
     CellWeight, GizmoBar, GizmoClickOutcome, GizmoKind, GizmoState, Hotspot, Module,
     ModulePointerButton, ModulePointerEvent, ModuleRect, PanelChrome, PersistedModuleUiState,
+    Scrollbar, ScrollbarSpan,
     RawInput, ScrollState, UiColorRole, UiPalette, WorldPoint,
 };
 
@@ -38,6 +39,10 @@ pub struct ControlsPanelModule {
     hidden: bool,
     /// Row-scroll state over the slot list, from the shared scroll seam.
     scroll: ScrollState,
+    /// Vertical scrollbar over the slot list, overlaid on the rightmost
+    /// content column; drag state lives here, geometry re-synced on every
+    /// pointer/wheel event so panel resizes keep it honest.
+    scrollbar: Scrollbar,
     rows: Vec<ControlActionRow>,
     waiting_for: Option<crate::ActionName>,
     get_binding_label: Box<dyn Fn(&crate::ActionName) -> String>,
@@ -63,6 +68,11 @@ impl ControlsPanelModule {
             gizmo_state: GizmoState::new(),
             hidden: false,
             scroll: ScrollState::new(),
+            scrollbar: Scrollbar::new(ScrollbarSpan::Vertical {
+                x: 0,
+                top: 0,
+                bottom: 0,
+            }),
             rows,
             waiting_for: None,
             get_binding_label: Box::new(get_binding_label),
@@ -117,6 +127,49 @@ impl ControlsPanelModule {
     /// Largest valid scroll offset over the slot list.
     fn max_scroll_rows(&self) -> usize {
         ScrollState::max_offset(self.build_slots().len(), self.capacity())
+    }
+
+    /// Where the vertical scrollbar lives this frame: the rightmost content
+    /// column, spanning the slot viewport (the reserved blank row at the
+    /// content's screen-bottom end stays bar-free).
+    fn scrollbar_span(&self) -> ScrollbarSpan {
+        let (content_x, content_y) = PanelChrome::content_origin();
+        let (content_width, content_height) = PanelChrome::content_size(self.rect);
+        let top = content_y + (content_height - 1).max(0);
+        // The graphic picker's band shape: the track spans exactly the slot
+        // viewport — the reserved blank row at the content's screen-bottom
+        // end stays bar-free — clamped for degenerate panel heights. The
+        // old `.max(...)` collapsed the track to one cell, which rendered
+        // only the bar's top cap (J 2026-10-11 report).
+        let bottom = (top - self.capacity() as i32 + 1).max(content_y);
+        ScrollbarSpan::Vertical {
+            x: content_x + content_width - 1,
+            top,
+            bottom,
+        }
+    }
+
+    /// Press on the bar: thumb grab or track page-jump. Returns whether the
+    /// bar consumed the press.
+    fn scrollbar_press(&mut self, local_x: i32, local_y: i32) -> bool {
+        let content = self.build_slots().len();
+        let viewport = self.capacity();
+        let max = ScrollState::max_offset(content, viewport);
+        let mut offset = self.scroll.offset();
+        let consumed = self.scrollbar.on_down(local_x, local_y, content, viewport, &mut offset);
+        self.scroll.set_offset(offset, max);
+        consumed
+    }
+
+    /// Pointer move during a live bar drag: re-map the grab point.
+    fn scrollbar_drag(&mut self, local_x: i32, local_y: i32) -> bool {
+        let content = self.build_slots().len();
+        let viewport = self.capacity();
+        let max = ScrollState::max_offset(content, viewport);
+        let mut offset = self.scroll.offset();
+        let moved = self.scrollbar.on_drag(local_x, local_y, content, viewport, &mut offset);
+        self.scroll.set_offset(offset, max);
+        moved
     }
 
     /// The visible window of slots at the current scroll offset. A section
@@ -306,10 +359,24 @@ impl Module for ControlsPanelModule {
             }
         }
 
+        // Vertical scrollbar over the slot list, drawn last so the
+        // thumb/track overwrite any row cell they sit on. Only renders when
+        // the slots overflow the viewport.
+        cells.extend(self.scrollbar.cells_with_span(
+            self.scrollbar_span(),
+            self.build_slots().len(),
+            self.capacity(),
+            self.scroll.offset(),
+            &self.palette,
+            None,
+            self.scrollbar.is_active(),
+        ));
+
         CellGroup::from_cells(origin, cells).with_intake_behavior(CellGroupIntakeBehavior::Flat2d)
     }
 
     fn on_pointer_event(&mut self, event: ModulePointerEvent) {
+        self.scrollbar.set_span(self.scrollbar_span());
         match event {
             ModulePointerEvent::Click { x, y, button } => {
                 if let Some(outcome) = self.gizmo_state.handle_click(&self.gizmos, self.rect, x, y)
@@ -321,6 +388,11 @@ impl Module for ControlsPanelModule {
                 }
                 let local_x = x - self.rect.x0;
                 let local_y = y - self.rect.y0;
+                // A left press on the scrollbar is bar interaction (thumb
+                // grab or track page-jump), never a row click.
+                if button == ModulePointerButton::Left && self.scrollbar_press(local_x, local_y) {
+                    return;
+                }
                 let Some(index) = self.row_index_at(local_x, local_y) else {
                     return;
                 };
@@ -341,19 +413,35 @@ impl Module for ControlsPanelModule {
                 }
             }
             ModulePointerEvent::Move { x, y } => {
+                self.scrollbar.note_pointer(x - self.rect.x0, y - self.rect.y0);
+                // A live bar drag owns the pointer: follow the thumb, skip
+                // the gizmo drag path entirely.
+                if self.scrollbar.is_dragging() {
+                    self.scrollbar_drag(x - self.rect.x0, y - self.rect.y0);
+                    return;
+                }
                 self.gizmo_state.note_pointer(&self.gizmos, self.rect, x, y);
                 if let Some(next_rect) = self.gizmo_state.drag_rect(x, y) {
                     self.rect = next_rect;
                 }
             }
-            ModulePointerEvent::Up { .. } => self.gizmo_state.end_drag(),
+            ModulePointerEvent::Up { .. } => {
+                self.scrollbar.on_up();
+                self.gizmo_state.end_drag();
+            }
             ModulePointerEvent::Enter => self.gizmo_state.set_hovered(true),
-            ModulePointerEvent::Leave => self.gizmo_state.set_hovered(false),
+            ModulePointerEvent::Leave => {
+                self.scrollbar.clear_pointer();
+                self.gizmo_state.set_hovered(false);
+            }
             ModulePointerEvent::Down { .. } => {}
         }
     }
 
     fn on_wheel(&mut self, _x: i32, _y: i32, _delta_x: f32, delta_y: f32) -> bool {
+        // Re-sync the bar geometry before any interaction so panel resizes
+        // keep the span honest.
+        self.scrollbar.set_span(self.scrollbar_span());
         // One row per notch through the shared scroll seam; an unmoved
         // offset (at an edge, or short content) falls through to the host.
         self.scroll.wheel(delta_y, self.max_scroll_rows())
@@ -382,7 +470,7 @@ impl Module for ControlsPanelModule {
     }
 
     fn wants_pointer_capture(&self) -> bool {
-        self.gizmo_state.wants_pointer_capture()
+        self.gizmo_state.wants_pointer_capture() || self.scrollbar.is_dragging()
     }
 }
 
@@ -639,6 +727,48 @@ mod tests {
         let text = drawn_text(&panel);
         assert!(text.contains("Action 11"), "bottom of the list reachable");
         assert!(panel.on_wheel(2, 8, 0.0, 1.0), "wheel up walks back");
+    }
+
+    #[test]
+    fn overflowing_list_draws_a_full_height_bar_without_any_interaction() {
+        // Regression (J 2026-10-11): the span math collapsed the track to
+        // one cell, so only the bar's top cap rendered, and the draw path
+        // used the constructor's stale zero span until the first pointer
+        // event re-placed it.
+        let mut panel = ControlsPanelModule::new(
+            "controls_panel_bar_test",
+            ModuleRect {
+                x0: 0,
+                y0: 0,
+                x1: 40,
+                y1: 12,
+            },
+            UiPalette::default(),
+            scroll_fixture(),
+            |_| "unbound".to_string(),
+            |_| Vec::new(),
+            |_, _| {},
+        );
+        let group = panel.draw();
+        let (bar_x, top, bottom) = match panel.scrollbar_span() {
+            ScrollbarSpan::Vertical { x, top, bottom } => (x, top, bottom),
+            ScrollbarSpan::Horizontal { .. } => unreachable!(),
+        };
+        assert_eq!((top - bottom + 1) as usize, panel.capacity());
+        for y in bottom..=top {
+            assert!(
+                group.cells.contains_key(&CellPoint { x: bar_x, y, z: 0 }),
+                "track cell missing at y {y}"
+            );
+        }
+        // The reserved blank row at the content's bottom end stays bar-free.
+        match group.cells.get(&CellPoint { x: bar_x, y: 1, z: 0 }) {
+            Some(cell) => assert!(!matches!(
+                cell.graphic,
+                CellGraphic::Glyph('┳' | '┻' | '┃' | '║')
+            )),
+            None => {}
+        }
     }
 
     #[test]

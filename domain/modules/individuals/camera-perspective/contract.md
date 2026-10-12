@@ -7,7 +7,9 @@ Renderer-owned camera perspective panel: direct wheel/click tuning of the shared
 - `camera_perspective_module.rs`
   - the `CameraPerspectiveModule` panel: rows `scale`, `position`, `floor`, `parallax`, `str`, `depth`, `layers`, `zoom`, plus the reserved bottom hint row
   - the standard responsive color ladder on the rows (J 2026-09-12): labels Medium, values Bright at rest and Vivid when the row is engaged (parallax on) or hovered — the panel pins nothing at a static role, so it responds to the live `UiPalette` and to pointer state
+- content-bounded rows (J): each row's wheel fine-tune, click, hover highlight, and tooltip respond only across its rendered label/value span, never the full panel width — the band right of the values stays list-scroll and scrollbar space, so the bar and the panel's right padding are never dead no-op zones
   - wheel-over-a-row fine-tune / click cycles presets semantics (parallax toggle flips, depth click re-centers at 0, layers click cycles layer-count presets, zoom click snaps the next zoom preset)
+- the vertical scrollbar over the knob/value band (shared `domain/modules/shared/scrollbar/` seam): overlaid on the rightmost content column, spanning exactly the scroll band above the pinned hint row (the old span math collapsed the track to one cell, rendering only the top cap — fixed to the graphic picker's band shape), thumb drag + track page-jump, drawn only when the row list overflows; the draw path derives the span fresh each frame, so a boot/restore render is never a stale bar
   - the `CameraDepthLink` host ↔ panel bridge shape (pending wheel steps in, host-published live depth out)
   - the `CameraLayersLink` host ↔ panel bridge shape for the rendered-layer count, plus the `MAX_VISIBLE_PLANE_RADIUS` cap and layer-count presets
   - the `CameraZoomLink` host ↔ panel bridge for the camera's zoom (J 2026-09-12): the zoom row sits between `layers` and `quality` and drives the same `Camera::zoom` the − and + keys drive — wheel accumulates one multiplicative step per notch, click queues an absolute preset snap that outranks queued steps for that frame
@@ -68,7 +70,7 @@ effects: none
 ## tests
 - `camera_perspective_module`
   - light
-  - validates row hit-testing, wheel fine-tune/clamp, preset cycling, parallax toggle/strength rows, depth row scroll/reset/display through the link, layers row scroll/preset-cycle/display through its link, zoom row step/preset-snap/display through its link (steps drain exactly like the − / + key path; preset snaps outrank queued steps), fall-through off rows, gizmo behavior, ui-state persistence, and draw anchoring
+  - validates row hit-testing (bounded to each row's rendered content span), wheel fine-tune/clamp, preset cycling, parallax toggle/strength rows, depth row scroll/reset/display through the link, layers row scroll/preset-cycle/display through its link, zoom row step/preset-snap/display through its link (steps drain exactly like the − / + key path; preset snaps outrank queued steps), fall-through off rows and across the band right of row content, gizmo behavior, ui-state persistence, and draw anchoring
 
 ## data
 - none

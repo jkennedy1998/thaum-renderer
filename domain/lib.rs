@@ -65,6 +65,8 @@ pub mod post_effects;
 pub mod property_rows;
 #[path = "modules/shared/scroll-state/scroll_state.rs"]
 pub mod scroll_state;
+#[path = "modules/shared/scrollbar/scrollbar.rs"]
+pub mod scrollbar;
 #[path = "cell-graphic/shape-fade/shape_fade.rs"]
 pub mod shape_fade;
 #[path = "cell-graphic/sprite/sprite-color-space/sprite_color_space.rs"]
@@ -173,6 +175,7 @@ pub use property_rows::{
     PropertyRows,
 };
 pub use scroll_state::ScrollState;
+pub use scrollbar::{Scrollbar, ScrollbarAxis, ScrollbarGraphics, ScrollbarSpan};
 pub use sprite_color_space::{
     canonical_sprite_palette, decode_sprite_pixel, decode_sprite_rgba, DecodedSpritePixel,
     SpriteColorChannel,

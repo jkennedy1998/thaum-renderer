@@ -192,3 +192,19 @@
 ### 2026-09-20T12-20-43Z-focus-ray-drives-renderer-facing
 - j-quote: "Ideally this system detects the angle that the camera is looking at the point of focus and that angle is what drives where the renderer says that the user is facing. Keep in mind that this renderer has multiple users over multiplayer sessions. The 6 facing directions and 4 rolls are not going to change downstream, the rendering of cells relies on them"
 - interpretation: every per-user camera derives its discrete renderer-facing `CameraSwing` and `CameraRoll` from its own continuous eye-to-focus pose, while retaining the existing 24-state output as the downstream projection and cell-variant contract; no renderer-global camera/facing state is permitted.
+
+### 2026-10-11T00-00-00Z-color-picker-derived-order-no-reorder
+- j-quote: "also the reorderiong of colros in the pallette module actualyl makes it really annoying to use. lets have that reordering not hjappen. just a list. mayhbe derrive the order from the color itself like value + hue sort to keep it simple and reactive with module size."
+- interpretation: The generic color picker's swatch order is derived from the colors themselves (value descending, hue ascending); clicking selects and never reorganizes the list.
+
+### 2026-10-11T00-00-00Z-color-block-clamp-widget
+- j-quote: "what if we allowed for a custom module widget on the color block module. The widget would toggle on and off the index color clamping on the color block. When the color block is not clamped the user could press a color that's outside of the pallet in order to select it."
+- interpretation: The color block owns a clamp widget: clamping on snaps picks to the indexed palette, clamping off lets every pick keep its raw color. The toggle rides the block's own hex readout row.
+
+### 2026-10-11T00-00-00Z-scrollbar-occupied-endcaps-keep-glyph
+- j-quote: "the top and bottom of the scroll bar need to have different graphics when they are occupied, its confusing to look at rn bc the filled bar graphic is on the end caps. lets just increase the weight of the endcaps of the scrollbar graphics by 1 when they are filled, instead of replacing their graphic with ┃ or ━ bc that makes it look liek the scrollbar is cropped"
+- interpretation: a thumb cell over an end cap keeps the cap's own glyph (┳/┻/┣/┫) and boosts the cap's weight by one instead of swapping in the filled bar glyph — the cap reads as occupied without the bar looking cropped.
+
+### 2026-10-11T00-00-00Z-perspective-rows-span-content
+- j-quote: "perspective module has itsems on it that respond to scroll, those items need to be shorter horizontally. they span the whole module, they could simply span their contents isntead. the scroll bar is almost no op on that module bc the contents scroll. ... right now if i hover the entire horizontal slice of that button is part of the tooltip, showiung me it can be shortened more to just its rendered content bounds ideally."
+- interpretation: perspective rows respond (wheel, click, tooltip) only across their rendered label/value span, never the full panel width — the band right of the values stays list-scroll and scrollbar space, so the bar stops being a no-op and tooltips hug the content.

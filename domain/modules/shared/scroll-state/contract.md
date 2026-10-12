@@ -33,6 +33,7 @@ Own the shared row-scroll state primitive for scrollable module panels: row offs
 - `ScrollState::max_offset(total_rows, viewport_rows)` — `total - viewport`, saturated at 0
 - `ScrollState::available_rows(viewport_rows, pinned_top, pinned_bottom)` — middle rows between pinned blocks
 - `ScrollState::wheel(&mut self, delta_y, max)` — wheel up scrolls toward the top, down toward the bottom, clamped; returns whether the offset moved
+- `ScrollState::set_offset(&mut self, offset, max)` — jump to an explicit clamped offset (scrollbar drags and track jumps write back through here)
 - `ScrollState::to_top(&mut self)` / `ScrollState::to_end(max)` — jump to either edge
 
 ## interface consumers
