@@ -1,7 +1,7 @@
 use anyhow::Result;
 use thaum_renderer_domain::{CellTexture, CellWarble, SpriteTileRaster, WorldPoint};
 use thaum_renderer_window_surface::{
-    SurfaceQuad, SurfaceQuadPostEffectBus, SurfaceSize, SURFACE_QUAD_NO_ATLAS,
+    SURFACE_QUAD_NO_ATLAS, SurfaceQuad, SurfaceQuadPostEffectBus, SurfaceSize,
 };
 
 use crate::{CELL_HEIGHT_CLIP_SPACE, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
@@ -621,9 +621,11 @@ mod tests {
 
         assert_eq!(quads.len(), 12);
         assert_eq!(quads.iter().filter(|quad| quad.color[3] > 0.0).count(), 2);
-        assert!(quads
-            .iter()
-            .all(|quad| quad.post_effect_bus.texture_code == 1));
+        assert!(
+            quads
+                .iter()
+                .all(|quad| quad.post_effect_bus.texture_code == 1)
+        );
     }
 
     #[test]
@@ -708,9 +710,11 @@ mod tests {
 
         assert_eq!(quads.len(), 12);
         assert_eq!(quads.iter().filter(|quad| quad.color[3] > 0.0).count(), 2);
-        assert!(quads
-            .iter()
-            .all(|quad| quad.post_effect_bus.warble_code == 1));
+        assert!(
+            quads
+                .iter()
+                .all(|quad| quad.post_effect_bus.warble_code == 1)
+        );
     }
 
     #[test]
@@ -828,11 +832,19 @@ mod tests {
 pub(crate) struct GlyphAtlasPlacement {
     pub data: thaum_renderer_window_surface::GlyphAtlasSceneData,
     pub slots: std::collections::HashMap<(char, u32), usize>,
+    pub sprite_slots: std::collections::HashMap<Vec<u8>, usize>,
 }
 
 impl GlyphAtlasPlacement {
     fn tile_uv(&self, glyph: char, weight_index: u32) -> Option<[f32; 4]> {
-        let slot = *self.slots.get(&(glyph, weight_index))?;
+        self.slot_uv(*self.slots.get(&(glyph, weight_index))?)
+    }
+
+    fn sprite_tile_uv(&self, rgba: &[u8]) -> Option<[f32; 4]> {
+        self.slot_uv(*self.sprite_slots.get(rgba)?)
+    }
+
+    fn slot_uv(&self, slot: usize) -> Option<[f32; 4]> {
         let columns = self.data.columns.max(1) as usize;
         let rows = self.data.rows.max(1) as usize;
         let tile_width = self.data.tile_width.max(1) as usize;
@@ -856,6 +868,45 @@ impl GlyphAtlasPlacement {
 /// cover the entire cell rect so post-pass displaced sampling needs no ring
 /// quads. See `context/glyph-atlas-geometry-reduction.md`.
 #[allow(clippy::too_many_arguments)]
+pub(crate) fn sprite_cell_to_surface_quad(
+    placement: &GlyphAtlasPlacement,
+    rgba: &[u8],
+    cell_center: [f32; 2],
+    cell_clip_size: [f32; 2],
+    texture: CellTexture,
+    warble: CellWarble,
+    depth_code: u8,
+    gate_id: u16,
+    world: WorldPoint,
+) -> Result<SurfaceQuad> {
+    let atlas_uv = placement
+        .sprite_tile_uv(rgba)
+        .ok_or_else(|| anyhow::anyhow!("sprite tile missing from the built cell atlas"))?;
+
+    Ok(SurfaceQuad {
+        center: cell_center,
+        size: cell_clip_size,
+        // Sprite pixels are fully resolved into the atlas; white preserves
+        // their authored/material color in the shared fragment path.
+        color: [1.0, 1.0, 1.0, 1.0],
+        local_uv_corners: [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]],
+        warble_uv_corners: [
+            [world.x as f32 - 0.5, world.y as f32 - 0.5],
+            [world.x as f32 + 0.5, world.y as f32 - 0.5],
+            [world.x as f32 + 0.5, world.y as f32 + 0.5],
+            [world.x as f32 - 0.5, world.y as f32 + 0.5],
+        ],
+        post_effect_bus: SurfaceQuadPostEffectBus {
+            texture_code: texture.code(),
+            warble_code: warble.code(),
+            depth_code,
+            gate_id,
+        },
+        atlas_uv,
+        presentation_transform: false,
+    })
+}
+
 pub(crate) fn glyph_cell_to_surface_quad(
     placement: &GlyphAtlasPlacement,
     glyph: char,

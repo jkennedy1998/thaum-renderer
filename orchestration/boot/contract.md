@@ -59,3 +59,4 @@ Own the minimal boot seam for standing up thaum-renderer usage when a reusable r
 - the consuming program should remain the owner of boot timing, selected scene inputs, and broader process lifecycle
 - if boot code exists here, it should stay thin and focused on renderer bring-up only
 - the sprite-atlas pre-check must count Sided cells whose declared looks include Sprites: sided resolution happens at staging, after the pre-check, so a Sprite-only check strands staging with no atlases (mole crash, 2026-09-15)
+- visible glyphs and sprites share a GPU RGBA cell atlas: boot resolves each distinct sprite raster to a thresholded tile, emits one whole-cell atlas quad, and leaves texture/warble bus fields continuous over that rectangle — never restore sprite texel or buffer-ring geometry

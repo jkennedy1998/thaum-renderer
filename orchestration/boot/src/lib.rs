@@ -6,24 +6,24 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use thaum_renderer_breath_fallback_clock::{FallbackBreathClock, FALLBACK_BREATH_TICK_DURATION};
+use thaum_renderer_breath_fallback_clock::{FALLBACK_BREATH_TICK_DURATION, FallbackBreathClock};
 use thaum_renderer_domain::{
-    apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
+    Camera, CameraProjectedPoint, Cell, CellGroupIntakeBehavior, CellPoint, Composition, DataLanes,
+    FacingRotation, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH, GlyphFontSet, IndexColorClampEffect,
+    IndexedColor, SideGraphic, SidedGraphic, SpriteAtlasSet, SpriteColorChannel, SpriteTileRaster,
+    WorldPoint, apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
     apply_debug_warble_post_effect_to_rgba, camera_rotation_for_camera,
     encode_relative_depth_to_post_effect_bus, project_flat_2d_world_to_view_plane,
     project_rotating_3d_world_to_view_plane, projected_plane_is_visible,
     projected_plane_scale_factor, resolve_shaded_color, resolve_shaded_graphic,
-    resolve_shaded_texture, resolve_shaded_warble, resolve_shaded_weight, Camera,
-    CameraProjectedPoint, Cell, CellGroupIntakeBehavior, CellPoint, Composition, DataLanes,
-    FacingRotation, GlyphFontSet, IndexColorClampEffect, IndexedColor, SideGraphic, SidedGraphic,
-    SpriteAtlasSet, SpriteColorChannel, WorldPoint, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+    resolve_shaded_texture, resolve_shaded_warble, resolve_shaded_weight,
 };
 use thaum_renderer_window_surface::GlyphAtlasSceneData;
 pub use thaum_renderer_window_surface::{
-    run_window_surface_with_dynamic_frame_provider, run_window_surface_with_frame_provider,
     SharedWindowSurfaceScene, SurfacePresentationTransform, SurfaceQuad, SurfaceSize,
     WindowSurfaceConfig, WindowSurfaceFrameContext, WindowSurfaceFrameOutput, WindowSurfaceInput,
-    WindowSurfaceScene,
+    WindowSurfaceScene, run_window_surface_with_dynamic_frame_provider,
+    run_window_surface_with_frame_provider,
 };
 
 mod effect_quads;
@@ -32,8 +32,8 @@ mod scene_cache;
 use scene_cache::BootSceneCache;
 
 use effect_quads::{
-    cell_clip_size_for_surface, glyph_cell_to_surface_quad, sprite_raster_to_surface_quads,
-    GlyphAtlasPlacement,
+    GlyphAtlasPlacement, cell_clip_size_for_surface, glyph_cell_to_surface_quad,
+    sprite_cell_to_surface_quad,
 };
 
 #[cfg(test)]
@@ -296,15 +296,12 @@ fn build_window_surface_scene_for_surface_with_cache(
     // One atlas pass over the visible cells: every distinct (glyph, weight)
     // pair becomes one 12×16 tile in the scene's glyph atlas, and each glyph
     // cell emits exactly one whole-cell quad sampling that tile.
-    let (glyph_atlas, glyph_placement) = match glyph_fonts {
-        Some(fonts) if composition_contains_visible_glyphs(&state.composition) => {
-            build_glyph_atlas(state, cell_clip_size, fonts)
-        }
-        _ => (
-            GlyphAtlasSceneData::default(),
-            GlyphAtlasPlacement::default(),
-        ),
-    };
+    let (glyph_atlas, glyph_placement) = build_glyph_atlas(
+        state,
+        cell_clip_size,
+        glyph_fonts,
+        sprite_atlases_borrow.as_mut(),
+    )?;
     scene.glyph_atlas = glyph_atlas;
 
     // Backdrop quads first: screen-locked backdrop groups (see
@@ -394,9 +391,10 @@ fn dump_atlas_debug_if_requested(scene: &WindowSurfaceScene) {
         for tile_row in 0..tile_height {
             let destination =
                 (row * tile_height + tile_row) * columns * tile_width + column * tile_width;
-            let source = tile_row * tile_width;
-            image[destination..destination + tile_width]
-                .copy_from_slice(&tile.alpha[source..source + tile_width]);
+            let source = tile_row * tile_width * 4;
+            for column in 0..tile_width {
+                image[destination + column] = tile.rgba[source + column * 4 + 3];
+            }
         }
     }
     let _ = out.write_all(&image);
@@ -623,9 +621,10 @@ fn project_cell_to_surface_quads(
                 &projected_cell.cell.shader_stack,
             )
             .map_err(anyhow::Error::msg)?;
-        let mut quads = sprite_raster_to_surface_quads(
-            &raster,
-            SPRITE_BINARY_ALPHA_THRESHOLD,
+        let rgba = sprite_raster_to_atlas_rgba(&raster, SPRITE_BINARY_ALPHA_THRESHOLD);
+        let mut quad = sprite_cell_to_surface_quad(
+            glyph_placement,
+            &rgba,
             cell_center,
             projected_cell_clip_size,
             shaded_texture,
@@ -634,10 +633,8 @@ fn project_cell_to_surface_quads(
             gate_id,
             projected_cell.world,
         )?;
-        for quad in &mut quads {
-            quad.presentation_transform = projected_cell.applies_presentation_transform;
-        }
-        return Ok(quads);
+        quad.presentation_transform = projected_cell.applies_presentation_transform;
+        return Ok(vec![quad]);
     }
 
     Ok(Vec::new())
@@ -842,9 +839,11 @@ fn projected_cell_center_for_surface(
 fn build_glyph_atlas(
     state: &BootState,
     cell_clip_size: [f32; 2],
-    glyph_fonts: &GlyphFontSet,
-) -> (GlyphAtlasSceneData, GlyphAtlasPlacement) {
+    glyph_fonts: Option<&GlyphFontSet>,
+    mut sprite_atlases: Option<&mut SpriteAtlasSet>,
+) -> Result<(GlyphAtlasSceneData, GlyphAtlasPlacement)> {
     let mut keys = std::collections::BTreeSet::new();
+    let mut sprite_tiles = BTreeMap::<Vec<u8>, ()>::new();
     // The atlas covers every visible staged glyph, backdrop cells included:
     // backdrop quads sample the same atlas as plane quads.
     let mut all_staged_cells = stage_projected_boot_cells(state, cell_clip_size);
@@ -862,49 +861,81 @@ fn build_glyph_atlas(
         if !shaded_graphic.is_visible() {
             continue;
         }
+        let shaded_weight = resolve_shaded_weight(
+            projected_cell.cell.weight,
+            &projected_cell.cell.shader_stack,
+            projected_cell.world,
+            state.data_lanes,
+        );
         if let Some(glyph) = shaded_graphic.glyph_char() {
-            let shaded_weight = resolve_shaded_weight(
-                projected_cell.cell.weight,
-                &projected_cell.cell.shader_stack,
-                projected_cell.world,
-                state.data_lanes,
-            );
             keys.insert((glyph, shaded_weight));
+        } else if let Some(sprite) = shaded_graphic.sprite() {
+            let atlases = sprite_atlases.as_deref_mut().context(
+                "visible sprite cells require loaded sprite atlases while building the cell atlas",
+            )?;
+            let raster = atlases
+                .rasterize_single_sprite_tile(
+                    sprite.atlas_relative_path(),
+                    shaded_weight,
+                    projected_cell.cell.color,
+                    &projected_cell.cell.shader_stack,
+                )
+                .map_err(anyhow::Error::msg)?;
+            sprite_tiles.insert(
+                sprite_raster_to_atlas_rgba(&raster, SPRITE_BINARY_ALPHA_THRESHOLD),
+                (),
+            );
         }
     }
 
-    if keys.is_empty() {
-        return (
+    let tile_count = keys.len() + sprite_tiles.len();
+    if tile_count == 0 {
+        return Ok((
             GlyphAtlasSceneData::default(),
             GlyphAtlasPlacement::default(),
-        );
+        ));
     }
 
-    let columns = ((keys.len() as f64).sqrt().ceil() as usize).max(1);
-    let rows = keys.len().div_ceil(columns).max(1);
-    let mut tiles = Vec::with_capacity(keys.len());
+    let columns = ((tile_count as f64).sqrt().ceil() as usize).max(1);
+    let rows = tile_count.div_ceil(columns).max(1);
+    let mut tiles = Vec::with_capacity(tile_count);
     let mut placement = GlyphAtlasPlacement::default();
     for (slot, (glyph, weight)) in keys.into_iter().enumerate() {
-        let raster = glyph_fonts.rasterize_glyph_tile(glyph, weight);
-        let alpha = raster
+        let fonts = glyph_fonts.context("visible glyph cells require loaded glyph fonts")?;
+        let raster = fonts.rasterize_glyph_tile(glyph, weight);
+        let rgba = raster
             .alpha
             .iter()
-            .map(|coverage| {
-                if *coverage >= GLYPH_BINARY_ALPHA_THRESHOLD {
-                    255u8
-                } else {
-                    0u8
-                }
+            .flat_map(|coverage| {
+                [
+                    255u8,
+                    255u8,
+                    255u8,
+                    if *coverage >= GLYPH_BINARY_ALPHA_THRESHOLD {
+                        255
+                    } else {
+                        0
+                    },
+                ]
             })
             .collect::<Vec<u8>>();
         tiles.push(thaum_renderer_window_surface::GlyphAtlasTile {
             glyph: glyph as u32,
             weight_index: weight.as_index() as u32,
-            alpha: std::sync::Arc::new(alpha),
+            rgba: std::sync::Arc::new(rgba),
         });
         placement
             .slots
             .insert((glyph, weight.as_index() as u32), slot);
+    }
+    for (sprite_index, (rgba, _)) in sprite_tiles.into_iter().enumerate() {
+        let slot = tiles.len();
+        tiles.push(thaum_renderer_window_surface::GlyphAtlasTile {
+            glyph: u32::MAX - sprite_index as u32,
+            weight_index: 0,
+            rgba: std::sync::Arc::new(rgba.clone()),
+        });
+        placement.sprite_slots.insert(rgba, slot);
     }
 
     let atlas = GlyphAtlasSceneData {
@@ -915,7 +946,31 @@ fn build_glyph_atlas(
         tiles,
     };
     placement.data = atlas.clone();
-    (atlas, placement)
+    Ok((atlas, placement))
+}
+
+/// Matches the previous sprite threshold behavior while moving the resolved
+/// color field to one atlas tile sampled by a whole-cell quad.
+fn sprite_raster_to_atlas_rgba(raster: &SpriteTileRaster, threshold: u8) -> Vec<u8> {
+    raster
+        .colors
+        .iter()
+        .flat_map(|color| {
+            let Some(color) = color else {
+                return [0, 0, 0, 0];
+            };
+            let alpha = (color[3] * 255.0).round().clamp(0.0, 255.0) as u8;
+            if alpha < threshold {
+                return [0, 0, 0, 0];
+            }
+            [
+                (color[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (color[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+                (color[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+                alpha,
+            ]
+        })
+        .collect()
 }
 
 fn post_effect_gate_id_for_world_point(world: WorldPoint) -> u16 {
@@ -935,12 +990,12 @@ fn post_effect_gate_id_for_world_point(world: WorldPoint) -> u16 {
 mod tests {
     use super::*;
     use thaum_renderer_domain::{
-        load_sided_declaration, project_world_to_view_plane, CameraRoll, CameraSwing, Cell,
-        CellColor, CellFacing, CellGraphic, CellGroup, CellGroupFacing, CellGroupIntakeBehavior,
-        CellMaterialId, CellPoint, CellWeight, DataLanes, FacingVariant, SideGraphic,
-        SidedGraphic, CELL_SHADER_LIGHT_MINUS_2, CELL_SHADER_LIGHT_PLUS_2,
-        CELL_SHADER_TEXTURE_SHIMMER, CELL_SHADER_VIVID_FLASH, CELL_SHADER_VIVID_FLASH_ALT,
-        CELL_SHADER_WARBLE_DIAGONAL, CELL_SHADER_WEIGHT_SIN, VIVID_FLASH_BREATH_PERIOD,
+        CELL_SHADER_LIGHT_MINUS_2, CELL_SHADER_LIGHT_PLUS_2, CELL_SHADER_TEXTURE_SHIMMER,
+        CELL_SHADER_VIVID_FLASH, CELL_SHADER_VIVID_FLASH_ALT, CELL_SHADER_WARBLE_DIAGONAL,
+        CELL_SHADER_WEIGHT_SIN, CameraRoll, CameraSwing, Cell, CellColor, CellFacing, CellGraphic,
+        CellGroup, CellGroupFacing, CellGroupIntakeBehavior, CellMaterialId, CellPoint, CellWeight,
+        DataLanes, FacingVariant, SideGraphic, SidedGraphic, SpriteGraphic,
+        VIVID_FLASH_BREATH_PERIOD, load_sided_declaration, project_world_to_view_plane,
     };
 
     fn staged_asset_root() -> PathBuf {
@@ -956,6 +1011,38 @@ mod tests {
         let state = boot_renderer(BootConfig::default()).unwrap();
         assert_eq!(state.data_lanes.breath(), Some(0));
         assert!(state.uses_fallback_breath);
+    }
+
+    #[test]
+    fn sprite_cells_emit_one_atlas_quad_even_with_texture_effects() {
+        let mut config = BootConfig::default();
+        config.asset_root = staged_asset_root();
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition {
+                groups: vec![CellGroup::from_cells(
+                    WorldPoint::origin(),
+                    [Cell {
+                        position: CellPoint::origin(),
+                        graphic: CellGraphic::Sprite(SpriteGraphic::new("proofs/grass.png")),
+                        texture: thaum_renderer_domain::CellTexture::new(1),
+                        ..Cell::default()
+                    }],
+                )],
+                pass_order: Vec::new(),
+                revision: 0,
+                flat_2d_screen_locked: false,
+            }
+            .with_natural_pass_order(),
+            data_lanes: DataLanes::default(),
+            config,
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        assert_eq!(scene.quads.len(), 1, "no texel or buffer-ring geometry");
+        assert_eq!(scene.glyph_atlas.tiles.len(), 1);
+        assert!(scene.quads[0].atlas_uv[0] >= 0.0);
     }
 
     #[test]
@@ -1393,12 +1480,16 @@ mod tests {
         assert_eq!(overlapping[0].cell.graphic, CellGraphic::Glyph('S'));
         assert_eq!(overlapping[1].cell.graphic, CellGraphic::Glyph('M'));
         assert_eq!(separated.len(), 2);
-        assert!(separated
-            .iter()
-            .any(|cell| cell.cell.graphic == CellGraphic::Glyph('M')));
-        assert!(separated
-            .iter()
-            .any(|cell| cell.cell.graphic == CellGraphic::Glyph('S')));
+        assert!(
+            separated
+                .iter()
+                .any(|cell| cell.cell.graphic == CellGraphic::Glyph('M'))
+        );
+        assert!(
+            separated
+                .iter()
+                .any(|cell| cell.cell.graphic == CellGraphic::Glyph('S'))
+        );
     }
 
     #[test]
@@ -1727,9 +1818,11 @@ mod tests {
         // The backdrop quad is the scene's first quad, ahead of the far
         // plane's: green backdrop first, the red far-plane cell after it.
         assert!(scene.quads[0].color[1] > 0.9 && scene.quads[0].color[0] < 0.1);
-        assert!(scene.quads[1..]
-            .iter()
-            .any(|quad| quad.color[0] > 0.9 && quad.color[1] < 0.1));
+        assert!(
+            scene.quads[1..]
+                .iter()
+                .any(|quad| quad.color[0] > 0.9 && quad.color[1] < 0.1)
+        );
     }
 
     #[test]
@@ -1873,14 +1966,18 @@ mod tests {
         let cell_clip_size = cell_clip_size_for_surface(SurfaceSize::from(&state.config.window));
         // Whole-cell quads: one per glyph cell, centered on the projected cell.
         assert!(scene.quads.iter().all(|quad| quad.size == cell_clip_size));
-        assert!(scene
-            .quads
-            .iter()
-            .all(|quad| quad.center[0] >= 0.12656249 && quad.center[0] <= 0.21093749));
-        assert!(scene
-            .quads
-            .iter()
-            .all(|quad| quad.center[1] >= 0.1 && quad.center[1] <= 0.3));
+        assert!(
+            scene
+                .quads
+                .iter()
+                .all(|quad| quad.center[0] >= 0.12656249 && quad.center[0] <= 0.21093749)
+        );
+        assert!(
+            scene
+                .quads
+                .iter()
+                .all(|quad| quad.center[1] >= 0.1 && quad.center[1] <= 0.3)
+        );
     }
 
     #[test]
@@ -1913,10 +2010,12 @@ mod tests {
 
         let scene = build_window_surface_scene(&state).unwrap();
         assert!(!scene.quads.is_empty());
-        assert!(scene
-            .quads
-            .iter()
-            .all(|quad| quad.color[0] == 0.2 && quad.color[1] == 0.4 && quad.color[2] == 0.8));
+        assert!(
+            scene
+                .quads
+                .iter()
+                .all(|quad| quad.color[0] == 0.2 && quad.color[1] == 0.4 && quad.color[2] == 0.8)
+        );
         assert!(scene.quads.iter().all(|quad| quad.color[3] == 1.0));
     }
 
@@ -2028,17 +2127,19 @@ mod tests {
         let faced = BootState {
             camera: Camera::default(),
             composition: Composition {
-                groups: vec![CellGroup::from_cells(
-                    WorldPoint::origin(),
-                    [Cell {
-                        position: CellPoint { x: 0, y: 0, z: 1 },
-                        graphic: CellGraphic::Glyph('A'),
-                        color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::Two,
-                        ..Cell::default()
-                    }],
-                )
-                .with_facing(CellGroupFacing::PosX)],
+                groups: vec![
+                    CellGroup::from_cells(
+                        WorldPoint::origin(),
+                        [Cell {
+                            position: CellPoint { x: 0, y: 0, z: 1 },
+                            graphic: CellGraphic::Glyph('A'),
+                            color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
+                            weight: CellWeight::Two,
+                            ..Cell::default()
+                        }],
+                    )
+                    .with_facing(CellGroupFacing::PosX),
+                ],
                 pass_order: Vec::new(),
                 revision: 0,
                 flat_2d_screen_locked: false,
@@ -2056,11 +2157,13 @@ mod tests {
         let faced_scene = build_window_surface_scene(&faced).unwrap();
 
         assert_eq!(baseline_scene.quads.len(), faced_scene.quads.len());
-        assert!(baseline_scene
-            .quads
-            .iter()
-            .zip(faced_scene.quads.iter())
-            .all(|(baseline, faced)| faced.center[0] > baseline.center[0]));
+        assert!(
+            baseline_scene
+                .quads
+                .iter()
+                .zip(faced_scene.quads.iter())
+                .all(|(baseline, faced)| faced.center[0] > baseline.center[0])
+        );
     }
 
     #[test]
@@ -2270,15 +2373,19 @@ mod tests {
         let textured_scene = build_window_surface_scene(&textured_state).unwrap();
 
         assert!(textured_scene.quads.len() >= baseline_scene.quads.len());
-        assert!(textured_scene
-            .quads
-            .iter()
-            .filter(|quad| quad.color[3] > 0.0)
-            .all(|quad| quad.color[0] == 0.0 && quad.color[1] == 0.0 && quad.color[2] == 1.0));
-        assert!(textured_scene
-            .quads
-            .iter()
-            .all(|quad| quad.post_effect_bus.texture_code != 0));
+        assert!(
+            textured_scene
+                .quads
+                .iter()
+                .filter(|quad| quad.color[3] > 0.0)
+                .all(|quad| quad.color[0] == 0.0 && quad.color[1] == 0.0 && quad.color[2] == 1.0)
+        );
+        assert!(
+            textured_scene
+                .quads
+                .iter()
+                .all(|quad| quad.post_effect_bus.texture_code != 0)
+        );
     }
 
     #[test]
@@ -2457,14 +2564,18 @@ mod tests {
         // warble code carried per cell, debug recolor still applied per quad.
         assert_eq!(warbled_scene.quads.len(), baseline_scene.quads.len());
         assert_eq!(warbled_scene.quads.len(), 1);
-        assert!(warbled_scene
-            .quads
-            .iter()
-            .all(|quad| quad.color[0] == 1.0 && quad.color[1] == 0.0 && quad.color[2] == 0.0));
-        assert!(warbled_scene
-            .quads
-            .iter()
-            .all(|quad| quad.post_effect_bus.warble_code != 0));
+        assert!(
+            warbled_scene
+                .quads
+                .iter()
+                .all(|quad| quad.color[0] == 1.0 && quad.color[1] == 0.0 && quad.color[2] == 0.0)
+        );
+        assert!(
+            warbled_scene
+                .quads
+                .iter()
+                .all(|quad| quad.post_effect_bus.warble_code != 0)
+        );
     }
 
     #[test]
@@ -2504,10 +2615,12 @@ mod tests {
         assert!(!scene.quads.is_empty());
         assert!(scene.indexed_color_enabled);
         assert_eq!(scene.indexed_color_palette, palette);
-        assert!(scene
-            .quads
-            .iter()
-            .any(|quad| quad.post_effect_bus.texture_code != 0));
+        assert!(
+            scene
+                .quads
+                .iter()
+                .any(|quad| quad.post_effect_bus.texture_code != 0)
+        );
     }
 
     #[test]

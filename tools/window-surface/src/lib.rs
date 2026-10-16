@@ -10,8 +10,8 @@ use std::{
 use anyhow::{Context, Result};
 use bytemuck::{Pod, Zeroable};
 use thaum_renderer_domain::{
-    texture_post_effect_seed_step, texture_post_effect_texel_uv_size,
-    warble_post_effect_breath_phase, POST_EFFECTS_SHADER,
+    POST_EFFECTS_SHADER, texture_post_effect_seed_step, texture_post_effect_texel_uv_size,
+    warble_post_effect_breath_phase,
 };
 use wgpu::{
     CompositeAlphaMode, CurrentSurfaceTexture, PresentMode, SurfaceColorSpace, TextureFormat,
@@ -183,17 +183,19 @@ impl SurfaceQuad {
     }
 }
 
-/// One thresholded glyph tile for the GPU atlas. Tiles are uniform-sized
-/// (12×16 for the thaum typegrid) and laid out row-major by the consumer.
+/// One RGBA cell tile for the GPU atlas. Tiles are uniform-sized (12×16 for
+/// the thaum typegrid) and laid out row-major by the consumer. Glyph tiles use
+/// white RGB plus coverage alpha; sprite tiles carry their resolved RGBA.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlyphAtlasTile {
     pub glyph: u32,
     pub weight_index: u32,
-    pub alpha: Arc<Vec<u8>>,
+    pub rgba: Arc<Vec<u8>>,
 }
 
-/// Glyph atlas carried by the scene. Consumers rasterize on CPU once per
-/// distinct tile and the surface uploads tiles only when the key set changes.
+/// Cell atlas carried by the scene. Consumers rasterize glyphs and resolve
+/// sprites once per distinct tile; the surface uploads tiles only when their
+/// contents change.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct GlyphAtlasSceneData {
     pub tile_width: u32,
@@ -330,7 +332,7 @@ pub fn run_window_surface_with_dynamic_frame_provider(
 pub fn run_window_surface_with_frame_provider(
     config: WindowSurfaceConfig,
     mut scene_provider: impl FnMut(WindowSurfaceFrameContext) -> Result<SharedWindowSurfaceScene>
-        + 'static,
+    + 'static,
 ) -> Result<()> {
     let internal_render_scale = config.internal_render_scale;
     run_window_surface_with_dynamic_frame_provider(config, move |frame| {
@@ -976,7 +978,7 @@ impl QuadDraw {
         let rows = atlas.rows.max(1) as usize;
         let tile_width = atlas.tile_width.max(1) as usize;
         let tile_height = atlas.tile_height.max(1) as usize;
-        let tile_bytes = tile_width * tile_height;
+        let tile_bytes = tile_width * tile_height * 4;
         let mut data = vec![0u8; columns * rows * tile_bytes];
         // Tiles go to their strided slot: the buffer has one row per texture
         // row (bytes_per_row = columns * tile_width), so a flat per-tile
@@ -985,11 +987,12 @@ impl QuadDraw {
             let column = index % columns;
             let row = index / columns;
             for tile_row in 0..tile_height {
-                let destination =
-                    (row * tile_height + tile_row) * columns * tile_width + column * tile_width;
-                let source = tile_row * tile_width;
-                data[destination..destination + tile_width]
-                    .copy_from_slice(&tile.alpha[source..source + tile_width]);
+                let destination = ((row * tile_height + tile_row) * columns * tile_width
+                    + column * tile_width)
+                    * 4;
+                let source = tile_row * tile_width * 4;
+                data[destination..destination + tile_width * 4]
+                    .copy_from_slice(&tile.rgba[source..source + tile_width * 4]);
             }
         }
         queue.write_texture(
@@ -1002,7 +1005,7 @@ impl QuadDraw {
             &data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some((columns * tile_width) as u32),
+                bytes_per_row: Some((columns * tile_width * 4) as u32),
                 rows_per_image: Some((rows * tile_height) as u32),
             },
             wgpu::Extent3d {
@@ -1014,17 +1017,7 @@ impl QuadDraw {
     }
 
     fn update_atlas(&mut self, queue: &wgpu::Queue, atlas: &GlyphAtlasSceneData) {
-        let keys_match = self.uploaded_atlas.tiles.len() == atlas.tiles.len()
-            && self
-                .uploaded_atlas
-                .tiles
-                .iter()
-                .zip(atlas.tiles.iter())
-                .all(|(uploaded, incoming)| {
-                    uploaded.glyph == incoming.glyph
-                        && uploaded.weight_index == incoming.weight_index
-                });
-        if keys_match {
+        if self.uploaded_atlas == *atlas {
             return;
         }
 
@@ -1291,7 +1284,7 @@ impl QuadDraw {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: TextureFormat::R8Unorm,
+            format: TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -2201,9 +2194,8 @@ fn fs_main(input: VertexOutput) -> FragmentOutput {
     // aux_data.xy is the interpolated cell-local uv (v=0 at tile top).
     if (input.atlas_uv.x >= 0.0) {
         let atlas_uv = input.atlas_uv.xy + input.aux_data.xy * input.atlas_uv.zw;
-        let coverage = textureSampleLevel(atlas_texture, atlas_sampler, atlas_uv, 0.0).r;
-        let visible = select(0.0, 1.0, coverage >= 0.5);
-        color = vec4<f32>(input.color.rgb, input.color.a * visible);
+        let atlas_color = textureSampleLevel(atlas_texture, atlas_sampler, atlas_uv, 0.0);
+        color = vec4<f32>(input.color.rgb * atlas_color.rgb, input.color.a * atlas_color.a);
     }
     output.color = color;
     output.bus = input.bus;

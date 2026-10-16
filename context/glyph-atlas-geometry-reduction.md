@@ -1,6 +1,6 @@
 # Glyph atlas geometry reduction (design note)
 
-Status: agreed direction (J, 2026 session), phase A not yet implemented.
+Status: phases A and B implemented (J, 2026 session); per-texel legacy helpers remain only for isolated legacy tests pending phase C cleanup.
 
 ## Problem
 
@@ -47,18 +47,17 @@ This preserves the post-pass effects with **zero extra geometry**:
 
 ## Phases
 
-1. **A — glyph atlas**: upload glyph tiles (char, weight) once to a GPU atlas
-   (all tiles share the 12×16 shape → uniform grid). Boot emits one quad per
-   glyph cell carrying the tile's atlas origin. Ring generation removed for
-   glyphs. `GlyphFontSet` stays the CPU raster source.
-2. **B — sprites**: sprites already have real PNG atlas textures
-   (`SpriteAtlasSet`); sample them directly instead of re-rasterizing into
-   texel quads. Same whole-cell pattern.
+1. **A — glyph atlas — complete**: glyph tiles enter the shared 12×16 GPU
+   RGBA atlas as white RGB plus thresholded alpha; boot emits one whole-cell
+   quad per glyph.
+2. **B — sprites — complete**: boot resolves each distinct sprite tile's
+   material/shader color field once, thresholds alpha exactly as the prior
+   path did, stores it as RGBA in the same atlas, and emits one whole-cell
+   quad. Texture and warble retain their bus data without an auxiliary ring.
 3. **C — cleanup**: delete `raster_to_surface_quads` /
    `sprite_raster_to_surface_quads` per-texel paths and
-   `push_texture_buffer_ring`; rework boot tests that assert texel-quad
-   semantics (12×16 aspect, weight sin, flat color, debug post effects) to
-   whole-cell + atlas semantics.
+   `push_texture_buffer_ring`; rework their legacy tests to whole-cell atlas
+   semantics.
 
 ## Perf expectation
 
