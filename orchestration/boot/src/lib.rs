@@ -42,6 +42,13 @@ const CELL_HEIGHT_CLIP_SPACE: f32 = 0.2;
 const GLYPH_BINARY_ALPHA_THRESHOLD: u8 = 0x80;
 const SPRITE_BINARY_ALPHA_THRESHOLD: u8 = 0x80;
 
+/// `BootConfig::glyph_spriteset_id`'s reserved sentinel value: no sprite
+/// batch override, so a cell renders through its typeface's own glyph
+/// rasterization only. Never returned by `list_available_glyph_spriteset_ids`
+/// (a UI-layer choice, project 04n3fq3e phase-9), so a real spriteset id can
+/// never collide with it.
+pub const NO_SPRITESET_OVERRIDE_ID: &str = "none";
+
 #[derive(Debug, Clone)]
 pub struct BootConfig {
     pub asset_root: PathBuf,
@@ -132,11 +139,13 @@ impl RendererAssetCache {
                 .is_some_and(|previous| previous.cell_profile != selection.cell_profile);
 
         if hot_reload || identity_changed || !already_loaded {
+            let spriteset_id = (selection.spriteset_id != NO_SPRITESET_OVERRIDE_ID)
+                .then(|| selection.spriteset_id.as_str());
             let loaded = GlyphFontSet::load_selected_from_asset_root(
                 asset_root,
                 &selection.typeface_id,
                 selection.cell_profile,
-                Some(&selection.spriteset_id),
+                spriteset_id,
             )
             .map_err(anyhow::Error::msg)?;
             *self.glyph_fonts.borrow_mut() = Some(loaded);
@@ -1262,6 +1271,28 @@ mod tests {
         assert!(cache
             .ensure_glyph_fonts(&asset_root, changed_identity, false)
             .is_err());
+    }
+
+    #[test]
+    fn no_spriteset_override_sentinel_loads_without_a_spriteset_lookup() {
+        let asset_root = test_boot_asset_root("glyph-cache-no-spriteset-override");
+        stage_single_weight_thaum_mono(&asset_root);
+
+        let cache = RendererAssetCache::default();
+        let selection = GlyphFontSelection {
+            typeface_id: "thaum-mono".to_owned(),
+            cell_profile: GlyphCellProfile::legacy_thaum_mono(),
+            spriteset_id: NO_SPRITESET_OVERRIDE_ID.to_owned(),
+        };
+
+        cache
+            .ensure_glyph_fonts(&asset_root, selection, false)
+            .unwrap();
+
+        assert_eq!(
+            cache.glyph_fonts().as_ref().unwrap().native_weight_count(),
+            1
+        );
     }
 
     #[test]
