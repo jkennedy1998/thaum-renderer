@@ -109,15 +109,29 @@ struct RendererAssetCache {
 }
 
 impl RendererAssetCache {
+    /// A pure cell-profile nudge (same typeface, same spriteset) refits
+    /// already-loaded font faces in memory instead of re-reading font files;
+    /// a typeface or spriteset change always does a full reload (project
+    /// 04n3fq3e phase-9: a live width/height drag must not re-read files
+    /// every frame).
     fn ensure_glyph_fonts(
         &self,
         asset_root: &Path,
         selection: GlyphFontSelection,
         hot_reload: bool,
     ) -> Result<()> {
-        let selection_changed = self.glyph_selection.borrow().as_ref() != Some(&selection);
+        let previous = self.glyph_selection.borrow().clone();
         let already_loaded = self.glyph_fonts.borrow().is_some();
-        if hot_reload || selection_changed || !already_loaded {
+        let identity_changed = previous.as_ref().is_none_or(|previous| {
+            previous.typeface_id != selection.typeface_id
+                || previous.spriteset_id != selection.spriteset_id
+        });
+        let profile_only_changed = !identity_changed
+            && previous
+                .as_ref()
+                .is_some_and(|previous| previous.cell_profile != selection.cell_profile);
+
+        if hot_reload || identity_changed || !already_loaded {
             let loaded = GlyphFontSet::load_selected_from_asset_root(
                 asset_root,
                 &selection.typeface_id,
@@ -126,6 +140,16 @@ impl RendererAssetCache {
             )
             .map_err(anyhow::Error::msg)?;
             *self.glyph_fonts.borrow_mut() = Some(loaded);
+            *self.glyph_selection.borrow_mut() = Some(selection);
+        } else if profile_only_changed {
+            let refit = self
+                .glyph_fonts
+                .borrow()
+                .as_ref()
+                .map(|fonts| fonts.with_cell_profile(selection.cell_profile));
+            if let Some(refit) = refit {
+                *self.glyph_fonts.borrow_mut() = Some(refit);
+            }
             *self.glyph_selection.borrow_mut() = Some(selection);
         }
         Ok(())
@@ -1089,6 +1113,10 @@ fn post_effect_gate_id_for_world_point(world: WorldPoint) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
     use thaum_renderer_domain::{
         CELL_SHADER_LIGHT_MINUS_2, CELL_SHADER_LIGHT_PLUS_2, CELL_SHADER_TEXTURE_SHIMMER,
         CELL_SHADER_VIVID_FLASH, CELL_SHADER_VIVID_FLASH_ALT, CELL_SHADER_WARBLE_DIAGONAL,
@@ -1104,6 +1132,40 @@ mod tests {
         }
 
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../renderer-assets")
+    }
+
+    fn test_boot_asset_root(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("thaum-renderer-boot-{label}-{unique}"))
+    }
+
+    /// Stages a one-weight thaum-mono declaration under `asset_root`, backed
+    /// by a real font file copied from the staged repo assets (fontdue needs
+    /// valid font bytes, not a placeholder).
+    fn stage_single_weight_thaum_mono(asset_root: &Path) {
+        let typefaces_dir = asset_root.join("typefaces");
+        fs::create_dir_all(&typefaces_dir).unwrap();
+        fs::write(
+            typefaces_dir.join("thaum-mono.json"),
+            r#"{
+                "format": "thaum-typeface-declaration",
+                "version": 1,
+                "spacing": "monospace",
+                "weights": ["glyph-fonts/thaum-mono/ThaumMono-W80.ttf"]
+            }"#,
+        )
+        .unwrap();
+
+        let font_dir = asset_root.join("glyph-fonts/thaum-mono");
+        fs::create_dir_all(&font_dir).unwrap();
+        fs::copy(
+            staged_asset_root().join("glyph-fonts/thaum-mono/ThaumMono-W80.ttf"),
+            font_dir.join("ThaumMono-W80.ttf"),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1156,6 +1218,50 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![0, 1, 2, 3]
         );
+    }
+
+    #[test]
+    fn glyph_cache_reuses_loaded_faces_on_a_cell_profile_only_change() {
+        let asset_root = test_boot_asset_root("glyph-cache-profile-nudge");
+        stage_single_weight_thaum_mono(&asset_root);
+
+        let cache = RendererAssetCache::default();
+        let base_selection = GlyphFontSelection {
+            typeface_id: "thaum-mono".to_owned(),
+            cell_profile: GlyphCellProfile::legacy_thaum_mono(),
+            spriteset_id: "monothaum-atlas-v3".to_owned(),
+        };
+        cache
+            .ensure_glyph_fonts(&asset_root, base_selection.clone(), false)
+            .unwrap();
+
+        // Delete the font file a reload would need; a cell-profile-only
+        // nudge must never touch it.
+        fs::remove_file(asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W80.ttf")).unwrap();
+
+        let nudged_selection = GlyphFontSelection {
+            cell_profile: GlyphCellProfile::new(17, 23).unwrap(),
+            ..base_selection.clone()
+        };
+        cache
+            .ensure_glyph_fonts(&asset_root, nudged_selection, false)
+            .unwrap();
+        assert_eq!(
+            cache.glyph_fonts().as_ref().unwrap().cell_profile().width(),
+            17
+        );
+
+        // A spriteset identity change still requires re-resolving the
+        // typeface, so it now fails with the font file gone -- proving this
+        // really is a distinct, reload-triggering path rather than always
+        // reusing the cached set.
+        let changed_identity = GlyphFontSelection {
+            spriteset_id: "none".to_owned(),
+            ..base_selection
+        };
+        assert!(cache
+            .ensure_glyph_fonts(&asset_root, changed_identity, false)
+            .is_err());
     }
 
     #[test]
