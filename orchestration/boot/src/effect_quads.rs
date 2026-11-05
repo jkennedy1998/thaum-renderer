@@ -1,7 +1,7 @@
 use anyhow::Result;
 use thaum_renderer_domain::{CellTexture, CellWarble, SpriteTileRaster, WorldPoint};
 use thaum_renderer_window_surface::{
-    SURFACE_QUAD_NO_ATLAS, SurfaceQuad, SurfaceQuadPostEffectBus, SurfaceSize,
+    SurfaceQuad, SurfaceQuadPostEffectBus, SurfaceSize, SURFACE_QUAD_NO_ATLAS,
 };
 
 use crate::{CELL_HEIGHT_CLIP_SPACE, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
@@ -570,11 +570,22 @@ pub(crate) fn raster_to_surface_quads(
 }
 
 pub(crate) fn cell_clip_size_for_surface(surface_size: SurfaceSize) -> [f32; 2] {
+    cell_clip_size_for_surface_with_dimensions(surface_size, GLYPH_TILE_WIDTH, GLYPH_TILE_HEIGHT)
+}
+
+/// The typegrid cell footprint for a resolved render-cell profile. The public
+/// legacy helper above remains for callers that have not yet selected a file
+/// display profile; boot itself uses this profile-aware form.
+pub(crate) fn cell_clip_size_for_surface_with_dimensions(
+    surface_size: SurfaceSize,
+    cell_width_pixels: usize,
+    cell_height_pixels: usize,
+) -> [f32; 2] {
     let surface_width = surface_size.width.max(1) as f32;
     let surface_height = surface_size.height.max(1) as f32;
     let pixel_aspect_compensation = surface_height / surface_width;
     let cell_width = CELL_HEIGHT_CLIP_SPACE
-        * (GLYPH_TILE_WIDTH as f32 / GLYPH_TILE_HEIGHT as f32)
+        * (cell_width_pixels.max(1) as f32 / cell_height_pixels.max(1) as f32)
         * pixel_aspect_compensation;
 
     [cell_width, CELL_HEIGHT_CLIP_SPACE]
@@ -601,6 +612,18 @@ mod tests {
     }
 
     #[test]
+    fn profile_aware_clip_size_tracks_the_active_cell_ratio() {
+        let surface = SurfaceSize {
+            width: 1280,
+            height: 720,
+        };
+        let legacy = cell_clip_size_for_surface(surface);
+        let wide = cell_clip_size_for_surface_with_dimensions(surface, 24, 16);
+        assert_eq!(wide[1], legacy[1]);
+        assert!((wide[0] - legacy[0] * 2.0).abs() < 1e-6);
+    }
+
+    #[test]
     fn textured_glyphs_emit_a_texture_buffer_around_visible_texels() {
         let quads = raster_to_surface_quads(
             &[255, 0, 255, 0],
@@ -621,11 +644,9 @@ mod tests {
 
         assert_eq!(quads.len(), 12);
         assert_eq!(quads.iter().filter(|quad| quad.color[3] > 0.0).count(), 2);
-        assert!(
-            quads
-                .iter()
-                .all(|quad| quad.post_effect_bus.texture_code == 1)
-        );
+        assert!(quads
+            .iter()
+            .all(|quad| quad.post_effect_bus.texture_code == 1));
     }
 
     #[test]
@@ -710,11 +731,9 @@ mod tests {
 
         assert_eq!(quads.len(), 12);
         assert_eq!(quads.iter().filter(|quad| quad.color[3] > 0.0).count(), 2);
-        assert!(
-            quads
-                .iter()
-                .all(|quad| quad.post_effect_bus.warble_code == 1)
-        );
+        assert!(quads
+            .iter()
+            .all(|quad| quad.post_effect_bus.warble_code == 1));
     }
 
     #[test]

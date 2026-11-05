@@ -9,7 +9,8 @@ use anyhow::{Context, Result};
 use thaum_renderer_breath_fallback_clock::{FALLBACK_BREATH_TICK_DURATION, FallbackBreathClock};
 use thaum_renderer_domain::{
     Camera, CameraProjectedPoint, Cell, CellGroupIntakeBehavior, CellPoint, Composition, DataLanes,
-    FacingRotation, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH, GlyphFontSet, IndexColorClampEffect,
+    FacingRotation, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH, GlyphCellProfile, GlyphFontSet,
+    IndexColorClampEffect, CellWeight,
     IndexedColor, SideGraphic, SidedGraphic, SpriteAtlasSet, SpriteColorChannel, SpriteTileRaster,
     WorldPoint, apply_debug_depth_post_effect_to_rgba, apply_debug_texture_post_effect_to_rgba,
     apply_debug_warble_post_effect_to_rgba, camera_rotation_for_camera,
@@ -32,12 +33,10 @@ mod scene_cache;
 use scene_cache::BootSceneCache;
 
 use effect_quads::{
-    GlyphAtlasPlacement, cell_clip_size_for_surface, glyph_cell_to_surface_quad,
-    sprite_cell_to_surface_quad,
+    GlyphAtlasPlacement, cell_clip_size_for_surface, cell_clip_size_for_surface_with_dimensions,
+    glyph_cell_to_surface_quad, sprite_cell_to_surface_quad,
 };
 
-#[cfg(test)]
-use thaum_renderer_domain::glyph_font_path;
 
 const CELL_HEIGHT_CLIP_SPACE: f32 = 0.2;
 const GLYPH_BINARY_ALPHA_THRESHOLD: u8 = 0x80;
@@ -46,6 +45,11 @@ const SPRITE_BINARY_ALPHA_THRESHOLD: u8 = 0x80;
 #[derive(Debug, Clone)]
 pub struct BootConfig {
     pub asset_root: PathBuf,
+    /// The four-axis file profile reaches boot as three glyph-specific fields:
+    /// the cell footprint, named typeface declaration, and named spriteset.
+    pub glyph_cell_profile: GlyphCellProfile,
+    pub glyph_typeface_id: String,
+    pub glyph_spriteset_id: String,
     pub hot_reload: bool,
     pub index_color_clamp: IndexColorClampEffect,
     pub depth_of_field_post_effect: bool,
@@ -63,6 +67,9 @@ impl Default for BootConfig {
     fn default() -> Self {
         Self {
             asset_root: PathBuf::from("."),
+            glyph_cell_profile: GlyphCellProfile::legacy_thaum_mono(),
+            glyph_typeface_id: "thaum-mono".to_owned(),
+            glyph_spriteset_id: "monothaum-atlas-v3".to_owned(),
             hot_reload: false,
             index_color_clamp: IndexColorClampEffect::default(),
             depth_of_field_post_effect: false,
@@ -87,19 +94,39 @@ pub struct BootState {
     pub uses_fallback_breath: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GlyphFontSelection {
+    typeface_id: String,
+    cell_profile: GlyphCellProfile,
+    spriteset_id: String,
+}
+
 #[derive(Default)]
 struct RendererAssetCache {
     glyph_fonts: RefCell<Option<GlyphFontSet>>,
+    glyph_selection: RefCell<Option<GlyphFontSelection>>,
     sprite_atlases: RefCell<Option<SpriteAtlasSet>>,
 }
 
 impl RendererAssetCache {
-    fn ensure_glyph_fonts(&self, asset_root: &Path, hot_reload: bool) -> Result<()> {
+    fn ensure_glyph_fonts(
+        &self,
+        asset_root: &Path,
+        selection: GlyphFontSelection,
+        hot_reload: bool,
+    ) -> Result<()> {
+        let selection_changed = self.glyph_selection.borrow().as_ref() != Some(&selection);
         let already_loaded = self.glyph_fonts.borrow().is_some();
-        if hot_reload || !already_loaded {
-            let loaded =
-                GlyphFontSet::load_from_asset_root(asset_root).map_err(anyhow::Error::msg)?;
+        if hot_reload || selection_changed || !already_loaded {
+            let loaded = GlyphFontSet::load_selected_from_asset_root(
+                asset_root,
+                &selection.typeface_id,
+                selection.cell_profile,
+                Some(&selection.spriteset_id),
+            )
+            .map_err(anyhow::Error::msg)?;
             *self.glyph_fonts.borrow_mut() = Some(loaded);
+            *self.glyph_selection.borrow_mut() = Some(selection);
         }
         Ok(())
     }
@@ -279,7 +306,15 @@ fn build_window_surface_scene_for_surface_with_cache(
         ..WindowSurfaceScene::default()
     };
     if composition_contains_visible_glyphs(&state.composition) {
-        asset_cache.ensure_glyph_fonts(&state.config.asset_root, state.config.hot_reload)?;
+        asset_cache.ensure_glyph_fonts(
+            &state.config.asset_root,
+            GlyphFontSelection {
+                typeface_id: state.config.glyph_typeface_id.clone(),
+                cell_profile: state.config.glyph_cell_profile,
+                spriteset_id: state.config.glyph_spriteset_id.clone(),
+            },
+            state.config.hot_reload,
+        )?;
     }
     if composition_contains_visible_sprites(&state.composition) {
         asset_cache.ensure_sprite_atlases(&state.config.asset_root, state.config.hot_reload);
@@ -287,7 +322,12 @@ fn build_window_surface_scene_for_surface_with_cache(
     let glyph_fonts_borrow = asset_cache.glyph_fonts();
     let glyph_fonts = glyph_fonts_borrow.as_ref();
     let mut sprite_atlases_borrow = asset_cache.sprite_atlases();
-    let base_cell_clip_size = cell_clip_size_for_surface(surface_size);
+    let base_cell_clip_size = glyph_fonts
+        .map(|fonts| {
+            let profile = fonts.cell_profile();
+            cell_clip_size_for_surface_with_dimensions(surface_size, profile.width(), profile.height())
+        })
+        .unwrap_or_else(|| cell_clip_size_for_surface(surface_size));
     let cell_clip_size = [
         base_cell_clip_size[0] * state.camera.zoom,
         base_cell_clip_size[1] * state.camera.zoom,
@@ -624,7 +664,12 @@ fn project_cell_to_surface_quads(
                 &projected_cell.cell.shader_stack,
             )
             .map_err(anyhow::Error::msg)?;
-        let rgba = sprite_raster_to_atlas_rgba(&raster, SPRITE_BINARY_ALPHA_THRESHOLD);
+        let rgba = sprite_raster_to_atlas_rgba(
+            &raster,
+            SPRITE_BINARY_ALPHA_THRESHOLD,
+            glyph_placement.data.tile_width.max(1) as usize,
+            glyph_placement.data.tile_height.max(1) as usize,
+        );
         let mut quad = sprite_cell_to_surface_quad(
             glyph_placement,
             &rgba,
@@ -864,14 +909,15 @@ fn build_glyph_atlas(
         if !shaded_graphic.is_visible() {
             continue;
         }
+        let max_weight_index = glyph_fonts
+            .map(|fonts| fonts.native_weight_count().saturating_sub(1).min(u8::MAX as usize) as u8)
+            .unwrap_or(CellWeight::THREE.as_index() as u8);
         let shaded_weight = resolve_shaded_weight(
             projected_cell.cell.weight,
             &projected_cell.cell.shader_stack,
             projected_cell.world,
             state.data_lanes,
-            // TODO(project 04n3fq3e phase-7): source from the active resolved
-            // typeface's native weight count instead of this literal.
-            3,
+            max_weight_index,
         );
         if let Some(glyph) = shaded_graphic.glyph_char() {
             keys.insert((glyph, shaded_weight));
@@ -887,8 +933,16 @@ fn build_glyph_atlas(
                     &projected_cell.cell.shader_stack,
                 )
                 .map_err(anyhow::Error::msg)?;
+            let profile = glyph_fonts
+                .map(|fonts| fonts.cell_profile())
+                .unwrap_or_else(thaum_renderer_domain::GlyphCellProfile::legacy_thaum_mono);
             sprite_tiles.insert(
-                sprite_raster_to_atlas_rgba(&raster, SPRITE_BINARY_ALPHA_THRESHOLD),
+                sprite_raster_to_atlas_rgba(
+                    &raster,
+                    SPRITE_BINARY_ALPHA_THRESHOLD,
+                    profile.width(),
+                    profile.height(),
+                ),
                 (),
             );
         }
@@ -944,9 +998,12 @@ fn build_glyph_atlas(
         placement.sprite_slots.insert(rgba, slot);
     }
 
+    let profile = glyph_fonts
+        .map(|fonts| fonts.cell_profile())
+        .unwrap_or_else(thaum_renderer_domain::GlyphCellProfile::legacy_thaum_mono);
     let atlas = GlyphAtlasSceneData {
-        tile_width: GLYPH_TILE_WIDTH as u32,
-        tile_height: GLYPH_TILE_HEIGHT as u32,
+        tile_width: profile.width() as u32,
+        tile_height: profile.height() as u32,
         columns: columns as u32,
         rows: rows as u32,
         tiles,
@@ -957,8 +1014,13 @@ fn build_glyph_atlas(
 
 /// Matches the previous sprite threshold behavior while moving the resolved
 /// color field to one atlas tile sampled by a whole-cell quad.
-fn sprite_raster_to_atlas_rgba(raster: &SpriteTileRaster, threshold: u8) -> Vec<u8> {
-    raster
+fn sprite_raster_to_atlas_rgba(
+    raster: &SpriteTileRaster,
+    threshold: u8,
+    target_width: usize,
+    target_height: usize,
+) -> Vec<u8> {
+    let source_rgba: Vec<u8> = raster
         .colors
         .iter()
         .flat_map(|color| {
@@ -976,7 +1038,39 @@ fn sprite_raster_to_atlas_rgba(raster: &SpriteTileRaster, threshold: u8) -> Vec<
                 alpha,
             ]
         })
-        .collect()
+        .collect();
+    stretch_rgba_to_cell_profile(
+        &source_rgba,
+        raster.width,
+        raster.height,
+        target_width,
+        target_height,
+    )
+}
+
+/// Stretch the selected sprite raster into the active render-cell footprint.
+/// Sprite-ratio mismatch is intentionally valid: unlike proportional glyphs,
+/// sprites scale rather than clip.
+fn stretch_rgba_to_cell_profile(
+    source_rgba: &[u8],
+    source_width: usize,
+    source_height: usize,
+    target_width: usize,
+    target_height: usize,
+) -> Vec<u8> {
+    assert_eq!(source_rgba.len(), source_width * source_height * 4);
+    let mut target = vec![0; target_width * target_height * 4];
+    for y in 0..target_height {
+        let source_y = y * source_height / target_height;
+        for x in 0..target_width {
+            let source_x = x * source_width / target_width;
+            let source_index = (source_y * source_width + source_x) * 4;
+            let target_index = (y * target_width + x) * 4;
+            target[target_index..target_index + 4]
+                .copy_from_slice(&source_rgba[source_index..source_index + 4]);
+        }
+    }
+    target
 }
 
 fn post_effect_gate_id_for_world_point(world: WorldPoint) -> u16 {
@@ -1017,6 +1111,51 @@ mod tests {
         let state = boot_renderer(BootConfig::default()).unwrap();
         assert_eq!(state.data_lanes.breath(), Some(0));
         assert!(state.uses_fallback_breath);
+    }
+
+    #[test]
+    fn selected_jetbrains_mono_profile_reloads_the_boot_glyph_atlas() {
+        // JetBrains Mono is deliberately an external system/user font, never
+        // bundled in the repository. Keep ordinary contributor test runs
+        // portable while allowing this installed-font proof on its host.
+        if !Path::new("/home/j/.local/share/fonts/JetBrainsMono-2.304/fonts/ttf/JetBrainsMono-Regular.ttf").is_file() {
+            return;
+        }
+        let state = BootState {
+            camera: Camera::default(),
+            composition: Composition::ordered(vec![CellGroup::from_cells(
+                WorldPoint::origin(),
+                [
+                    Cell { position: CellPoint { x: 0, y: 0, z: 0 }, graphic: CellGraphic::Glyph('J'), weight: CellWeight::ZERO, ..Cell::default() },
+                    Cell { position: CellPoint { x: 1, y: 0, z: 0 }, graphic: CellGraphic::Glyph('J'), weight: CellWeight::ONE, ..Cell::default() },
+                    Cell { position: CellPoint { x: 2, y: 0, z: 0 }, graphic: CellGraphic::Glyph('J'), weight: CellWeight::TWO, ..Cell::default() },
+                    Cell { position: CellPoint { x: 3, y: 0, z: 0 }, graphic: CellGraphic::Glyph('J'), weight: CellWeight::THREE, ..Cell::default() },
+                ],
+            )]),
+            data_lanes: DataLanes::default(),
+            config: BootConfig {
+                asset_root: staged_asset_root(),
+                glyph_cell_profile: GlyphCellProfile::new(20, 24).unwrap(),
+                glyph_typeface_id: "jetbrains-mono".to_owned(),
+                glyph_spriteset_id: "monothaum-atlas-v3".to_owned(),
+                ..BootConfig::default()
+            },
+            uses_fallback_breath: false,
+        };
+
+        let scene = build_window_surface_scene(&state).unwrap();
+        assert_eq!(scene.glyph_atlas.tile_width, 20);
+        assert_eq!(scene.glyph_atlas.tile_height, 24);
+        assert_eq!(scene.glyph_atlas.tiles.len(), 4);
+        assert_eq!(
+            scene
+                .glyph_atlas
+                .tiles
+                .iter()
+                .map(|tile| tile.weight_index)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
     }
 
     #[test]
@@ -1832,25 +1971,16 @@ mod tests {
     }
 
     #[test]
-    fn glyph_font_weight_files_map_from_cell_weight() {
-        let asset_root = staged_asset_root();
-
-        assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::ZERO),
-            asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W80.ttf")
-        );
-        assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::ONE),
-            asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W160.ttf")
-        );
-        assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::TWO),
-            asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W320.ttf")
-        );
-        assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::THREE),
-            asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W640.ttf")
-        );
+    fn ratio_mismatched_sprite_rgba_stretches_to_the_active_cell_profile() {
+        let source = [255, 0, 0, 255, 0, 0, 255, 255];
+        let stretched = stretch_rgba_to_cell_profile(&source, 2, 1, 4, 2);
+        assert_eq!(stretched.len(), 4 * 2 * 4);
+        for row in stretched.chunks_exact(4 * 4) {
+            assert_eq!(&row[0..4], &[255, 0, 0, 255]);
+            assert_eq!(&row[4..8], &[255, 0, 0, 255]);
+            assert_eq!(&row[8..12], &[0, 0, 255, 255]);
+            assert_eq!(&row[12..16], &[0, 0, 255, 255]);
+        }
     }
 
     #[test]

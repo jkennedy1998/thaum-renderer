@@ -9,6 +9,7 @@ Own the minimal boot seam for standing up thaum-renderer usage when a reusable r
 - boot-time intake of the consumer-chosen renderer asset root
 - boot-time intake of optional hot-reload mode
 - boot-time intake of renderer presentation target setup when the renderer is being asked to open or bind to one
+- resolved-glyph-profile atlas assembly: `BootConfig` carries the selected typeface id, cell footprint, and spriteset id; native weight count and footprint drive atlas dimensions and typegrid aspect, and a changed selection reloads the cached font set; selected sprite rasters stretch into that footprint
 - re-exporting `tools/window-surface`'s per-frame input/frame-context shape and a camera-zoom-aware `cell_clip_size_for_state` helper, so a consumer can convert a clip-space click into a world/cell coordinate without depending on `tools/window-surface` directly
 
 ## does not own
@@ -46,7 +47,7 @@ Own the minimal boot seam for standing up thaum-renderer usage when a reusable r
 ## tests
 - `cargo test -p thaum-renderer-boot`
   - light
-  - 46+ proofs covering staging, projection, sided/facing resolution, and post-effect application against real glyph tiles, including light-band shader shifting (2026-09-19) actually reaching the drawn glyph color, not just the staged cell
+  - 54 proofs covering staging, selected-JetBrains-Mono boot atlas loading, profile-aware atlas/typegrid sizing, sprite stretch-fit, projection, sided/facing resolution, and post-effect application against real glyph tiles, including light-band shader shifting (2026-09-19) actually reaching the drawn glyph color, not just the staged cell
 
 ## data
 - none
@@ -59,4 +60,4 @@ Own the minimal boot seam for standing up thaum-renderer usage when a reusable r
 - the consuming program should remain the owner of boot timing, selected scene inputs, and broader process lifecycle
 - if boot code exists here, it should stay thin and focused on renderer bring-up only
 - the sprite-atlas pre-check must count Sided cells whose declared looks include Sprites: sided resolution happens at staging, after the pre-check, so a Sprite-only check strands staging with no atlases (mole crash, 2026-09-15)
-- visible glyphs and sprites share a GPU RGBA cell atlas: boot resolves each distinct sprite raster to a thresholded tile, emits one whole-cell atlas quad, and leaves texture/warble bus fields continuous over that rectangle — never restore sprite texel or buffer-ring geometry
+- visible glyphs and sprites share a GPU RGBA cell atlas: boot resolves each distinct sprite raster to a thresholded tile stretched to the resolved active cell profile, emits one whole-cell atlas quad, and leaves texture/warble bus fields continuous over that rectangle — never restore sprite texel or buffer-ring geometry
