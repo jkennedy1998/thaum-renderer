@@ -6,6 +6,8 @@ pub mod glyph_graphic;
 pub mod sided_intake;
 #[path = "sprite/sprite_graphic.rs"]
 pub mod sprite_graphic;
+#[path = "typeface-intake/typeface_intake.rs"]
+pub mod typeface_intake;
 
 use std::path::{Path, PathBuf};
 
@@ -20,6 +22,11 @@ pub use sided_intake::{
     SIDED_DECLARATION_FORMAT_TAG, SIDED_DECLARATION_ROLL_VOCABULARY, SIDED_DECLARATION_VERSION,
 };
 pub use sprite_graphic::{SpriteAtlasSet, SpriteTileRaster};
+pub use typeface_intake::{
+    load_typeface_declaration, parse_typeface_declaration, TypefaceDeclaration,
+    TypefaceDeclarationError, TypefaceSpacing, TYPEFACE_DECLARATION_FORMAT_TAG,
+    TYPEFACE_DECLARATION_VERSION,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CellGraphic {

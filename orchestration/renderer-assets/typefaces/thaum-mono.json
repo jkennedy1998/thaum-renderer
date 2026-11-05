@@ -1,0 +1,11 @@
+{
+  "format": "thaum-typeface-declaration",
+  "version": 1,
+  "spacing": "monospace",
+  "weights": [
+    "glyph-fonts/thaum-mono/ThaumMono-W80.ttf",
+    "glyph-fonts/thaum-mono/ThaumMono-W160.ttf",
+    "glyph-fonts/thaum-mono/ThaumMono-W320.ttf",
+    "glyph-fonts/thaum-mono/ThaumMono-W640.ttf"
+  ]
+}
