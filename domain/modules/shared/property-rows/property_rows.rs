@@ -52,6 +52,17 @@ pub enum PropertyRow {
         /// The field currently being typed into: (field index, edit buffer).
         editing: Option<(usize, String)>,
     },
+    /// A left/right list-cycle switcher: click the left or right arrow to
+    /// step through `option_count` choices one at a time, wrapping at either
+    /// end. The row only carries the currently displayed label and how many
+    /// choices exist — the host owns the actual option list and which index
+    /// is selected.
+    ListSwitchRow {
+        id: String,
+        label: String,
+        value: String,
+        option_count: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +80,10 @@ pub enum PropertyHit {
     },
     /// A left click on one [`PropertyRow::NumberRow`] field.
     Number { row_id: String, field: usize },
+    /// A left click on one [`PropertyRow::ListSwitchRow`]'s left or right
+    /// arrow. `forward` is `true` for the right arrow (next choice), `false`
+    /// for the left arrow (previous choice).
+    ListSwitch { row_id: String, forward: bool },
 }
 
 /// Each number field renders as a signed 2-char token, then a 1-char gap.
@@ -132,6 +147,7 @@ impl PropertyRows {
             PropertyRow::Info { .. } => 1,
             PropertyRow::Matrix { .. } => 1,
             PropertyRow::NumberRow { .. } => 1,
+            PropertyRow::ListSwitchRow { .. } => 1,
         }
     }
 
@@ -316,6 +332,70 @@ impl PropertyRows {
                         }
                     }
                 }
+                PropertyRow::ListSwitchRow {
+                    label,
+                    value,
+                    option_count,
+                    ..
+                } => {
+                    for (index, glyph) in label.chars().enumerate() {
+                        let x = label_x + index as i32;
+                        if x >= value_x - 1 {
+                            break;
+                        }
+                        cells.push(Cell {
+                            position: CellPoint { x, y, z: 0 },
+                            graphic: CellGraphic::Glyph(glyph),
+                            color: palette.get(UiColorRole::Medium),
+                            weight: CellWeight::from_index_clamped(1),
+                            ..Cell::default()
+                        });
+                    }
+                    let arrow_color = if *option_count > 1 {
+                        palette.get(UiColorRole::Bright)
+                    } else {
+                        palette.get(UiColorRole::Dimmest)
+                    };
+                    cells.push(Cell {
+                        position: CellPoint { x: value_x, y, z: 0 },
+                        graphic: CellGraphic::Glyph('<'),
+                        color: arrow_color,
+                        weight: CellWeight::from_index_clamped(1),
+                        ..Cell::default()
+                    });
+                    let right_arrow_x = value_x + value_width - 1;
+                    if right_arrow_x > value_x {
+                        cells.push(Cell {
+                            position: CellPoint {
+                                x: right_arrow_x,
+                                y,
+                                z: 0,
+                            },
+                            graphic: CellGraphic::Glyph('>'),
+                            color: arrow_color,
+                            weight: CellWeight::from_index_clamped(1),
+                            ..Cell::default()
+                        });
+                    }
+                    let inner_x0 = value_x + 1;
+                    let inner_width = (right_arrow_x - inner_x0).max(0);
+                    let token: String = value.chars().take(inner_width as usize).collect();
+                    let token_x =
+                        inner_x0 + ((inner_width - token.chars().count() as i32).max(0) / 2);
+                    for (offset, glyph) in token.chars().enumerate() {
+                        let x = token_x + offset as i32;
+                        if x >= right_arrow_x {
+                            break;
+                        }
+                        cells.push(Cell {
+                            position: CellPoint { x, y, z: 0 },
+                            graphic: CellGraphic::Glyph(glyph),
+                            color: palette.get(UiColorRole::Bright),
+                            weight: CellWeight::from_index_clamped(2),
+                            ..Cell::default()
+                        });
+                    }
+                }
             }
             y -= Self::row_height(row);
         }
@@ -440,6 +520,26 @@ impl PropertyRows {
                     }
                 }
             }
+            if let PropertyRow::ListSwitchRow {
+                id, option_count, ..
+            } = row
+            {
+                if button == ModulePointerButton::Left && *option_count > 1 {
+                    let right_arrow_x = value_x + value_width - 1;
+                    if local_x == value_x {
+                        return Some(PropertyHit::ListSwitch {
+                            row_id: id.clone(),
+                            forward: false,
+                        });
+                    }
+                    if right_arrow_x > value_x && local_x == right_arrow_x {
+                        return Some(PropertyHit::ListSwitch {
+                            row_id: id.clone(),
+                            forward: true,
+                        });
+                    }
+                }
+            }
             row_y -= row_height;
         }
 
@@ -477,6 +577,10 @@ impl PropertyRows {
                 PropertyRow::NumberRow { label, .. } => (
                     label.clone(),
                     "click a field to type a value, scroll a field to nudge it".to_string(),
+                ),
+                PropertyRow::ListSwitchRow { label, value, .. } => (
+                    label.clone(),
+                    format!("click the left or right arrow to switch: currently {value}"),
                 ),
             };
             hotspots.push(Hotspot::new(
@@ -689,6 +793,85 @@ mod tests {
         // The gap between fields is not a field.
         assert_eq!(
             PropertyRows::number_field_at(rect(), &rows, field_x(0) + 2, field_y, 0),
+            None
+        );
+    }
+
+    fn list_switch_row(option_count: usize) -> PropertyRow {
+        PropertyRow::ListSwitchRow {
+            id: "typeface".into(),
+            label: "font".into(),
+            value: "thaum-mono".into(),
+            option_count,
+        }
+    }
+
+    #[test]
+    fn list_switch_row_draws_left_and_right_arrows_around_the_centered_value() {
+        let y = PropertyRows::top_row_y(rect());
+        let cells = PropertyRows::draw(rect(), &[list_switch_row(3)], &UiPalette::default(), 0);
+        let (_, value_x, value_width) = PropertyRows::content_columns(rect());
+        let glyphs = |x: i32| {
+            cells
+                .iter()
+                .filter(|cell| cell.position.x == x && cell.position.y == y)
+                .filter_map(|cell| match cell.graphic {
+                    CellGraphic::Glyph(g) => Some(g),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .pop()
+        };
+        assert_eq!(glyphs(value_x), Some('<'));
+        assert_eq!(glyphs(value_x + value_width - 1), Some('>'));
+        assert!(cells.iter().any(|cell| matches!(cell.graphic, CellGraphic::Glyph('t'))));
+    }
+
+    #[test]
+    fn list_switch_row_arrows_dim_when_there_is_only_one_option() {
+        let cells = PropertyRows::draw(rect(), &[list_switch_row(1)], &UiPalette::default(), 0);
+        let (_, value_x, _) = PropertyRows::content_columns(rect());
+        let y = PropertyRows::top_row_y(rect());
+        let arrow = cells
+            .iter()
+            .find(|cell| cell.position.x == value_x && cell.position.y == y)
+            .unwrap();
+        assert_eq!(arrow.color, UiPalette::default().get(UiColorRole::Dimmest));
+    }
+
+    #[test]
+    fn list_switch_row_hit_test_resolves_the_clicked_arrow_direction() {
+        let rows = vec![list_switch_row(3)];
+        let (_, value_x, value_width) = PropertyRows::content_columns(rect());
+        let left_x = rect().x0 + value_x;
+        let right_x = rect().x0 + value_x + value_width - 1;
+        let y = rect().y0 + PropertyRows::top_row_y(rect());
+
+        assert_eq!(
+            PropertyRows::hit_test(rect(), &rows, left_x, y, ModulePointerButton::Left, 0),
+            Some(PropertyHit::ListSwitch {
+                row_id: "typeface".into(),
+                forward: false,
+            })
+        );
+        assert_eq!(
+            PropertyRows::hit_test(rect(), &rows, right_x, y, ModulePointerButton::Left, 0),
+            Some(PropertyHit::ListSwitch {
+                row_id: "typeface".into(),
+                forward: true,
+            })
+        );
+    }
+
+    #[test]
+    fn list_switch_row_hit_test_is_inert_with_only_one_option() {
+        let rows = vec![list_switch_row(1)];
+        let (_, value_x, _) = PropertyRows::content_columns(rect());
+        let left_x = rect().x0 + value_x;
+        let y = rect().y0 + PropertyRows::top_row_y(rect());
+
+        assert_eq!(
+            PropertyRows::hit_test(rect(), &rows, left_x, y, ModulePointerButton::Left, 0),
             None
         );
     }
