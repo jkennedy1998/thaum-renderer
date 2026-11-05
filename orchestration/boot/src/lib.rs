@@ -569,6 +569,9 @@ fn project_cell_to_surface_quads(
         &projected_cell.cell.shader_stack,
         projected_cell.world,
         data_lanes,
+        // TODO(project 04n3fq3e phase-7): source from the active resolved
+        // typeface's native weight count instead of this literal.
+        3,
     );
     let shaded_texture = resolve_shaded_texture(
         projected_cell.cell.texture,
@@ -866,6 +869,9 @@ fn build_glyph_atlas(
             &projected_cell.cell.shader_stack,
             projected_cell.world,
             state.data_lanes,
+            // TODO(project 04n3fq3e phase-7): source from the active resolved
+            // typeface's native weight count instead of this literal.
+            3,
         );
         if let Some(glyph) = shaded_graphic.glyph_char() {
             keys.insert((glyph, shaded_weight));
@@ -1112,7 +1118,7 @@ mod tests {
                 FacingVariant::Look(SideGraphic::Glyph('F')),
             )),
             color: CellColor::Flat([1.0, 0.0, 0.0, 1.0]),
-            weight: CellWeight::Three,
+            weight: CellWeight::THREE,
             shader_stack: vec![CELL_SHADER_WEIGHT_SIN],
             ..Cell::default()
         };
@@ -1142,7 +1148,7 @@ mod tests {
         assert_eq!(staged.len(), 1);
         assert_eq!(staged[0].cell.graphic, CellGraphic::Glyph('F'));
         assert_eq!(staged[0].cell.color, CellColor::Flat([1.0, 0.0, 0.0, 1.0]));
-        assert_eq!(staged[0].cell.weight, CellWeight::Three);
+        assert_eq!(staged[0].cell.weight, CellWeight::THREE);
         assert_eq!(staged[0].cell.shader_stack, vec![CELL_SHADER_WEIGHT_SIN]);
 
         // Viewed from East the PosZ side is not facing the camera, and with
@@ -1830,19 +1836,19 @@ mod tests {
         let asset_root = staged_asset_root();
 
         assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::Zero),
+            glyph_font_path(&asset_root, CellWeight::ZERO),
             asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W80.ttf")
         );
         assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::One),
+            glyph_font_path(&asset_root, CellWeight::ONE),
             asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W160.ttf")
         );
         assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::Two),
+            glyph_font_path(&asset_root, CellWeight::TWO),
             asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W320.ttf")
         );
         assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::Three),
+            glyph_font_path(&asset_root, CellWeight::THREE),
             asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W640.ttf")
         );
     }
@@ -1850,7 +1856,7 @@ mod tests {
     #[test]
     fn staged_thaum_mono_font_rasterizes_into_a_non_empty_12x16_tile() {
         let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
-        let raster = fonts.rasterize_glyph_tile('A', CellWeight::Two);
+        let raster = fonts.rasterize_glyph_tile('A', CellWeight::TWO);
 
         assert_eq!(raster.width, GLYPH_TILE_WIDTH);
         assert_eq!(raster.height, GLYPH_TILE_HEIGHT);
@@ -1863,10 +1869,10 @@ mod tests {
 
         for glyph in ['█', '▓', '▒', '░'] {
             for weight in [
-                CellWeight::Zero,
-                CellWeight::One,
-                CellWeight::Two,
-                CellWeight::Three,
+                CellWeight::ZERO,
+                CellWeight::ONE,
+                CellWeight::TWO,
+                CellWeight::THREE,
             ] {
                 let raster = fonts.rasterize_glyph_tile(glyph, weight);
                 assert_eq!(raster.width, GLYPH_TILE_WIDTH);
@@ -1885,16 +1891,16 @@ mod tests {
         let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
         let coverages = [
             fonts
-                .rasterize_glyph_tile('A', CellWeight::Zero)
+                .rasterize_glyph_tile('A', CellWeight::ZERO)
                 .coverage_count(),
             fonts
-                .rasterize_glyph_tile('A', CellWeight::One)
+                .rasterize_glyph_tile('A', CellWeight::ONE)
                 .coverage_count(),
             fonts
-                .rasterize_glyph_tile('A', CellWeight::Two)
+                .rasterize_glyph_tile('A', CellWeight::TWO)
                 .coverage_count(),
             fonts
-                .rasterize_glyph_tile('A', CellWeight::Three)
+                .rasterize_glyph_tile('A', CellWeight::THREE)
                 .coverage_count(),
         ];
 
@@ -1907,7 +1913,7 @@ mod tests {
     #[test]
     fn staged_thaum_mono_block_glyph_uses_most_of_the_12x16_tile() {
         let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
-        let raster = fonts.rasterize_glyph_tile('█', CellWeight::Two);
+        let raster = fonts.rasterize_glyph_tile('█', CellWeight::TWO);
         let (min_x, min_y, max_x, max_y) = raster.coverage_bounds().unwrap();
 
         assert!(
@@ -1943,7 +1949,7 @@ mod tests {
                     [Cell {
                         position: CellPoint { x: 1, y: -1, z: 0 },
                         graphic: CellGraphic::Glyph('A'),
-                        weight: CellWeight::Three,
+                        weight: CellWeight::THREE,
                         color: CellColor::Material(CellMaterialId::GrayScale),
                         ..Cell::default()
                     }],
@@ -1991,7 +1997,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('@'),
                         color: CellColor::Flat([0.2, 0.4, 0.8, 1.0]),
-                        weight: CellWeight::One,
+                        weight: CellWeight::ONE,
                         ..Cell::default()
                     }],
                 )],
@@ -2030,7 +2036,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('#'),
                         color: CellColor::Material(CellMaterialId::GrayScale),
-                        weight: CellWeight::Zero,
+                        weight: CellWeight::ZERO,
                         ..Cell::default()
                     }],
                 )],
@@ -2068,7 +2074,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('█'),
                         color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::Two,
+                        weight: CellWeight::TWO,
                         ..Cell::default()
                     }],
                 )],
@@ -2108,7 +2114,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('A'),
                         color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::Two,
+                        weight: CellWeight::TWO,
                         ..Cell::default()
                     }],
                 )],
@@ -2134,7 +2140,7 @@ mod tests {
                             position: CellPoint { x: 0, y: 0, z: 1 },
                             graphic: CellGraphic::Glyph('A'),
                             color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                            weight: CellWeight::Two,
+                            weight: CellWeight::TWO,
                             ..Cell::default()
                         }],
                     )
@@ -2282,7 +2288,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('A'),
                         color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::One,
+                        weight: CellWeight::ONE,
                         shader_stack: vec![CELL_SHADER_WEIGHT_SIN],
                         ..Cell::default()
                     }],
@@ -2307,7 +2313,7 @@ mod tests {
         assert_eq!(scene.glyph_atlas.tiles.len(), 1);
         let tile = &scene.glyph_atlas.tiles[0];
         assert_eq!(tile.glyph, 'A' as u32);
-        assert_eq!(tile.weight_index, CellWeight::Two.as_index() as u32);
+        assert_eq!(tile.weight_index, CellWeight::TWO.as_index() as u32);
         assert!((scene.quads[0].atlas_uv[0] - tile_slot_u(&scene.glyph_atlas, 0)).abs() < 1e-6);
     }
 
@@ -2328,7 +2334,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('A'),
                         color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::Two,
+                        weight: CellWeight::TWO,
                         ..Cell::default()
                     }],
                 )],
@@ -2352,7 +2358,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('A'),
                         color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::Two,
+                        weight: CellWeight::TWO,
                         shader_stack: vec![CELL_SHADER_TEXTURE_SHIMMER],
                         ..Cell::default()
                     }],
@@ -2399,7 +2405,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('A'),
                         color: CellColor::Material(CellMaterialId::GrayScale),
-                        weight: CellWeight::Two,
+                        weight: CellWeight::TWO,
                         shader_stack,
                         ..Cell::default()
                     }],
@@ -2456,7 +2462,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('A'),
                         color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::Two,
+                        weight: CellWeight::TWO,
                         ..Cell::default()
                     }],
                 )],
@@ -2480,7 +2486,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('A'),
                         color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::Two,
+                        weight: CellWeight::TWO,
                         shader_stack: vec![CELL_SHADER_TEXTURE_SHIMMER],
                         ..Cell::default()
                     }],
@@ -2516,7 +2522,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('A'),
                         color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::Two,
+                        weight: CellWeight::TWO,
                         ..Cell::default()
                     }],
                 )],
@@ -2540,7 +2546,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('A'),
                         color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::Two,
+                        weight: CellWeight::TWO,
                         shader_stack: vec![CELL_SHADER_WARBLE_DIAGONAL],
                         ..Cell::default()
                     }],
@@ -2590,7 +2596,7 @@ mod tests {
                         position: CellPoint::origin(),
                         graphic: CellGraphic::Glyph('A'),
                         color: CellColor::Flat([1.0, 1.0, 1.0, 1.0]),
-                        weight: CellWeight::Two,
+                        weight: CellWeight::TWO,
                         shader_stack: vec![CELL_SHADER_TEXTURE_SHIMMER],
                         ..Cell::default()
                     }],

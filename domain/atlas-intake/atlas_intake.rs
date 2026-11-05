@@ -207,12 +207,18 @@ fn read_png_rgba(path: &Path) -> Result<Vec<u8>, String> {
     Ok(buffer)
 }
 
+/// These stacked atlas forms (`single`, `six-sided`, `connecting-cardinal`)
+/// are fixed 4-row shapes by their own declared form, independent of
+/// `CellWeight`'s now-unbounded range. An index beyond row 3 clamps to row 0
+/// (the highest/top row) rather than panicking.
+const STACKED_ATLAS_FORM_MAX_WEIGHT_INDEX: usize = 3;
+
 const fn weight_row_top_to_bottom(weight: CellWeight) -> u32 {
-    match weight {
-        CellWeight::Three => 0,
-        CellWeight::Two => 1,
-        CellWeight::One => 2,
-        CellWeight::Zero => 3,
+    let index = weight.as_index();
+    if index >= STACKED_ATLAS_FORM_MAX_WEIGHT_INDEX {
+        0
+    } else {
+        (STACKED_ATLAS_FORM_MAX_WEIGHT_INDEX - index) as u32
     }
 }
 
@@ -254,11 +260,11 @@ mod tests {
 
     #[test]
     fn weight_rows_follow_top_heaviest_to_bottom_lightest_order() {
-        assert_eq!(AtlasForm::Single.weight_row(CellWeight::Three), 0);
-        assert_eq!(AtlasForm::Single.weight_row(CellWeight::Two), 1);
-        assert_eq!(AtlasForm::Single.weight_row(CellWeight::One), 2);
-        assert_eq!(AtlasForm::Single.weight_row(CellWeight::Zero), 3);
-        assert_eq!(AtlasForm::ConnectingCardinal.weight_row(CellWeight::Two), 4);
+        assert_eq!(AtlasForm::Single.weight_row(CellWeight::THREE), 0);
+        assert_eq!(AtlasForm::Single.weight_row(CellWeight::TWO), 1);
+        assert_eq!(AtlasForm::Single.weight_row(CellWeight::ONE), 2);
+        assert_eq!(AtlasForm::Single.weight_row(CellWeight::ZERO), 3);
+        assert_eq!(AtlasForm::ConnectingCardinal.weight_row(CellWeight::TWO), 4);
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::{CellWeight, GlyphFontSet, GlyphTileRaster};
 /// The canonical weight the graph builds at (see contract notes: one
 /// canonical weight; per-weight graphs are a future child only if the
 /// canonical graph proves too coarse).
-pub const FADE_CANONICAL_WEIGHT: CellWeight = CellWeight::One;
+pub const FADE_CANONICAL_WEIGHT: CellWeight = CellWeight::ONE;
 
 pub struct FontSetTiles<'a> {
     pub font_set: &'a GlyphFontSet,
@@ -55,10 +55,10 @@ mod tests {
             font_set: &font_set,
         };
         for weight in [
-            CellWeight::Zero,
-            CellWeight::One,
-            CellWeight::Two,
-            CellWeight::Three,
+            CellWeight::ZERO,
+            CellWeight::ONE,
+            CellWeight::TWO,
+            CellWeight::THREE,
         ] {
             let tiles = provider.tiles_at_weight(weight);
             assert!(tiles.iter().any(|(glyph, _)| *glyph == ' '));

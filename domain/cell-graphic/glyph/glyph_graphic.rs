@@ -153,11 +153,15 @@ impl GlyphFontSet {
 }
 
 pub fn glyph_font_path(asset_root: &Path, weight: CellWeight) -> PathBuf {
-    let file_name = match weight {
-        CellWeight::Zero => "ThaumMono-W80.ttf",
-        CellWeight::One => "ThaumMono-W160.ttf",
-        CellWeight::Two => "ThaumMono-W320.ttf",
-        CellWeight::Three => "ThaumMono-W640.ttf",
+    // Index-based with a clamp-to-highest fallback instead of an exhaustive
+    // enum match: this hardcoded 4-file convention is replaced wholesale by
+    // typeface-intake manifest resolution (project 04n3fq3e phase-5); this is
+    // the minimal behavior-preserving shape until then.
+    let file_name = match weight.as_index() {
+        0 => "ThaumMono-W80.ttf",
+        1 => "ThaumMono-W160.ttf",
+        2 => "ThaumMono-W320.ttf",
+        _ => "ThaumMono-W640.ttf",
     };
 
     asset_root
@@ -168,10 +172,10 @@ pub fn glyph_font_path(asset_root: &Path, weight: CellWeight) -> PathBuf {
 
 fn try_load_font_set(asset_root: &Path) -> Result<Option<[Font; 4]>, String> {
     let paths = [
-        glyph_font_path(asset_root, CellWeight::Zero),
-        glyph_font_path(asset_root, CellWeight::One),
-        glyph_font_path(asset_root, CellWeight::Two),
-        glyph_font_path(asset_root, CellWeight::Three),
+        glyph_font_path(asset_root, CellWeight::ZERO),
+        glyph_font_path(asset_root, CellWeight::ONE),
+        glyph_font_path(asset_root, CellWeight::TWO),
+        glyph_font_path(asset_root, CellWeight::THREE),
     ];
 
     let existing_count = paths.iter().filter(|path| path.exists()).count();
@@ -465,19 +469,19 @@ mod tests {
         let asset_root = staged_asset_root();
 
         assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::Zero),
+            glyph_font_path(&asset_root, CellWeight::ZERO),
             asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W80.ttf")
         );
         assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::One),
+            glyph_font_path(&asset_root, CellWeight::ONE),
             asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W160.ttf")
         );
         assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::Two),
+            glyph_font_path(&asset_root, CellWeight::TWO),
             asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W320.ttf")
         );
         assert_eq!(
-            glyph_font_path(&asset_root, CellWeight::Three),
+            glyph_font_path(&asset_root, CellWeight::THREE),
             asset_root.join("glyph-fonts/thaum-mono/ThaumMono-W640.ttf")
         );
     }
@@ -485,7 +489,7 @@ mod tests {
     #[test]
     fn rasterized_glyph_tiles_use_the_shared_tile_shape() {
         let fonts = GlyphFontSet::load_from_asset_root(&staged_asset_root()).unwrap();
-        let raster = fonts.rasterize_glyph_tile('A', CellWeight::Two);
+        let raster = fonts.rasterize_glyph_tile('A', CellWeight::TWO);
 
         assert_eq!(raster.width, GLYPH_TILE_WIDTH);
         assert_eq!(raster.height, GLYPH_TILE_HEIGHT);
@@ -527,8 +531,8 @@ mod tests {
         );
 
         let fonts = GlyphFontSet::load_from_asset_root(&asset_root).unwrap();
-        let a_raster = fonts.rasterize_glyph_tile('A', CellWeight::Two);
-        let b_raster = fonts.rasterize_glyph_tile('B', CellWeight::Two);
+        let a_raster = fonts.rasterize_glyph_tile('A', CellWeight::TWO);
+        let b_raster = fonts.rasterize_glyph_tile('B', CellWeight::TWO);
 
         assert_eq!(a_raster.width, GLYPH_TILE_WIDTH);
         assert_eq!(a_raster.height, GLYPH_TILE_HEIGHT);

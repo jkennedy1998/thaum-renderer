@@ -599,7 +599,7 @@ mod tests {
                 | CellGraphic::Glyph('◧') => {}
                 other => panic!("unexpected z0 cell {other:?}"),
             }
-            assert_eq!(cell.weight, CellWeight::Three);
+            assert_eq!(cell.weight, CellWeight::THREE);
         }
     }
 

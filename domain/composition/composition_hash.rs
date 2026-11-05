@@ -95,7 +95,7 @@ mod tests {
             group.insert(Cell {
                 position: CellPoint { x: 1, y: 1, z: 0 },
                 graphic: CellGraphic::Glyph('█'),
-                weight: CellWeight::Two,
+                weight: CellWeight::TWO,
                 ..Cell::default()
             });
             Composition::ordered(vec![group])
@@ -118,7 +118,7 @@ mod tests {
             .cells
             .get_mut(&CellPoint { x: 1, y: 2, z: 3 })
             .unwrap()
-            .weight = CellWeight::Three;
+            .weight = CellWeight::THREE;
         assert_ne!(
             composition_content_hash(&base),
             composition_content_hash(&other)

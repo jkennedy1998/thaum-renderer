@@ -122,6 +122,7 @@ pub fn resolve_shaded_weight(
     shader_stack: &[u32],
     world: WorldPoint,
     data_lanes: DataLanes,
+    max_weight_index: u8,
 ) -> CellWeight {
     let mut weight = base_weight;
 
@@ -129,7 +130,12 @@ pub fn resolve_shaded_weight(
         match *shader {
             CELL_SHADER_PASS => {}
             CELL_SHADER_WEIGHT_SIN => {
-                weight = apply_weight_sin(weight, world, data_lanes.breath().unwrap_or(0));
+                weight = apply_weight_sin(
+                    weight,
+                    world,
+                    data_lanes.breath().unwrap_or(0),
+                    max_weight_index,
+                );
             }
             _ => {}
         }
@@ -216,7 +222,12 @@ pub fn resolve_shaded_graphic(
     base_graphic
 }
 
-fn apply_weight_sin(base_weight: CellWeight, world: WorldPoint, breath: i32) -> CellWeight {
+fn apply_weight_sin(
+    base_weight: CellWeight,
+    world: WorldPoint,
+    breath: i32,
+    max_weight_index: u8,
+) -> CellWeight {
     let phase = (breath + world.x + world.y + world.z).rem_euclid(4);
     let relative = match phase {
         0 => -1,
@@ -227,6 +238,7 @@ fn apply_weight_sin(base_weight: CellWeight, world: WorldPoint, breath: i32) -> 
     };
 
     CellWeight::from_index_clamped(base_weight.as_index() as i32 + relative)
+        .clamped_to_max(max_weight_index)
 }
 
 fn apply_texture_shimmer(_world: WorldPoint, _breath: i32) -> CellTexture {
@@ -265,36 +277,50 @@ mod tests {
     fn pass_shader_keeps_weight_unchanged() {
         assert_eq!(
             resolve_shaded_weight(
-                CellWeight::Two,
+                CellWeight::TWO,
                 &[CELL_SHADER_PASS],
                 WorldPoint::origin(),
                 DataLanes::with_breath(0),
+                3,
             ),
-            CellWeight::Two
+            CellWeight::TWO
         );
     }
 
     #[test]
     fn weight_sin_follows_the_stepping_minus_one_zero_plus_one_zero_pattern() {
         let world = WorldPoint::origin();
-        let base = CellWeight::Two;
+        let base = CellWeight::TWO;
 
-        assert_eq!(apply_weight_sin(base, world, 0), CellWeight::One);
-        assert_eq!(apply_weight_sin(base, world, 1), CellWeight::Two);
-        assert_eq!(apply_weight_sin(base, world, 2), CellWeight::Three);
-        assert_eq!(apply_weight_sin(base, world, 3), CellWeight::Two);
+        assert_eq!(apply_weight_sin(base, world, 0, 3), CellWeight::ONE);
+        assert_eq!(apply_weight_sin(base, world, 1, 3), CellWeight::TWO);
+        assert_eq!(apply_weight_sin(base, world, 2, 3), CellWeight::THREE);
+        assert_eq!(apply_weight_sin(base, world, 3, 3), CellWeight::TWO);
+    }
+
+    #[test]
+    fn weight_sin_clamps_to_whatever_max_is_currently_loaded() {
+        // A typeface with only 2 native weights (max index 1): the wobble
+        // must never produce an out-of-range weight for it.
+        let world = WorldPoint::origin();
+        assert_eq!(
+            apply_weight_sin(CellWeight::ONE, world, 2, 1),
+            CellWeight::ONE,
+            "relative +1 off the max index clamps back down instead of exceeding it"
+        );
     }
 
     #[test]
     fn later_shaders_win_for_weight_writes() {
         assert_eq!(
             resolve_shaded_weight(
-                CellWeight::Two,
+                CellWeight::TWO,
                 &[CELL_SHADER_PASS, CELL_SHADER_WEIGHT_SIN],
                 WorldPoint::origin(),
                 DataLanes::with_breath(2),
+                3,
             ),
-            CellWeight::Three
+            CellWeight::THREE
         );
     }
 

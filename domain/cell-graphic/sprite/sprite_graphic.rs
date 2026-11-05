@@ -93,7 +93,7 @@ mod tests {
         let raster = atlases
             .rasterize_single_sprite_tile(
                 Path::new("proofs/grass.png"),
-                CellWeight::Two,
+                CellWeight::TWO,
                 CellColor::Material(CellMaterialId::GrayScale),
                 &[],
             )

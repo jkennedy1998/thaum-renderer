@@ -64,7 +64,7 @@ mod tests {
                 "proofs/chest.png",
             )),
             color: CellColor::Flat([1.0, 0.0, 0.0, 1.0]),
-            weight: CellWeight::Three,
+            weight: CellWeight::THREE,
             shader_stack: vec![crate::CELL_SHADER_WEIGHT_SIN],
             ..Cell::default()
         }
@@ -75,7 +75,7 @@ mod tests {
         assert_eq!(cell.position, CellPoint { x: 2, y: 3, z: 0 });
         assert_eq!(cell.graphic, CellGraphic::Glyph('F'));
         assert_eq!(cell.color, CellColor::Flat([1.0, 0.0, 0.0, 1.0]));
-        assert_eq!(cell.weight, CellWeight::Three);
+        assert_eq!(cell.weight, CellWeight::THREE);
         assert_eq!(cell.shader_stack, vec![crate::CELL_SHADER_WEIGHT_SIN]);
     }
 
@@ -97,7 +97,7 @@ mod tests {
             CellColor::Material(CellMaterialId::GrayScale),
             "default color shades real bands instead of a flat white silhouette"
         );
-        assert_eq!(cell.weight, CellWeight::Zero);
+        assert_eq!(cell.weight, CellWeight::ZERO);
         assert_eq!(cell.texture, CellTexture::none());
         assert_eq!(cell.warble, CellWarble::none());
         assert_eq!(cell.facing, CellFacing::PosZ);

@@ -20,7 +20,7 @@ impl FadeTileProvider for FontTiles {
             .map(|&glyph| {
                 (
                     glyph,
-                    self.font_set.rasterize_glyph_tile(glyph, CellWeight::One),
+                    self.font_set.rasterize_glyph_tile(glyph, CellWeight::ONE),
                 )
             })
             .collect()
@@ -55,7 +55,7 @@ fn print_fade(fade: &ShapeFade, from: char, to: char, steps: usize) {
         let t = step as f32 / steps as f32;
         let resolved = fade.resolve_shape_fade(from, to, t).unwrap_or('?');
         let tile = {
-            let graph = fade.graph_at_weight(CellWeight::One);
+            let graph = fade.graph_at_weight(CellWeight::ONE);
             match graph.index_of(resolved) {
                 Some(index) => graph.tile(index).clone(),
                 None => continue,
@@ -116,7 +116,7 @@ fn main() {
     let mut fade = ShapeFade::build(&provider);
     println!(
         "graph: {} graphics, canonical weight One\n",
-        fade.graph_at_weight(CellWeight::One).chars.len()
+        fade.graph_at_weight(CellWeight::ONE).chars.len()
     );
 
     // The ten richest walks: each visits interpolative glyphs between the
@@ -135,7 +135,7 @@ fn main() {
     ];
     if std::env::var("FADE_SCAN2").is_ok() {
         // Scan: pairs whose resolved walk visits >= 3 distinct graphics.
-        let chars = fade.graph_at_weight(CellWeight::One).chars.clone();
+        let chars = fade.graph_at_weight(CellWeight::ONE).chars.clone();
         let mut rich: Vec<String> = Vec::new();
         for &from in &chars {
             for &to in &chars {

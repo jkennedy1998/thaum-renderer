@@ -116,10 +116,10 @@ impl ShapeFade {
     pub fn resolve_shape_fade(&self, from: char, to: char, t: f32) -> Option<char> {
         self.resolve_weighted_shape_fade(
             from,
-            CellWeight::One,
+            CellWeight::ONE,
             to,
-            CellWeight::One,
-            CellWeight::One,
+            CellWeight::ONE,
+            CellWeight::ONE,
             t,
         )
     }
@@ -243,7 +243,7 @@ mod tests {
             let to = empty_tile();
             match weight {
                 // At W160, `m` is a valid halfway coverage candidate.
-                CellWeight::One => vec![('A', from), ('m', tile_rect(0, 0, 1, 0)), ('B', to)],
+                CellWeight::ONE => vec![('A', from), ('m', tile_rect(0, 0, 1, 0)), ('B', to)],
                 // At W640 that candidate has no tile at all, so a weighted
                 // fade must not select it for a W640 output cell.
                 _ => vec![('A', from), ('B', to)],
@@ -376,20 +376,20 @@ mod tests {
         // non-increasing along the whole walk.
         let mut fade = ShapeFade::build(&gradient_set());
         let (from_index, _to_index, target) = {
-            let graph = fade.graph_at_weight(CellWeight::One);
+            let graph = fade.graph_at_weight(CellWeight::ONE);
             let from_index = graph.index_of('#').unwrap();
             let to_index = graph.index_of('o').unwrap();
             (from_index, to_index, graph.tile(to_index).clone())
         };
         let mut previous_distance = {
-            let graph = fade.graph_at_weight(CellWeight::One);
+            let graph = fade.graph_at_weight(CellWeight::ONE);
             alpha_distance(graph.tile(from_index), &target)
         };
         for step in 0..PROGRESS_BUCKETS {
             let t = step as f32 / (PROGRESS_BUCKETS - 1) as f32;
             let resolved = fade.resolve_shape_fade('#', 'o', t).unwrap();
             let distance = {
-                let graph = fade.graph_at_weight(CellWeight::One);
+                let graph = fade.graph_at_weight(CellWeight::ONE);
                 let resolved_index = graph.index_of(resolved).unwrap();
                 alpha_distance(graph.tile(resolved_index), &target)
             };
@@ -407,10 +407,10 @@ mod tests {
         assert_eq!(
             fade.resolve_weighted_shape_fade(
                 'A',
-                CellWeight::One,
+                CellWeight::ONE,
                 'B',
-                CellWeight::One,
-                CellWeight::One,
+                CellWeight::ONE,
+                CellWeight::ONE,
                 0.5,
             ),
             Some('m'),
@@ -419,10 +419,10 @@ mod tests {
         assert_ne!(
             fade.resolve_weighted_shape_fade(
                 'A',
-                CellWeight::One,
+                CellWeight::ONE,
                 'B',
-                CellWeight::One,
-                CellWeight::Three,
+                CellWeight::ONE,
+                CellWeight::THREE,
                 0.5,
             ),
             Some('m'),
