@@ -1,12 +1,12 @@
 # thaum-renderer/domain/cell-graphic/shape-fade
 
 ## purpose
-Own shape-space interpolation between cell graphics: treating every 12x16 graphic tile (glyph or sprite) as a mask shape, and resolving what graphic best represents the blend between two graphic shapes at a progress point.
+Own shape-space interpolation between cell graphics: downsampling each rendered glyph or sprite into a bounded, aspect-preserved comparison tile, then resolving what graphic best represents the blend between two graphic shapes at a progress point.
 
 ## owns
-- the 12x16 binary mask-space packing derived from graphic tiles (glyph- and sprite-backed alike, with the same sprite-over-font precedence the tile seam uses)
+- the fixed-bounded, aspect-preserved comparison-tile downsample and binary mask-space packing derived from graphic tiles (glyph- and sprite-backed alike, with the same sprite-over-font precedence the tile seam uses)
 - the pairwise shape-similarity metric over packed masks (Dice coefficient on popcount intersection; the empty mask — space — has similarity zero to every non-empty shape and one to itself, making fade-to-space the dissolve)
-- the per-typeface, per-render-weight shape-neighbor graphs (all-pairs similarity computed once per tile-set load for each of the four actual glyph weights, kept as per-graphic k-nearest-neighbor lists)
+- the per-typeface, per-render-weight shape-neighbor graphs (all-pairs similarity computed once per tile-set load for every declared glyph weight, kept as per-graphic k-nearest-neighbor lists)
 - multi-step fade paths: ANY graphic can fade with ANY other graphic by routing through interpolative glyphs — a shortest-path walk over the neighbor graph (bounded hop count, small per-hop penalty), with a direct-edge fallback guaranteeing a path exists for every pair even across disconnected shape components
 - weight-aware shape-fade resolution: source and target use their authored render-weight tiles, while every intermediate comes from the current output-weight graph, so an interpolated glyph always has a shape supported by the weight the renderer will draw; intermediates are always real loaded glyphs or sprites, never invented shapes
 - the progress-quantized fade cache bounding per-frame resolution cost (path cache per pair, resolved-char cache per pair+bucket)
@@ -26,16 +26,17 @@ Own shape-space interpolation between cell graphics: treating every 12x16 graphi
 - `contract.md` (this file — phase 0; implementation modules land here in build order)
 
 ## planned contents (land with their phases)
-- `mask_space.rs` — tile alpha -> packed `[u64; 3]` binary mask; empty-mask truth
+- `compare_tile.rs` — render-resolution alpha -> fixed-bounded, aspect-preserved comparison tile
+- `mask_space.rs` — comparison-tile alpha -> packed binary mask; empty-mask truth
 - `similarity.rs` — Dice metric over packed masks
 - `neighbor_graph.rs` — all-pairs similarity + kNN lists, built from a tile provider at load; rebuild on reload
 - `fade.rs` — `resolve_weighted_shape_fade(from, from_weight, to, to_weight, output_weight, t) -> graphic` walking the per-weight per-pair gradient tour with a t-quantized walk cache
-- `font_tiles.rs` — production `WeightedFadeTileProvider` over a loaded `GlyphFontSet` across all four render weights; drops chars that rasterize to empty tiles (space stays — it IS the dissolve endpoint)
+- `font_tiles.rs` — production `WeightedFadeTileProvider` over every loaded `GlyphFontSet` weight, downsampled before graph input; drops chars that rasterize to empty tiles (space stays — it IS the dissolve endpoint)
 - `tests/` — property tests over hand-built masks (no font files needed)
 
 ## dependencies
 - `thaum-renderer/domain/cell-graphic/` (slot shapes)
-- `thaum-renderer/domain/cell-graphic/glyph/` (tile rasterization seam: `GlyphFontSet::rasterize_glyph_tile`, `GlyphTileRaster` 12x16 alpha)
+- `thaum-renderer/domain/cell-graphic/glyph/` (tile rasterization seam: `GlyphFontSet::rasterize_glyph_tile`, dynamically sized `GlyphTileRaster` alpha)
 - `thaum-renderer/domain/cell-graphic/sprite/` (tile parity only, through the same rasterize seam)
 - `thaum-renderer/domain/cell-weight/` (canonical-weight decision for graph builds)
 
@@ -72,7 +73,7 @@ via: `build_neighbor_graph`
 - the first pass routed multi-step paths through the graph and resolved each segment against its own endpoints; walks drifted away from the endpoint shapes (J's quality feedback). The second pass scores every candidate against the global endpoint blend, so the walk is monotone toward the goal by construction — the removed path router is documented history, not pending work
 - every intermediate is a real loaded glyph or sprite — the encapsulation projects onto the glyph set, it never invents shapes
 - pairs whose neighbor pools hold nothing closer than the endpoints fade as a clean two-shape dissolve (with the painter's weight fade softening it), which is the honest result for shape-disjoint pairs
-- four graphs build at the renderer's four actual weights; cache keys include both endpoint weights and the current output weight so no tour crosses incompatible glyph shapes
-- alpha lerp uses the u8 alpha arrays from `GlyphTileRaster` directly; binary masks are for the metric and candidate pruning
+- one graph builds for every declared typeface weight; weight lookup clamps to the highest loaded graph, and cache keys include both endpoint weights and the current output weight so no tour crosses incompatible glyph shapes
+- comparison tiles are area-downsampled once under fixed 12x16 maximum bounds without upscaling and retain their render tile aspect ratio; binary masks are for coverage and candidate pruning
 - kept deterministic by contract: no randomness, no wall-clock, no session state, sorted candidate iteration — scrub-back stability and replay identity depend on it
 - single-threaded consumer seam by design (the render path); sharing across threads would need an external wrapper

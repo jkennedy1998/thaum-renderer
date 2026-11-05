@@ -28,6 +28,8 @@ pub trait FadeTileProvider {
 /// the real source, target, and output-weight tiles instead of treating one
 /// canonical glyph weight as every cell's shape.
 pub trait WeightedFadeTileProvider {
+    /// Number of native render weights represented by this provider.
+    fn weight_count(&self) -> usize;
     fn tiles_at_weight(&self, weight: CellWeight) -> Vec<(char, GlyphTileRaster)>;
 }
 
@@ -99,7 +101,7 @@ mod tests {
         let mut tile = GlyphTileRaster {
             width: GLYPH_TILE_WIDTH,
             height: GLYPH_TILE_HEIGHT,
-            alpha: [0u8; GLYPH_TILE_WIDTH * GLYPH_TILE_HEIGHT],
+            alpha: vec![0u8; GLYPH_TILE_WIDTH * GLYPH_TILE_HEIGHT],
         };
         for y in y0..=y1 {
             for x in x0..=x1 {
@@ -123,7 +125,7 @@ mod tests {
                 GlyphTileRaster {
                     width: GLYPH_TILE_WIDTH,
                     height: GLYPH_TILE_HEIGHT,
-                    alpha: [0u8; GLYPH_TILE_WIDTH * GLYPH_TILE_HEIGHT],
+                    alpha: vec![0u8; GLYPH_TILE_WIDTH * GLYPH_TILE_HEIGHT],
                 },
             ),
             ('L', rect_tile(0, 0, 5, 15)),

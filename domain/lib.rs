@@ -85,7 +85,8 @@ pub mod ui_palette;
 pub mod ui_session_state;
 
 pub use atlas_intake::{
-    load_sprite_atlas_image, load_sprite_atlas_spec, AtlasForm, AtlasSpec, SpriteAtlasImage,
+    load_glyph_sprite_batch_from_asset_root, load_sprite_atlas_image, load_sprite_atlas_spec,
+    AtlasForm, AtlasSpec, GlyphSpriteBatch, GlyphSpriteBatchTile, SpriteAtlasImage,
 };
 pub use camera::{
     active_depth_axis_for_swing, active_depth_direction_for_swing,
@@ -111,13 +112,15 @@ pub use cell::Cell;
 pub use cell_color::{CellColor, CellColorSlot};
 pub use cell_facing::{CellFacing, CellRoll, FacingRotation};
 pub use cell_graphic::{
-    facing_from_portable_name, facing_portable_name, glyph_font_path, load_sided_declaration,
-    orientation_portable_key, parse_sided_declaration, roll_from_portable_name, roll_portable_name,
-    sided_declaration_json, CellGraphic, FacingVariant, GlyphFontSet, GlyphTileRaster,
-    OrientationVariant, SideGraphic, SidedDeclarationError, SidedGraphic, SpriteAtlasSet,
-    SpriteGraphic, SpriteTileRaster, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
-    SIDED_DECLARATION_FACING_VOCABULARY, SIDED_DECLARATION_FORMAT_TAG,
-    SIDED_DECLARATION_ROLL_VOCABULARY, SIDED_DECLARATION_VERSION,
+    facing_from_portable_name, facing_portable_name, load_sided_declaration,
+    orientation_portable_key, parse_sided_declaration, parse_typeface_declaration,
+    roll_from_portable_name, roll_portable_name, sided_declaration_json, CellGraphic,
+    FacingVariant, GlyphCellProfile, GlyphFontSet, GlyphTileRaster, OrientationVariant,
+    SideGraphic, SidedDeclarationError, SidedGraphic, SpriteAtlasSet, SpriteGraphic,
+    SpriteTileRaster, TypefaceDeclaration, TypefaceDeclarationError, TypefaceSpacing,
+    GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH, SIDED_DECLARATION_FACING_VOCABULARY,
+    SIDED_DECLARATION_FORMAT_TAG, SIDED_DECLARATION_ROLL_VOCABULARY, SIDED_DECLARATION_VERSION,
+    TYPEFACE_DECLARATION_FORMAT_TAG, TYPEFACE_DECLARATION_VERSION,
 };
 pub use cell_group::{CellBounds, CellClip, CellGroup, CellGroupFacing, CellGroupIntakeBehavior};
 pub use cell_materials::{CellMaterialId, ColorBand, IndexedColor};

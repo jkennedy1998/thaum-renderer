@@ -7,6 +7,7 @@ Own the renderer-facing atlas intake seam that turns packed atlas assets into sp
 - the canonical atlas-intake contract
 - renderer-facing atlas packing and lookup expectations
 - atlas form definitions and the consumption rules paired with those forms
+- named glyph/sprite-batch decoding from `sections.txt` plus sheet assets, reporting the batch's native tile ratio and weight rows without coupling it to the active typeface or cell profile
 - stacked weight interpretation for atlas forms that vertically pack multiple weight variants
 - the rule that atlas tile width and height come from shared renderer configuration rather than hardcoded per atlas asset
 - atlas intake as a renderer seam separate from sprite logic and separate from sprite color-space
@@ -23,7 +24,7 @@ Own the renderer-facing atlas intake seam that turns packed atlas assets into sp
 
 ## contents
 - `atlas_intake.rs`
-  - rust atlas intake shapes and sprite-atlas loading helpers owned by this encapsulation
+  - rust atlas intake shapes, ordinary sprite-atlas loading helpers, and named glyph/sprite-batch decoding owned by this encapsulation
 - `truth.md`
   - J's authored-atlas form and renderer-ownership decisions
 
@@ -34,16 +35,20 @@ Own the renderer-facing atlas intake seam that turns packed atlas assets into sp
 ## exposed interfaces
 - atlas-intake shape
   - describes how atlas pngs are interpreted, tiled, and resolved into sprite-usable source graphics for renderer use
+- `load_glyph_sprite_batch_from_asset_root`
+  - decodes one explicitly selected glyph spriteset into glyph/weight alpha tiles and reports its native tile dimensions; a missing directory returns no batch so its caller can apply its own asset policy
 
 ## interface consumers
 - `thaum-renderer/domain/cell-graphic/sprite/`
+- `thaum-renderer/domain/cell-graphic/glyph/`
 - future renderer implementation surfaces
 
 ## artifacts
 - none
 
 ## tests
-- none
+- inline `#[cfg(test)]` in `atlas_intake.rs`
+  - validates fixed atlas form decoding plus named glyph-spriteset decode, explicit-id selection, native-footprint reporting, missing-set handling, sections parsing, and weight-row order
 
 ## data
 - none
@@ -61,3 +66,6 @@ Own the renderer-facing atlas intake seam that turns packed atlas assets into sp
   - `connecting-cardinal`
     - `tiles: 4x16`
     - four stacked 4x4 connection atlases ordered from highest weight at the top to lowest weight at the bottom
+  - `glyph-sprite-batch`
+    - one named directory under `cell-sprites/<spriteset-id>/`, using its existing `sections.txt` and `monothaum_<section>.png` sheets
+    - selected by explicit spriteset id; its native 12x16 footprint is reported, not treated as a requirement for the active file profile

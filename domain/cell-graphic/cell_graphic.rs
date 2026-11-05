@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub use facing_variants::{FacingVariant, OrientationVariant, SideGraphic, SidedGraphic};
 pub use glyph_graphic::{
-    glyph_font_path, GlyphFontSet, GlyphTileRaster, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
+    GlyphCellProfile, GlyphFontSet, GlyphTileRaster, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH,
 };
 pub use sided_intake::{
     facing_from_portable_name, facing_portable_name, load_sided_declaration,

@@ -3,6 +3,7 @@
 //! routing through interpolative glyphs in multiple steps when a direct blend
 //! would look bad.
 
+pub mod compare_tile;
 pub mod fade;
 pub mod font_tiles;
 pub mod mask_space;

@@ -6,6 +6,7 @@
 //! the empty mask — the intentional space node stays, because an empty mask
 //! IS the dissolve endpoint.
 
+use super::compare_tile::downsample_comparison_tile;
 use super::mask_space::PackedMask;
 use super::neighbor_graph::{FadeTileProvider, WeightedFadeTileProvider};
 use crate::{CellWeight, GlyphFontSet, GlyphTileRaster};
@@ -26,11 +27,20 @@ impl FadeTileProvider for FontSetTiles<'_> {
 }
 
 impl WeightedFadeTileProvider for FontSetTiles<'_> {
+    fn weight_count(&self) -> usize {
+        self.font_set.native_weight_count()
+    }
+
     fn tiles_at_weight(&self, weight: CellWeight) -> Vec<(char, GlyphTileRaster)> {
         self.font_set
             .glyph_chars()
             .into_iter()
-            .map(|glyph| (glyph, self.font_set.rasterize_glyph_tile(glyph, weight)))
+            .map(|glyph| {
+                (
+                    glyph,
+                    downsample_comparison_tile(&self.font_set.rasterize_glyph_tile(glyph, weight)),
+                )
+            })
             .filter(|(glyph, tile)| {
                 *glyph == ' ' || PackedMask::from_tile(tile).coverage_count() > 0
             })
@@ -54,12 +64,8 @@ mod tests {
         let provider = FontSetTiles {
             font_set: &font_set,
         };
-        for weight in [
-            CellWeight::ZERO,
-            CellWeight::ONE,
-            CellWeight::TWO,
-            CellWeight::THREE,
-        ] {
+        for index in 0..font_set.native_weight_count() {
+            let weight = CellWeight::from_index_clamped(index as i32);
             let tiles = provider.tiles_at_weight(weight);
             assert!(tiles.iter().any(|(glyph, _)| *glyph == ' '));
             assert!(tiles.iter().any(|(glyph, _)| *glyph == 'O'));

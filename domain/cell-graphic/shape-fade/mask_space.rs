@@ -5,9 +5,12 @@
 //! one to itself. Owned by `cell-graphic/shape-fade`; see the contract for the
 //! ownership split (tile production stays in `glyph/` / `sprite/`).
 
-use crate::{GlyphTileRaster, GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
+use super::compare_tile::COMPARISON_MAX_PIXELS;
+use crate::GlyphTileRaster;
 
-pub const MASK_PIXELS: usize = GLYPH_TILE_WIDTH * GLYPH_TILE_HEIGHT;
+/// The fixed maximum comparison footprint. Actual aspect-preserved comparison
+/// tiles may contain fewer pixels.
+pub const MASK_PIXELS: usize = COMPARISON_MAX_PIXELS;
 const MASK_WORDS: usize = MASK_PIXELS.div_ceil(64);
 
 /// Binary coverage mask over one 12x16 tile. Bit `i` is pixel `i`
@@ -19,10 +22,9 @@ pub struct PackedMask([u64; MASK_WORDS]);
 
 impl PackedMask {
     pub fn from_alpha(alpha: &[u8]) -> Self {
-        debug_assert_eq!(
-            alpha.len(),
-            MASK_PIXELS,
-            "mask input must be one 12x16 tile"
+        debug_assert!(
+            alpha.len() <= MASK_PIXELS,
+            "mask input must fit the comparison profile"
         );
         let mut words = [0u64; MASK_WORDS];
         for (index, &value) in alpha.iter().enumerate() {
@@ -34,6 +36,7 @@ impl PackedMask {
     }
 
     pub fn from_tile(tile: &GlyphTileRaster) -> Self {
+        debug_assert_eq!(tile.alpha.len(), tile.width * tile.height);
         Self::from_alpha(&tile.alpha)
     }
 
@@ -61,12 +64,13 @@ impl PackedMask {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
 
     fn tile_with_coverage(indices: &[usize]) -> GlyphTileRaster {
         let mut tile = GlyphTileRaster {
             width: GLYPH_TILE_WIDTH,
             height: GLYPH_TILE_HEIGHT,
-            alpha: [0u8; MASK_PIXELS],
+            alpha: vec![0u8; MASK_PIXELS],
         };
         for &index in indices {
             tile.alpha[index] = 255;

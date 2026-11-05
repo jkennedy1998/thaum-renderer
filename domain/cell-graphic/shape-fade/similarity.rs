@@ -5,32 +5,45 @@
 //! Normalized to 0..=1: identical tiles cost 0, a tile and its total inverse
 //! (full ink against empty) cost 1.
 
-use crate::shape_fade::mask_space::MASK_PIXELS;
 use crate::GlyphTileRaster;
 
 /// L1 alpha distance in 0..=1: the mean absolute per-pixel alpha difference,
 /// normalized by full-scale ink. The distance the neighbor graph ranks by and
 /// the fade resolves against.
 pub fn alpha_distance(a: &GlyphTileRaster, b: &GlyphTileRaster) -> f32 {
+    assert_eq!(
+        (a.width, a.height),
+        (b.width, b.height),
+        "comparison tiles must share a profile"
+    );
+    assert_eq!(
+        a.alpha.len(),
+        b.alpha.len(),
+        "comparison alpha lengths must match"
+    );
+    if a.alpha.is_empty() {
+        return 0.0;
+    }
     let total: u64 = a
         .alpha
         .iter()
         .zip(b.alpha.iter())
         .map(|(x, y)| (i32::from(*x) - i32::from(*y)).unsigned_abs() as u64)
         .sum();
-    total as f32 / (255.0 * MASK_PIXELS as f32)
+    total as f32 / (255.0 * a.alpha.len() as f32)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shape_fade::mask_space::MASK_PIXELS;
     use crate::{GLYPH_TILE_HEIGHT, GLYPH_TILE_WIDTH};
 
     fn tile_with_coverage(indices: &[usize]) -> GlyphTileRaster {
         let mut tile = GlyphTileRaster {
             width: GLYPH_TILE_WIDTH,
             height: GLYPH_TILE_HEIGHT,
-            alpha: [0u8; MASK_PIXELS],
+            alpha: vec![0u8; MASK_PIXELS],
         };
         for &index in indices {
             tile.alpha[index] = 255;
@@ -49,12 +62,12 @@ mod tests {
         let full = GlyphTileRaster {
             width: GLYPH_TILE_WIDTH,
             height: GLYPH_TILE_HEIGHT,
-            alpha: [255u8; MASK_PIXELS],
+            alpha: vec![255u8; MASK_PIXELS],
         };
         let empty = GlyphTileRaster {
             width: GLYPH_TILE_WIDTH,
             height: GLYPH_TILE_HEIGHT,
-            alpha: [0u8; MASK_PIXELS],
+            alpha: vec![0u8; MASK_PIXELS],
         };
         assert_eq!(alpha_distance(&full, &empty), 1.0);
         assert_eq!(

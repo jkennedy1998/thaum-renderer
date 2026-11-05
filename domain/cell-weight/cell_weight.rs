@@ -70,7 +70,10 @@ mod tests {
 
     #[test]
     fn clamped_to_max_snaps_down_to_whatever_is_loaded() {
-        assert_eq!(CellWeight::from_index_clamped(40).clamped_to_max(3), CellWeight::THREE);
+        assert_eq!(
+            CellWeight::from_index_clamped(40).clamped_to_max(3),
+            CellWeight::THREE
+        );
         assert_eq!(CellWeight::ONE.clamped_to_max(3), CellWeight::ONE);
         assert_eq!(CellWeight::ZERO.clamped_to_max(0), CellWeight::ZERO);
     }

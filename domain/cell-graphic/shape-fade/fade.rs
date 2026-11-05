@@ -39,7 +39,7 @@ fn glyph_rank(glyph: char, from: char, to: char) -> u8 {
 type WalkKey = (char, CellWeight, char, CellWeight, CellWeight);
 
 pub struct ShapeFade {
-    graphs: [NeighborGraph; 4],
+    graphs: Vec<NeighborGraph>,
     /// Walk cache behind a RefCell: resolution takes `&self` so the render
     /// path can hold a shared reference. Single-threaded consumer seam (see
     /// the contract notes); the cache clears wholesale on overflow.
@@ -52,7 +52,7 @@ impl ShapeFade {
     /// retain their distinct glyph shapes.
     pub fn build(provider: &dyn FadeTileProvider) -> Self {
         Self {
-            graphs: std::array::from_fn(|_| NeighborGraph::build(provider)),
+            graphs: (0..4).map(|_| NeighborGraph::build(provider)).collect(),
             walks: RefCell::new(HashMap::new()),
         }
     }
@@ -70,12 +70,14 @@ impl ShapeFade {
         }
 
         Self {
-            graphs: std::array::from_fn(|index| {
-                NeighborGraph::build(&WeightTiles {
-                    provider,
-                    weight: CellWeight::from_index_clamped(index as i32),
+            graphs: (0..provider.weight_count().max(1))
+                .map(|index| {
+                    NeighborGraph::build(&WeightTiles {
+                        provider,
+                        weight: CellWeight::from_index_clamped(index as i32),
+                    })
                 })
-            }),
+                .collect(),
             walks: RefCell::new(HashMap::new()),
         }
     }
@@ -135,9 +137,9 @@ impl ShapeFade {
         to_weight: CellWeight,
         output_weight: CellWeight,
     ) -> Option<Vec<char>> {
-        let source_graph = &self.graphs[from_weight.as_index()];
-        let target_graph = &self.graphs[to_weight.as_index()];
-        let output_graph = &self.graphs[output_weight.as_index()];
+        let source_graph = self.graph_for_weight(from_weight);
+        let target_graph = self.graph_for_weight(to_weight);
+        let output_graph = self.graph_for_weight(output_weight);
         let source_index = source_graph.index_of(from)?;
         let target_index = target_graph.index_of(to)?;
         let from_output_index = output_graph.index_of(from)?;
@@ -189,7 +191,12 @@ impl ShapeFade {
     }
 
     pub fn graph_at_weight(&self, weight: CellWeight) -> &NeighborGraph {
-        &self.graphs[weight.as_index()]
+        self.graph_for_weight(weight)
+    }
+
+    fn graph_for_weight(&self, weight: CellWeight) -> &NeighborGraph {
+        let index = weight.as_index().min(self.graphs.len() - 1);
+        &self.graphs[index]
     }
 }
 
@@ -204,7 +211,7 @@ mod tests {
         let mut tile = GlyphTileRaster {
             width: GLYPH_TILE_WIDTH,
             height: GLYPH_TILE_HEIGHT,
-            alpha: [0u8; MASK_PIXELS],
+            alpha: vec![0u8; MASK_PIXELS],
         };
         for y in y0..=y1 {
             for x in x0..=x1 {
@@ -218,7 +225,7 @@ mod tests {
         GlyphTileRaster {
             width: GLYPH_TILE_WIDTH,
             height: GLYPH_TILE_HEIGHT,
-            alpha: [0u8; MASK_PIXELS],
+            alpha: vec![0u8; MASK_PIXELS],
         }
     }
 
@@ -238,6 +245,10 @@ mod tests {
 
     struct WeightSet;
     impl WeightedFadeTileProvider for WeightSet {
+        fn weight_count(&self) -> usize {
+            2
+        }
+
         fn tiles_at_weight(&self, weight: CellWeight) -> Vec<(char, GlyphTileRaster)> {
             let from = tile_rect(0, 0, 3, 0);
             let to = empty_tile();
@@ -422,11 +433,23 @@ mod tests {
                 CellWeight::ONE,
                 'B',
                 CellWeight::ONE,
-                CellWeight::THREE,
+                CellWeight::ZERO,
                 0.5,
             ),
             Some('m'),
-            "W640 cannot select a glyph without a W640 tile"
+            "the other declared weight cannot select a glyph it does not provide"
+        );
+    }
+
+    #[test]
+    fn weighted_build_uses_the_provider_declared_weight_count() {
+        let fade = ShapeFade::build_weighted(&WeightSet);
+        assert_eq!(fade.graphs.len(), 2);
+        assert_eq!(
+            fade.graph_at_weight(CellWeight::from_index_clamped(40))
+                .chars
+                .len(),
+            3
         );
     }
 

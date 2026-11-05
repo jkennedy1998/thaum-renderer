@@ -1,14 +1,22 @@
 use std::{
-    fs::File,
+    collections::{HashMap, HashSet},
+    fs::{self, File},
     path::{Path, PathBuf},
 };
 
 use png::Decoder;
 
+#[cfg(test)]
+use png::{BitDepth, ColorType, Encoder};
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use crate::CellWeight;
 
 pub const ATLAS_TILE_WIDTH: u32 = 12;
 pub const ATLAS_TILE_HEIGHT: u32 = 16;
+const GLYPH_SPRITE_BATCH_SHEET_PREFIX: &str = "monothaum_";
+const GLYPH_SPRITE_BATCH_WEIGHT_ROWS: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AtlasForm {
@@ -63,6 +71,38 @@ pub struct AtlasSpec {
 pub struct SpriteAtlasImage {
     pub spec: AtlasSpec,
     pub rgba: Vec<u8>,
+}
+
+/// One alpha-only tile decoded from a named glyph spriteset. This is atlas
+/// data, not a glyph raster: `cell-graphic/glyph/` decides how to merge it
+/// with a selected typeface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlyphSpriteBatchTile {
+    pub width: usize,
+    pub height: usize,
+    pub alpha: Vec<u8>,
+}
+
+/// A decoded named glyph spriteset. The set reports its own native cell
+/// footprint so callers can later decide whether it matches or should stretch
+/// to the active file's cell profile; atlas intake never rejects a mismatch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlyphSpriteBatch {
+    pub id: String,
+    pub native_tile_width: usize,
+    pub native_tile_height: usize,
+    pub native_weight_count: usize,
+    tiles: HashMap<(char, usize), GlyphSpriteBatchTile>,
+}
+
+impl GlyphSpriteBatch {
+    pub fn tile(&self, glyph: char, weight: CellWeight) -> Option<&GlyphSpriteBatchTile> {
+        self.tiles.get(&(glyph, weight.as_index()))
+    }
+
+    pub fn into_tiles(self) -> HashMap<(char, usize), GlyphSpriteBatchTile> {
+        self.tiles
+    }
 }
 
 impl AtlasSpec {
@@ -147,6 +187,77 @@ pub fn load_sprite_atlas_image(path: impl Into<PathBuf>) -> Result<SpriteAtlasIm
     Ok(SpriteAtlasImage { spec, rgba })
 }
 
+/// Decode one explicitly selected glyph spriteset below an asset root.
+///
+/// The current on-disk `sections.txt` + `monothaum_<section>.png` convention
+/// is preserved exactly while its ownership moves out of glyph rasterization.
+/// A missing set is not an error yet: legacy callers may have font-only
+/// assets. A selected file profile can turn that absence into its own refusal
+/// once phase 8 owns the profile selection.
+pub fn load_glyph_sprite_batch_from_asset_root(
+    asset_root: &Path,
+    spriteset_id: &str,
+) -> Result<Option<GlyphSpriteBatch>, String> {
+    let id = spriteset_id.trim();
+    if id.is_empty() {
+        return Err("glyph spriteset id must not be empty".to_owned());
+    }
+
+    let batch_root = asset_root.join("cell-sprites").join(id);
+    if !batch_root.exists() {
+        return Ok(None);
+    }
+
+    let batch_ids = available_glyph_sprite_batch_ids(&batch_root)?;
+    if batch_ids.is_empty() {
+        return Ok(Some(GlyphSpriteBatch {
+            id: id.to_owned(),
+            native_tile_width: ATLAS_TILE_WIDTH as usize,
+            native_tile_height: ATLAS_TILE_HEIGHT as usize,
+            native_weight_count: GLYPH_SPRITE_BATCH_WEIGHT_ROWS,
+            tiles: HashMap::new(),
+        }));
+    }
+
+    let sections = parse_glyph_sprite_sections(&batch_root.join("sections.txt"), &batch_ids)?;
+    let mut tiles = HashMap::new();
+
+    for batch_id in batch_ids {
+        let glyphs = sections.get(&batch_id).cloned().unwrap_or_default();
+        let sheet = load_glyph_sprite_sheet(
+            &batch_root.join(format!("{GLYPH_SPRITE_BATCH_SHEET_PREFIX}{batch_id}.png")),
+        )?;
+        let sheet_columns = sheet.width / ATLAS_TILE_WIDTH as usize;
+
+        if glyphs.len() > sheet_columns {
+            return Err(format!(
+                "glyph sprite batch '{}' declares {} glyphs but only has {} columns",
+                batch_id,
+                glyphs.len(),
+                sheet_columns
+            ));
+        }
+
+        for (column_index, glyph) in glyphs.into_iter().enumerate() {
+            for row_index in 0..GLYPH_SPRITE_BATCH_WEIGHT_ROWS {
+                let weight_index = GLYPH_SPRITE_BATCH_WEIGHT_ROWS - 1 - row_index;
+                tiles.insert(
+                    (glyph, weight_index),
+                    extract_glyph_sprite_tile(&sheet, column_index, row_index),
+                );
+            }
+        }
+    }
+
+    Ok(Some(GlyphSpriteBatch {
+        id: id.to_owned(),
+        native_tile_width: ATLAS_TILE_WIDTH as usize,
+        native_tile_height: ATLAS_TILE_HEIGHT as usize,
+        native_weight_count: GLYPH_SPRITE_BATCH_WEIGHT_ROWS,
+        tiles,
+    }))
+}
+
 fn infer_atlas_form_from_dimensions(
     image_width: u32,
     image_height: u32,
@@ -207,6 +318,167 @@ fn read_png_rgba(path: &Path) -> Result<Vec<u8>, String> {
     Ok(buffer)
 }
 
+fn available_glyph_sprite_batch_ids(batch_root: &Path) -> Result<Vec<String>, String> {
+    let mut batch_ids = Vec::new();
+
+    for entry in fs::read_dir(batch_root).map_err(|error| {
+        format!(
+            "failed to read glyph sprite batch root {}: {error}",
+            batch_root.display()
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            format!(
+                "failed to read entry under glyph sprite batch root {}: {error}",
+                batch_root.display()
+            )
+        })?;
+        let path = entry.path();
+        if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("png") {
+            continue;
+        }
+
+        let Some(file_stem) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if let Some(batch_id) = file_stem.strip_prefix(GLYPH_SPRITE_BATCH_SHEET_PREFIX) {
+            batch_ids.push(batch_id.to_string());
+        }
+    }
+
+    batch_ids.sort();
+    Ok(batch_ids)
+}
+
+fn parse_glyph_sprite_sections(
+    sections_path: &Path,
+    available_batch_ids: &[String],
+) -> Result<HashMap<String, Vec<char>>, String> {
+    if !sections_path.exists() {
+        return Ok(HashMap::new());
+    }
+
+    let known_batch_ids = available_batch_ids.iter().cloned().collect::<HashSet<_>>();
+    let text = fs::read_to_string(sections_path).map_err(|error| {
+        format!(
+            "failed to read glyph sprite sections at {}: {error}",
+            sections_path.display()
+        )
+    })?;
+
+    let mut sections = HashMap::<String, String>::new();
+    let mut current_batch_id = None::<String>;
+
+    for line in text.lines() {
+        if let Some((head, tail)) = line.split_once(':') {
+            let batch_id = head.trim();
+            if known_batch_ids.contains(batch_id) {
+                current_batch_id = Some(batch_id.to_string());
+                sections
+                    .entry(batch_id.to_string())
+                    .or_default()
+                    .push_str(tail);
+                continue;
+            }
+        }
+
+        if line.is_empty() {
+            continue;
+        }
+
+        if let Some(batch_id) = &current_batch_id {
+            sections.entry(batch_id.clone()).or_default().push_str(line);
+        }
+    }
+
+    Ok(sections
+        .into_iter()
+        .map(|(batch_id, glyphs)| (batch_id, glyphs.chars().collect()))
+        .collect())
+}
+
+#[derive(Debug)]
+struct GlyphSpriteSheet {
+    width: usize,
+    rgba: Vec<u8>,
+}
+
+fn load_glyph_sprite_sheet(path: &Path) -> Result<GlyphSpriteSheet, String> {
+    let file = File::open(path).map_err(|error| {
+        format!(
+            "failed to open glyph sprite sheet at {}: {error}",
+            path.display()
+        )
+    })?;
+    let decoder = Decoder::new(file);
+    let mut reader = decoder.read_info().map_err(|error| {
+        format!(
+            "failed to read glyph sprite sheet at {}: {error}",
+            path.display()
+        )
+    })?;
+    let mut buffer = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buffer).map_err(|error| {
+        format!(
+            "failed to decode glyph sprite sheet at {}: {error}",
+            path.display()
+        )
+    })?;
+
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return Err(format!(
+            "unsupported glyph sprite sheet format at {}: expected 8-bit RGBA, found {:?} {:?}",
+            path.display(),
+            info.color_type,
+            info.bit_depth
+        ));
+    }
+
+    let width = info.width as usize;
+    let height = info.height as usize;
+    if width % ATLAS_TILE_WIDTH as usize != 0
+        || height != ATLAS_TILE_HEIGHT as usize * GLYPH_SPRITE_BATCH_WEIGHT_ROWS
+    {
+        return Err(format!(
+            "glyph sprite sheet at {} must be Nx64 with a 12px column grid; found {}x{}",
+            path.display(),
+            width,
+            height
+        ));
+    }
+
+    buffer.truncate(info.buffer_size());
+    Ok(GlyphSpriteSheet {
+        width,
+        rgba: buffer,
+    })
+}
+
+fn extract_glyph_sprite_tile(
+    sheet: &GlyphSpriteSheet,
+    column_index: usize,
+    row_index: usize,
+) -> GlyphSpriteBatchTile {
+    let width = ATLAS_TILE_WIDTH as usize;
+    let height = ATLAS_TILE_HEIGHT as usize;
+    let origin_x = column_index * width;
+    let origin_y = row_index * height;
+    let mut alpha = vec![0; width * height];
+
+    for y in 0..height {
+        for x in 0..width {
+            let pixel_index = ((origin_y + y) * sheet.width + (origin_x + x)) * 4;
+            alpha[y * width + x] = sheet.rgba[pixel_index + 3];
+        }
+    }
+
+    GlyphSpriteBatchTile {
+        width,
+        height,
+        alpha,
+    }
+}
+
 /// These stacked atlas forms (`single`, `six-sided`, `connecting-cardinal`)
 /// are fixed 4-row shapes by their own declared form, independent of
 /// `CellWeight`'s now-unbounded range. An index beyond row 3 clamps to row 0
@@ -232,6 +504,24 @@ mod tests {
         }
 
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../orchestration/renderer-assets")
+    }
+
+    fn test_temp_dir(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("thaum-renderer-{label}-{unique}"))
+    }
+
+    fn write_test_rgba_png(path: &Path, width: u32, height: u32, rgba: &[u8]) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let file = File::create(path).unwrap();
+        let mut encoder = Encoder::new(file, width, height);
+        encoder.set_color(ColorType::Rgba);
+        encoder.set_depth(BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(rgba).unwrap();
     }
 
     #[test]
@@ -290,5 +580,93 @@ mod tests {
         assert_eq!(atlas.image_width, ATLAS_TILE_WIDTH);
         assert_eq!(atlas.image_height, ATLAS_TILE_HEIGHT * 4);
         assert_eq!(atlas.tile_count(), [1, 4]);
+    }
+
+    #[test]
+    fn staged_monothaum_spriteset_decodes_as_one_named_batch() {
+        let batch =
+            load_glyph_sprite_batch_from_asset_root(&staged_asset_root(), "monothaum-atlas-v3")
+                .unwrap()
+                .unwrap();
+
+        assert_eq!(batch.id, "monothaum-atlas-v3");
+        assert_eq!(batch.native_tile_width, ATLAS_TILE_WIDTH as usize);
+        assert_eq!(batch.native_tile_height, ATLAS_TILE_HEIGHT as usize);
+        assert_eq!(batch.native_weight_count, 4);
+        assert!(batch.tile('A', CellWeight::TWO).is_some());
+    }
+
+    #[test]
+    fn missing_named_spriteset_returns_none_for_a_font_only_asset_root() {
+        let batch =
+            load_glyph_sprite_batch_from_asset_root(&test_temp_dir("missing-spriteset"), "none")
+                .unwrap();
+        assert!(batch.is_none());
+    }
+
+    #[test]
+    fn glyph_sprite_batch_preserves_sections_and_weight_rows() {
+        let asset_root = test_temp_dir("glyph-sprite-batch");
+        let batch_root = asset_root.join("cell-sprites/example");
+        fs::create_dir_all(&batch_root).unwrap();
+        fs::write(batch_root.join("sections.txt"), "ascii:\n AB\n").unwrap();
+
+        let width = ATLAS_TILE_WIDTH as usize * 3;
+        let height = ATLAS_TILE_HEIGHT as usize * GLYPH_SPRITE_BATCH_WEIGHT_ROWS;
+        let mut rgba = vec![0u8; width * height * 4];
+        let row_index = 1usize;
+        let a_pixel_index =
+            ((row_index * ATLAS_TILE_HEIGHT as usize + 2) * width + ATLAS_TILE_WIDTH as usize + 3)
+                * 4;
+        let b_pixel_index = ((row_index * ATLAS_TILE_HEIGHT as usize + 4) * width
+            + ATLAS_TILE_WIDTH as usize * 2
+            + 5)
+            * 4;
+        rgba[a_pixel_index + 3] = 255;
+        rgba[b_pixel_index + 3] = 255;
+        write_test_rgba_png(
+            &batch_root.join("monothaum_ascii.png"),
+            width as u32,
+            height as u32,
+            &rgba,
+        );
+
+        let batch = load_glyph_sprite_batch_from_asset_root(&asset_root, "example")
+            .unwrap()
+            .unwrap();
+        let space_tile = batch.tile(' ', CellWeight::TWO).unwrap();
+        let a_tile = batch.tile('A', CellWeight::TWO).unwrap();
+        let b_tile = batch.tile('B', CellWeight::TWO).unwrap();
+
+        assert_eq!(
+            space_tile.alpha.iter().filter(|alpha| **alpha > 0).count(),
+            0
+        );
+        assert_eq!(a_tile.alpha[2 * ATLAS_TILE_WIDTH as usize + 3], 255);
+        assert_eq!(b_tile.alpha[4 * ATLAS_TILE_WIDTH as usize + 5], 255);
+        assert_eq!(b_tile.alpha[2 * ATLAS_TILE_WIDTH as usize + 3], 0);
+    }
+
+    #[test]
+    fn glyph_sprite_batch_rejects_a_partial_sheet() {
+        let asset_root = test_temp_dir("partial-glyph-sprite-batch");
+        let batch_root = asset_root.join("cell-sprites/example");
+        fs::create_dir_all(&batch_root).unwrap();
+        fs::write(batch_root.join("sections.txt"), "ascii:\nAB\n").unwrap();
+        write_test_rgba_png(
+            &batch_root.join("monothaum_ascii.png"),
+            ATLAS_TILE_WIDTH,
+            ATLAS_TILE_HEIGHT * GLYPH_SPRITE_BATCH_WEIGHT_ROWS as u32,
+            &vec![
+                0;
+                ATLAS_TILE_WIDTH as usize
+                    * ATLAS_TILE_HEIGHT as usize
+                    * GLYPH_SPRITE_BATCH_WEIGHT_ROWS
+                    * 4
+            ],
+        );
+
+        let error = load_glyph_sprite_batch_from_asset_root(&asset_root, "example").unwrap_err();
+        assert!(error.contains("declares 2 glyphs but only has 1 columns"));
     }
 }
