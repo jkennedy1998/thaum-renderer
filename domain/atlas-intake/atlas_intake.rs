@@ -258,6 +258,31 @@ pub fn load_glyph_sprite_batch_from_asset_root(
     }))
 }
 
+/// Glyph spriteset ids available under `asset_root/cell-sprites/`: one per
+/// subdirectory that actually decodes at least one named glyph sheet (so
+/// unrelated sibling folders, like the `SpriteGraphic` atlas proofs, never
+/// show up as a glyph spriteset choice). Sorted; "none" (no spriteset
+/// override) is a caller-level sentinel, never one of these ids.
+pub fn list_available_glyph_spriteset_ids(asset_root: &Path) -> Vec<String> {
+    let cell_sprites_dir = asset_root.join("cell-sprites");
+    let Ok(entries) = fs::read_dir(&cell_sprites_dir) else {
+        return Vec::new();
+    };
+
+    let mut ids: Vec<String> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|id| {
+            available_glyph_sprite_batch_ids(&cell_sprites_dir.join(id))
+                .map(|batch_ids| !batch_ids.is_empty())
+                .unwrap_or(false)
+        })
+        .collect();
+    ids.sort();
+    ids
+}
+
 fn infer_atlas_form_from_dimensions(
     image_width: u32,
     image_height: u32,
@@ -668,5 +693,18 @@ mod tests {
 
         let error = load_glyph_sprite_batch_from_asset_root(&asset_root, "example").unwrap_err();
         assert!(error.contains("declares 2 glyphs but only has 1 columns"));
+    }
+
+    #[test]
+    fn listed_spritesets_include_the_staged_batch_but_not_the_sprite_proofs_folder() {
+        let ids = list_available_glyph_spriteset_ids(&staged_asset_root());
+        assert!(ids.contains(&"monothaum-atlas-v3".to_owned()));
+        assert!(!ids.contains(&"proofs".to_owned()));
+    }
+
+    #[test]
+    fn listed_spritesets_is_empty_for_a_root_with_no_cell_sprites_folder() {
+        let asset_root = test_temp_dir("no-cell-sprites-folder");
+        assert!(list_available_glyph_spriteset_ids(&asset_root).is_empty());
     }
 }

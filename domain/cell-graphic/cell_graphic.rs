@@ -23,9 +23,9 @@ pub use sided_intake::{
 };
 pub use sprite_graphic::{SpriteAtlasSet, SpriteTileRaster};
 pub use typeface_intake::{
-    load_typeface_declaration, parse_typeface_declaration, TypefaceDeclaration,
-    TypefaceDeclarationError, TypefaceSpacing, TYPEFACE_DECLARATION_FORMAT_TAG,
-    TYPEFACE_DECLARATION_VERSION,
+    list_available_typeface_ids, load_typeface_declaration, parse_typeface_declaration,
+    TypefaceDeclaration, TypefaceDeclarationError, TypefaceSpacing,
+    TYPEFACE_DECLARATION_FORMAT_TAG, TYPEFACE_DECLARATION_VERSION,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

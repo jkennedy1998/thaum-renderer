@@ -73,6 +73,33 @@ pub fn parse_typeface_declaration(
     typeface_declaration_from_value(&value)
 }
 
+/// Typeface ids available under `asset_root/typefaces/`, derived from each
+/// declaration file's name (`<id>.json`), sorted. Enumeration never parses a
+/// declaration — a caller selecting a listed id still surfaces a load error
+/// if that one file turns out to be invalid.
+pub fn list_available_typeface_ids(asset_root: &Path) -> Vec<String> {
+    let typefaces_dir = asset_root.join("typefaces");
+    let Ok(entries) = std::fs::read_dir(&typefaces_dir) else {
+        return Vec::new();
+    };
+
+    let mut ids: Vec<String> = entries
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json")
+            {
+                return None;
+            }
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_owned)
+        })
+        .collect();
+    ids.sort();
+    ids
+}
+
 /// Load and parse one declaration file from disk.
 pub fn load_typeface_declaration(
     path: &Path,
@@ -368,6 +395,27 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.0.contains("unknown key \"typo\""));
+    }
+
+    #[test]
+    fn listed_typeface_ids_include_the_staged_samples() {
+        let root = std::env::var("THAUM_RENDERER_ASSET_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../orchestration/renderer-assets")
+            });
+        let ids = list_available_typeface_ids(&root);
+        assert!(ids.contains(&"thaum-mono".to_owned()));
+        assert!(ids.contains(&"jetbrains-mono".to_owned()));
+    }
+
+    #[test]
+    fn listed_typeface_ids_is_empty_for_a_root_with_no_typefaces_folder() {
+        let asset_root = std::env::temp_dir().join(format!(
+            "thaum-renderer-typeface-intake-no-folder-{}",
+            std::process::id()
+        ));
+        assert!(list_available_typeface_ids(&asset_root).is_empty());
     }
 
     #[test]

@@ -85,8 +85,9 @@ pub mod ui_palette;
 pub mod ui_session_state;
 
 pub use atlas_intake::{
-    load_glyph_sprite_batch_from_asset_root, load_sprite_atlas_image, load_sprite_atlas_spec,
-    AtlasForm, AtlasSpec, GlyphSpriteBatch, GlyphSpriteBatchTile, SpriteAtlasImage,
+    list_available_glyph_spriteset_ids, load_glyph_sprite_batch_from_asset_root,
+    load_sprite_atlas_image, load_sprite_atlas_spec, AtlasForm, AtlasSpec, GlyphSpriteBatch,
+    GlyphSpriteBatchTile, SpriteAtlasImage,
 };
 pub use camera::{
     active_depth_axis_for_swing, active_depth_direction_for_swing,
@@ -112,9 +113,10 @@ pub use cell::Cell;
 pub use cell_color::{CellColor, CellColorSlot};
 pub use cell_facing::{CellFacing, CellRoll, FacingRotation};
 pub use cell_graphic::{
-    facing_from_portable_name, facing_portable_name, load_sided_declaration,
-    orientation_portable_key, parse_sided_declaration, parse_typeface_declaration,
-    roll_from_portable_name, roll_portable_name, sided_declaration_json, CellGraphic,
+    facing_from_portable_name, facing_portable_name, list_available_typeface_ids,
+    load_sided_declaration, orientation_portable_key, parse_sided_declaration,
+    parse_typeface_declaration, roll_from_portable_name, roll_portable_name,
+    sided_declaration_json, CellGraphic,
     FacingVariant, GlyphCellProfile, GlyphFontSet, GlyphTileRaster, OrientationVariant,
     SideGraphic, SidedDeclarationError, SidedGraphic, SpriteAtlasSet, SpriteGraphic,
     SpriteTileRaster, TypefaceDeclaration, TypefaceDeclarationError, TypefaceSpacing,
