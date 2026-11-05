@@ -208,3 +208,33 @@
 ### 2026-10-11T00-00-00Z-perspective-rows-span-content
 - j-quote: "perspective module has itsems on it that respond to scroll, those items need to be shorter horizontally. they span the whole module, they could simply span their contents isntead. the scroll bar is almost no op on that module bc the contents scroll. ... right now if i hover the entire horizontal slice of that button is part of the tooltip, showiung me it can be shortened more to just its rendered content bounds ideally."
 - interpretation: perspective rows respond (wheel, click, tooltip) only across their rendered label/value span, never the full panel width — the band right of the values stays list-scroll and scrollbar space, so the bar stops being a no-op and tooltips hug the content.
+
+### 2026-11-05-multi-typeface-weight-ladder-is-variable-not-fixed-four
+- j-quote: "im thinking that we do non fixed to 4 for the weights. variable per font ideally"
+- j-quote: "no cieling, floor of 1 ideally but im aware we animate up to 4 weights. jetbrains isnt a problem here bc it has multiple. im more so trying to make sure the user still has a good time"
+- interpretation: `CellWeight`'s fixed 4-variant enum goes away in favor of a per-typeface, unbounded weight ladder (floor of 1 native weight, no engine-enforced ceiling); today's typefaces happening to land around 4 stops is incidental, not a constraint to design toward. Project: 04n3fq3e.
+
+### 2026-11-05-weight-stays-an-integer-clamped-to-the-loaded-typefaces-max
+- j-quote: "I think the weights in the file can be set up in numbers like they are. Weights that are above a typefaces weight count will just be rendered as the largest weight. Then it makes it easy to change a typeface even within a file."
+- j-quote: "i think zero one two three end up just being the weights in order... its going to need to not crash if a weight that isnt valid is set."
+- j-quote: "snap it should never Crossfade weights."
+- interpretation: a cell's stored weight stays a plain integer index (already `weight_index: i64` in the file schema — no save migration needed). Rendering clamps an out-of-range index to the loaded typeface's largest native weight (never panics, never crossfades) — direct index lookup per typeface, not a proportional remap across typefaces with different stop counts.
+
+### 2026-11-05-proportional-overflow-clips-with-baseline-aware-placement
+- j-quote: "never scale down individually. clip would probably be easiest to implement."
+- j-quote: "i think display on atlas aware of baseline is best for this instead of dealing with overlap outside of what we already have."
+- interpretation: a proportional typeface's wide glyphs clip at the authored cell edge rather than scaling down per-glyph. "Overlap" resolved to baseline-aware atlas placement using the existing per-cell outset/overlap budget (`effect_quads.rs`'s `TEXTURED_FOOTPRINT_OUTSET_PIXELS`/`TEXTURED_TYPEGRID_OVERLAP_SCALE`) — not true cross-cell spillover into a neighboring cell's own quad.
+
+### 2026-11-05-sprite-sets-are-keyed-by-cell-ratio-not-by-typeface
+- j-quote: "i think sprites are going to have to be per ratio. i could see down the line making a small sprite set for vector based typefaces at 1x1 ratio. it would make sense to use sprites like that. then i can share sprites in typefaces that look similar"
+- interpretation: sprite batches are a shared resource keyed by cell aspect ratio, not duplicated per typeface. Any typeface that authors its cell at a given ratio (e.g. 12:16, or a future 1:1 for vector-based faces) draws from that ratio's shared sprite set, so visually-similar typefaces sharing a ratio automatically share sprites.
+
+### 2026-11-05-shape-fade-bake-resolution-decouples-from-render-cell-resolution
+- j-quote: "bake a smaller tile for shape fade math decoupled from cell resolution of the glyph / sprite displayed there sounds great."
+- interpretation: `PackedMask`/`alpha_distance`/`NeighborGraph` operate on a small, fixed, typeface-independent downsampled tile (preserving the typeface's authored cell aspect ratio), produced once per typeface/sprite load — separate from whatever render-cell resolution the GPU atlas tile uses. Keeps the O(n²) neighbor-graph bake bounded regardless of a typeface's native render resolution (e.g. JetBrains Mono's vector-scale cell vs ThaumMono's small bespoke 12x16).
+
+### 2026-11-05-typeface-is-one-manifest-swapped-whole-per-file
+- j-quote: "I think type[face] selection will be per file."
+- j-quote: "we could keep bakes per typeface bc that is what bakes."
+- j-quote: "i think being able to hand pick or dial the width and height could be really cool."
+- interpretation: one typeface is active per painter file at a time, swapped as a whole unit (full reload: font, cell profile, weight ladder, and the shape-fade bake all rebuild together). Cell width/height are author-dialed per typeface, not derived identically from ThaumMono's 12x16 — each typeface gets its own authored cell profile.
