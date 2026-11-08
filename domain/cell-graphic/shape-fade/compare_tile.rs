@@ -10,6 +10,23 @@ pub const COMPARISON_MAX_WIDTH: usize = 12;
 pub const COMPARISON_MAX_HEIGHT: usize = 16;
 pub const COMPARISON_MAX_PIXELS: usize = COMPARISON_MAX_WIDTH * COMPARISON_MAX_HEIGHT;
 
+/// The comparison-tile dimensions a render tile of `width`x`height` would
+/// downsample to — pure sizing, no alpha data required. Lets a caller size
+/// an editable comparison-resolution surface (project 6kbosu52's detailer
+/// tool subcell canvas) before any render tile exists to downsample.
+pub fn comparison_dimensions(width: usize, height: usize) -> (usize, usize) {
+    assert!(
+        width > 0 && height > 0,
+        "comparison input must have dimensions"
+    );
+    let scale = (COMPARISON_MAX_WIDTH as f32 / width as f32)
+        .min(COMPARISON_MAX_HEIGHT as f32 / height as f32)
+        .min(1.0);
+    let out_width = ((width as f32 * scale).round() as usize).max(1);
+    let out_height = ((height as f32 * scale).round() as usize).max(1);
+    (out_width, out_height)
+}
+
 /// Downsample `tile` into the fixed comparison bounds using area averages.
 /// At least one pixel survives on each axis, so a valid render tile always
 /// yields a valid comparison tile.
@@ -24,11 +41,7 @@ pub fn downsample_comparison_tile(tile: &GlyphTileRaster) -> GlyphTileRaster {
         "comparison input alpha must match dimensions"
     );
 
-    let scale = (COMPARISON_MAX_WIDTH as f32 / tile.width as f32)
-        .min(COMPARISON_MAX_HEIGHT as f32 / tile.height as f32)
-        .min(1.0);
-    let width = ((tile.width as f32 * scale).round() as usize).max(1);
-    let height = ((tile.height as f32 * scale).round() as usize).max(1);
+    let (width, height) = comparison_dimensions(tile.width, tile.height);
     let mut alpha = vec![0; width * height];
 
     for output_y in 0..height {
@@ -58,6 +71,14 @@ pub fn downsample_comparison_tile(tile: &GlyphTileRaster) -> GlyphTileRaster {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn comparison_dimensions_matches_the_downsampled_tile_shape_without_needing_alpha_data() {
+        assert_eq!(comparison_dimensions(120, 40), (12, 4));
+        assert_eq!(comparison_dimensions(3, 2), (3, 2));
+        // JetBrains Mono's 10x22 profile: bounded on height, not upscaled on width.
+        assert_eq!(comparison_dimensions(10, 22), (7, 16));
+    }
 
     #[test]
     fn bounds_large_render_tiles_while_preserving_aspect_ratio() {

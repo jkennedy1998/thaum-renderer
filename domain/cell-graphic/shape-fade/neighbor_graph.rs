@@ -90,6 +90,24 @@ impl NeighborGraph {
     pub fn neighbors_of(&self, index: usize) -> &[(usize, f32)] {
         &self.neighbors[index]
     }
+
+    /// The loaded glyph nearest `tile` by alpha distance, with its distance —
+    /// for resolving an arbitrary hand-edited comparison tile (not one of
+    /// this graph's own nodes) to the closest real glyph, e.g. project
+    /// 6kbosu52's detailer tool. Always snaps to the nearest match regardless
+    /// of how far it is; `None` only for an empty graph. Deterministic
+    /// tie-break: smallest distance, then lowest char.
+    pub fn nearest_to(&self, tile: &GlyphTileRaster) -> Option<(char, f32)> {
+        self.tiles
+            .iter()
+            .enumerate()
+            .map(|(index, candidate)| (self.chars[index], alpha_distance(tile, candidate)))
+            .min_by(|(char_a, distance_a), (char_b, distance_b)| {
+                distance_a
+                    .total_cmp(distance_b)
+                    .then_with(|| char_a.cmp(char_b))
+            })
+    }
 }
 
 #[cfg(test)]
@@ -166,6 +184,43 @@ mod tests {
     fn a_pair_of_unknowns_has_no_pool_entry() {
         let graph = NeighborGraph::build(&gradient_set());
         assert!(graph.index_of('Ω').is_none());
+    }
+
+    #[test]
+    fn nearest_to_finds_the_exact_match_at_zero_distance() {
+        let graph = NeighborGraph::build(&gradient_set());
+        let left_tile = rect_tile(0, 0, 5, 15);
+        assert_eq!(graph.nearest_to(&left_tile), Some(('L', 0.0)));
+    }
+
+    #[test]
+    fn nearest_to_finds_the_closest_candidate_for_a_novel_buffer() {
+        // A hand-drawn buffer that is not any loaded glyph: slightly
+        // narrower than 'L' but still much closer to it than to 'C' or 'R'.
+        let graph = NeighborGraph::build(&gradient_set());
+        let drawn = rect_tile(0, 0, 4, 15);
+        let (nearest, distance) = graph.nearest_to(&drawn).unwrap();
+        assert_eq!(nearest, 'L');
+        assert!(distance > 0.0, "a novel buffer is not an exact match");
+    }
+
+    #[test]
+    fn nearest_to_ties_break_on_the_lowest_char() {
+        // 'R' and 'C' are equal-size blocks, so both sit at the same L1
+        // distance from the empty probe; the tie-break picks 'C' purely by
+        // char ordering (it was registered second, after 'R').
+        let set = TestSet(vec![
+            ('R', rect_tile(0, 0, 5, 15)),
+            ('C', rect_tile(6, 0, 11, 15)),
+        ]);
+        let graph = NeighborGraph::build(&set);
+        let probe = GlyphTileRaster {
+            width: GLYPH_TILE_WIDTH,
+            height: GLYPH_TILE_HEIGHT,
+            alpha: vec![0u8; GLYPH_TILE_WIDTH * GLYPH_TILE_HEIGHT],
+        };
+        let (nearest, _) = graph.nearest_to(&probe).unwrap();
+        assert_eq!(nearest, 'C');
     }
 
     #[test]

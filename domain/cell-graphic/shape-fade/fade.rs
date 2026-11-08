@@ -19,7 +19,7 @@ use crate::shape_fade::neighbor_graph::{
     FadeTileProvider, NeighborGraph, WeightedFadeTileProvider,
 };
 use crate::shape_fade::similarity::alpha_distance;
-use crate::CellWeight;
+use crate::{CellWeight, GlyphTileRaster};
 
 /// Progress buckets of the precomputed walk. Fine enough that consecutive
 /// interpolative glyphs surface distinctly; the cache holds one walk per pair.
@@ -192,6 +192,21 @@ impl ShapeFade {
 
     pub fn graph_at_weight(&self, weight: CellWeight) -> &NeighborGraph {
         self.graph_for_weight(weight)
+    }
+
+    /// The loaded glyph nearest `tile` within `weight`'s own comparison-tile
+    /// set — project 6kbosu52's detailer tool resolve step. Weight-scoped
+    /// the same way `resolve_weighted_shape_fade` is: a hand-edited buffer
+    /// never matches a shape the cell's current render weight cannot
+    /// actually draw. Always returns the nearest match regardless of how far
+    /// it is (snapping to the cell's own already-authored glyph is a valid,
+    /// expected outcome).
+    pub fn nearest_glyph_at_weight(
+        &self,
+        tile: &GlyphTileRaster,
+        weight: CellWeight,
+    ) -> Option<(char, f32)> {
+        self.graph_for_weight(weight).nearest_to(tile)
     }
 
     fn graph_for_weight(&self, weight: CellWeight) -> &NeighborGraph {
@@ -439,6 +454,27 @@ mod tests {
             Some('m'),
             "the other declared weight cannot select a glyph it does not provide"
         );
+    }
+
+    #[test]
+    fn nearest_glyph_at_weight_is_scoped_to_one_weight_and_never_crosses() {
+        // The detailer tool's resolve step (project 6kbosu52): a hand-edited
+        // buffer identical to 'm' must find it exactly at W160, where 'm' is
+        // loaded — and must never find it at W640, where that weight's graph
+        // has no 'm' node at all.
+        let fade = ShapeFade::build_weighted(&WeightSet);
+        let probe = tile_rect(0, 0, 1, 0);
+
+        assert_eq!(
+            fade.nearest_glyph_at_weight(&probe, CellWeight::ONE),
+            Some(('m', 0.0)),
+            "W160 has 'm's exact tile loaded"
+        );
+        let (nearest, _) = fade
+            .nearest_glyph_at_weight(&probe, CellWeight::ZERO)
+            .unwrap();
+        assert_ne!(nearest, 'm', "W640 never has an 'm' node to find");
+        assert_eq!(nearest, 'A', "tie-break between equally-distant A and B");
     }
 
     #[test]
