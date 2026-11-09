@@ -249,6 +249,51 @@ impl ShapeFade {
         self.graph_for_weight(weight).nearest_inked_to_excluding(tile, exclude)
     }
 
+    /// The loaded inked glyph nearest `tile` across EVERY declared render
+    /// weight — the detailer's cross-weight resolve (J 2026-11-09: "what if
+    /// this could select from different weights too"). Returns the glyph
+    /// together with the weight whose graph matched, so the caller can
+    /// author that weight onto the cell. Blank candidates stay excluded
+    /// per weight.
+    pub fn nearest_inked_glyph_across_weights_excluding(
+        &self,
+        tile: &GlyphTileRaster,
+        exclude: Option<char>,
+    ) -> Option<(char, CellWeight, f32)> {
+        self.nearest_across_weights(tile, exclude, true)
+    }
+
+    /// The subtractive cross-weight lane: the blank candidate stays in
+    /// play, so erasing across weights can still land on the invisible
+    /// space glyph of whichever weight matches.
+    pub fn nearest_glyph_across_weights_excluding(
+        &self,
+        tile: &GlyphTileRaster,
+        exclude: Option<char>,
+    ) -> Option<(char, CellWeight, f32)> {
+        self.nearest_across_weights(tile, exclude, false)
+    }
+
+    fn nearest_across_weights(
+        &self,
+        tile: &GlyphTileRaster,
+        exclude: Option<char>,
+        inked_only: bool,
+    ) -> Option<(char, CellWeight, f32)> {
+        self.graphs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, graph)| {
+                let (glyph, distance) = if inked_only {
+                    graph.nearest_inked_to_excluding(tile, exclude)?
+                } else {
+                    graph.nearest_to_excluding(tile, exclude)?
+                };
+                Some((glyph, CellWeight::from_index_clamped(index as i32), distance))
+            })
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+    }
+
     /// One empty comparison tile at `weight`'s own tile dimensions — the
     /// additive detailer seed for a cell with no authored ink (J: add on an
     /// empty cell must be able to produce a valid glyph).
@@ -537,6 +582,34 @@ mod tests {
             .unwrap();
         assert_ne!(nearest, 'm', "W640 never has an 'm' node to find");
         assert_eq!(nearest, 'A', "tie-break between equally-distant A and B");
+    }
+
+    #[test]
+    fn cross_weight_nearest_reports_the_matching_weight() {
+        // The detailer's cross-weight resolve (J 2026-11-09): a probe of
+        // 'm's exact tile has no match inside weight ZERO's graph, but the
+        // cross-weight search finds it at ONE and reports that weight so the
+        // caller can author it onto the cell.
+        let fade = ShapeFade::build_weighted(&WeightSet);
+        let probe = tile_rect(0, 0, 1, 0);
+
+        assert_eq!(
+            fade.nearest_glyph_across_weights_excluding(&probe, None),
+            Some(('m', CellWeight::ONE, 0.0)),
+            "the cross-weight search finds 'm' at its own weight"
+        );
+        assert_eq!(
+            fade.nearest_inked_glyph_across_weights_excluding(&probe, None),
+            Some(('m', CellWeight::ONE, 0.0)),
+            "inked lane keeps blank candidates excluded per weight"
+        );
+        // The seed glyph stays barred across every weight.
+        assert_ne!(
+            fade.nearest_glyph_across_weights_excluding(&probe, Some('m'))
+                .unwrap()
+                .0,
+            'm'
+        );
     }
 
     #[test]
