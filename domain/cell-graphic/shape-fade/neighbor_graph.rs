@@ -98,9 +98,52 @@ impl NeighborGraph {
     /// of how far it is; `None` only for an empty graph. Deterministic
     /// tie-break: smallest distance, then lowest char.
     pub fn nearest_to(&self, tile: &GlyphTileRaster) -> Option<(char, f32)> {
+        self.nearest_to_excluding(tile, None)
+    }
+
+    /// `nearest_to` with one glyph barred from winning — the detailer
+    /// (project 6kbosu52) excludes a stroke's seed glyph so a hand edit
+    /// always resolves to a different, visible shape instead of snapping
+    /// back to what the cell already had.
+    pub fn nearest_to_excluding(
+        &self,
+        tile: &GlyphTileRaster,
+        exclude: Option<char>,
+    ) -> Option<(char, f32)> {
         self.tiles
             .iter()
             .enumerate()
+            .filter(|(index, _)| Some(self.chars[*index]) != exclude)
+            .map(|(index, candidate)| (self.chars[index], alpha_distance(tile, candidate)))
+            .min_by(|(char_a, distance_a), (char_b, distance_b)| {
+                distance_a
+                    .total_cmp(distance_b)
+                    .then_with(|| char_a.cmp(char_b))
+            })
+    }
+
+    /// The nearest candidate that actually carries ink (any nonzero alpha),
+    /// skipping blank tiles — the detailer's additive resolve (project
+    /// 6kbosu52): adding ink to an empty cell must be able to produce a real
+    /// inked glyph, and the blank tile is every sparse mark's nearest
+    /// neighbor, which resolves such strokes to the invisible space glyph.
+    /// Same distance and tie-break rules as `nearest_to`.
+    pub fn nearest_inked_to(&self, tile: &GlyphTileRaster) -> Option<(char, f32)> {
+        self.nearest_inked_to_excluding(tile, None)
+    }
+
+    /// `nearest_inked_to` with one glyph barred from winning (see
+    /// `nearest_to_excluding`).
+    pub fn nearest_inked_to_excluding(
+        &self,
+        tile: &GlyphTileRaster,
+        exclude: Option<char>,
+    ) -> Option<(char, f32)> {
+        self.tiles
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| Some(self.chars[*index]) != exclude)
+            .filter(|(_, candidate)| candidate.alpha.iter().any(|&alpha| alpha > 0))
             .map(|(index, candidate)| (self.chars[index], alpha_distance(tile, candidate)))
             .min_by(|(char_a, distance_a), (char_b, distance_b)| {
                 distance_a
@@ -221,6 +264,33 @@ mod tests {
         };
         let (nearest, _) = graph.nearest_to(&probe).unwrap();
         assert_eq!(nearest, 'C');
+    }
+
+    #[test]
+    fn nearest_inked_to_skips_the_blank_candidate() {
+        // The blank probe is the exact match of the blank tile, but inked
+        // candidates are the only ones allowed to win: a sparse hand mark
+        // resolves to a real glyph, never to the invisible space glyph.
+        let graph = NeighborGraph::build(&gradient_set());
+        let probe = GlyphTileRaster {
+            width: GLYPH_TILE_WIDTH,
+            height: GLYPH_TILE_HEIGHT,
+            alpha: vec![0u8; GLYPH_TILE_WIDTH * GLYPH_TILE_HEIGHT],
+        };
+        let (nearest, _) = graph.nearest_inked_to(&probe).unwrap();
+        assert_eq!(
+            nearest, 'L',
+            "blank would win nearest_to, but the smallest inked shape wins nearest_inked_to"
+        );
+    }
+
+    #[test]
+    fn nearest_inked_to_still_ranks_inked_candidates_by_distance() {
+        let graph = NeighborGraph::build(&gradient_set());
+        let drawn = rect_tile(0, 0, 4, 15);
+        let (nearest, distance) = graph.nearest_inked_to(&drawn).unwrap();
+        assert_eq!(nearest, 'L');
+        assert!(distance > 0.0, "a novel buffer is not an exact match");
     }
 
     #[test]

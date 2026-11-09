@@ -209,6 +209,61 @@ impl ShapeFade {
         self.graph_for_weight(weight).nearest_to(tile)
     }
 
+    /// The loaded inked glyph nearest `tile` within `weight`'s own
+    /// comparison-tile set — the detailer tool's additive resolve. Blank
+    /// candidates are excluded: the blank tile is every sparse hand mark's
+    /// nearest neighbor, so including it resolves additive strokes to the
+    /// invisible space glyph instead of a real glyph (J 2026-11-09: add on
+    /// an empty cell must produce a real inked glyph, and a stroke that
+    /// moves ink away from the seed must visibly change the cell).
+    pub fn nearest_inked_glyph_at_weight(
+        &self,
+        tile: &GlyphTileRaster,
+        weight: CellWeight,
+    ) -> Option<(char, f32)> {
+        self.graph_for_weight(weight).nearest_inked_to(tile)
+    }
+
+    /// `nearest_glyph_at_weight` with one glyph barred from winning — the
+    /// detailer excludes a stroke's seed glyph so a hand edit always lands
+    /// on a different, visible shape (J 2026-11-09: a subtractive line
+    /// through full cells must author a visible negative, which snapping
+    /// back to the seed made impossible).
+    pub fn nearest_glyph_at_weight_excluding(
+        &self,
+        tile: &GlyphTileRaster,
+        weight: CellWeight,
+        exclude: Option<char>,
+    ) -> Option<(char, f32)> {
+        self.graph_for_weight(weight).nearest_to_excluding(tile, exclude)
+    }
+
+    /// `nearest_inked_glyph_at_weight` with one glyph barred from winning
+    /// (see `nearest_glyph_at_weight_excluding`).
+    pub fn nearest_inked_glyph_at_weight_excluding(
+        &self,
+        tile: &GlyphTileRaster,
+        weight: CellWeight,
+        exclude: Option<char>,
+    ) -> Option<(char, f32)> {
+        self.graph_for_weight(weight).nearest_inked_to_excluding(tile, exclude)
+    }
+
+    /// One empty comparison tile at `weight`'s own tile dimensions — the
+    /// additive detailer seed for a cell with no authored ink (J: add on an
+    /// empty cell must be able to produce a valid glyph).
+    pub fn blank_tile_at_weight(&self, weight: CellWeight) -> Option<GlyphTileRaster> {
+        let graph = self.graph_for_weight(weight);
+        let Some(seed) = graph.tiles.first() else {
+            return None;
+        };
+        Some(GlyphTileRaster {
+            width: seed.width,
+            height: seed.height,
+            alpha: vec![0; seed.width * seed.height],
+        })
+    }
+
     /// Clones one active-typeface comparison tile for the detailer seed.
     /// Unknown graphics deliberately have no editable glyph tile.
     pub fn glyph_tile_at_weight(&self, glyph: char, weight: CellWeight) -> Option<GlyphTileRaster> {
