@@ -2,7 +2,6 @@
   "format": "thaum-typeface-declaration",
   "version": 1,
   "spacing": "monospace",
-  "native_raster": { "width": 10, "height": 22, "scale": 4 },
   "weights": [
     "glyph-fonts/jetbrains-mono/JetBrainsMono-ExtraLight.ttf",
     "glyph-fonts/jetbrains-mono/JetBrainsMono-Regular.ttf",
