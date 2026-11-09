@@ -2,10 +2,11 @@
   "format": "thaum-typeface-declaration",
   "version": 1,
   "spacing": "monospace",
+  "native_raster": { "width": 10, "height": 22, "scale": 4 },
   "weights": [
-    "/home/j/.local/share/fonts/JetBrainsMono-2.304/fonts/ttf/JetBrainsMono-ExtraLight.ttf",
-    "/home/j/.local/share/fonts/JetBrainsMono-2.304/fonts/ttf/JetBrainsMono-Regular.ttf",
-    "/home/j/.local/share/fonts/JetBrainsMono-2.304/fonts/ttf/JetBrainsMono-Medium.ttf",
-    "/home/j/.local/share/fonts/JetBrainsMono-2.304/fonts/ttf/JetBrainsMono-Bold.ttf"
+    "glyph-fonts/jetbrains-mono/JetBrainsMono-ExtraLight.ttf",
+    "glyph-fonts/jetbrains-mono/JetBrainsMono-Regular.ttf",
+    "glyph-fonts/jetbrains-mono/JetBrainsMono-Medium.ttf",
+    "glyph-fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"
   ]
 }
