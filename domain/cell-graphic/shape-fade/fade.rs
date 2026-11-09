@@ -209,6 +209,13 @@ impl ShapeFade {
         self.graph_for_weight(weight).nearest_to(tile)
     }
 
+    /// Clones one active-typeface comparison tile for the detailer seed.
+    /// Unknown graphics deliberately have no editable glyph tile.
+    pub fn glyph_tile_at_weight(&self, glyph: char, weight: CellWeight) -> Option<GlyphTileRaster> {
+        let graph = self.graph_for_weight(weight);
+        graph.index_of(glyph).map(|index| graph.tile(index).clone())
+    }
+
     fn graph_for_weight(&self, weight: CellWeight) -> &NeighborGraph {
         let index = weight.as_index().min(self.graphs.len() - 1);
         &self.graphs[index]
