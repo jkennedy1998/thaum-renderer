@@ -33,9 +33,11 @@ mod scene_cache;
 use scene_cache::BootSceneCache;
 
 use effect_quads::{
-    GlyphAtlasPlacement, cell_clip_size_for_surface, cell_clip_size_for_surface_with_dimensions,
-    glyph_cell_to_surface_quad, sprite_cell_to_surface_quad,
+    GlyphAtlasPlacement, cell_clip_size_for_surface_with_dimensions, glyph_cell_to_surface_quad,
+    sprite_cell_to_surface_quad,
 };
+#[cfg(test)]
+use effect_quads::cell_clip_size_for_surface;
 
 
 const CELL_HEIGHT_CLIP_SPACE: f32 = 0.2;
@@ -308,7 +310,12 @@ pub fn build_window_surface_scene_for_surface_with_scene_cache(
 /// `thaum_renderer_domain::remap_surface_units_to_active_plane_world`) must
 /// use this same value so hit-testing agrees with what was actually drawn.
 pub fn cell_clip_size_for_state(state: &BootState, surface_size: SurfaceSize) -> [f32; 2] {
-    let base = cell_clip_size_for_surface(surface_size);
+    let profile = state.config.glyph_cell_profile;
+    let base = cell_clip_size_for_surface_with_dimensions(
+        surface_size,
+        profile.width(),
+        profile.height(),
+    );
     [base[0] * state.camera.zoom, base[1] * state.camera.zoom]
 }
 
@@ -355,16 +362,10 @@ fn build_window_surface_scene_for_surface_with_cache(
     let glyph_fonts_borrow = asset_cache.glyph_fonts();
     let glyph_fonts = glyph_fonts_borrow.as_ref();
     let mut sprite_atlases_borrow = asset_cache.sprite_atlases();
-    let base_cell_clip_size = glyph_fonts
-        .map(|fonts| {
-            let profile = fonts.cell_profile();
-            cell_clip_size_for_surface_with_dimensions(surface_size, profile.width(), profile.height())
-        })
-        .unwrap_or_else(|| cell_clip_size_for_surface(surface_size));
-    let cell_clip_size = [
-        base_cell_clip_size[0] * state.camera.zoom,
-        base_cell_clip_size[1] * state.camera.zoom,
-    ];
+    // Input remapping and scene assembly must derive the footprint from this
+    // one BootConfig profile. Reading it back from a cached font set here
+    // previously left cursor hit-testing on the legacy 12×16 footprint.
+    let cell_clip_size = cell_clip_size_for_state(state, surface_size);
 
     // One atlas pass over the visible cells: every distinct (glyph, weight)
     // pair becomes one 12×16 tile in the scene's glyph atlas, and each glyph
@@ -2361,7 +2362,6 @@ mod tests {
         let scene = build_window_surface_scene(&state).unwrap();
         assert_eq!(scene.quads.len(), 1);
         let first_quad = scene.quads.first().unwrap();
-        let cell_clip_size = cell_clip_size_for_surface(SurfaceSize::from(&state.config.window));
         // One quad per cell: the quad covers the full 12×16 cell rect. The
         // typegrid's square-on-screen property lives in the texel footprint:
         // one texel (cell_size/12 × cell_size/16) is still square on screen.
@@ -2955,7 +2955,7 @@ mod tests {
     }
 
     #[test]
-    fn cell_clip_size_for_state_scales_with_camera_zoom() {
+    fn cell_clip_size_for_state_uses_the_active_profile_and_camera_zoom() {
         let surface_size = SurfaceSize {
             width: 1280,
             height: 720,
@@ -2964,11 +2964,18 @@ mod tests {
             camera: Camera::default(),
             composition: Composition::default(),
             data_lanes: DataLanes::default(),
-            config: BootConfig::default(),
+            config: BootConfig {
+                glyph_cell_profile: GlyphCellProfile::new(20, 24).unwrap(),
+                ..BootConfig::default()
+            },
             uses_fallback_breath: false,
         };
 
         let base = cell_clip_size_for_state(&state, surface_size);
+        assert_eq!(
+            base,
+            cell_clip_size_for_surface_with_dimensions(surface_size, 20, 24)
+        );
         state.camera.zoom *= 2.0;
         let zoomed = cell_clip_size_for_state(&state, surface_size);
 

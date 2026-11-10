@@ -569,6 +569,7 @@ pub(crate) fn raster_to_surface_quads(
     Ok(quads)
 }
 
+#[cfg(test)]
 pub(crate) fn cell_clip_size_for_surface(surface_size: SurfaceSize) -> [f32; 2] {
     cell_clip_size_for_surface_with_dimensions(surface_size, GLYPH_TILE_WIDTH, GLYPH_TILE_HEIGHT)
 }
